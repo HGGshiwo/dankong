@@ -1,0 +1,41 @@
+<launch>
+    <arg name="robot_type" />
+    <arg name="debug" default="false" />
+    <arg name="planner_enable" default="false" />
+    <arg name="respawn" default="false" />
+
+    <arg name="param_file" default="$(find mavproxy_ros)/config/param.yml" />
+    <arg name="start_ntrip" default="false" />
+    <arg name="pland_enable" default="false" />
+    <!-- /UAV0/sensor/video11_camera/image_raw -->
+    <!-- /UAV0/sensor/video11_camera/compressed -->
+    <!-- /UAV0/sensor/video11_camera/cam_info -->
+    <arg name="pland_image_topic" default="/roscam/cam/image_raw" />
+    <arg name="pland_image_compressed_topic" default="/roscam/cam/compressed" />
+    <arg name="pland_camera_info_topic" default="/UAV0/sensor/video11_camera/cam_info" />
+
+    <!-- dog命令的地址发送目标地址 -->
+    <arg name="udp_host" default="localhost" />
+    <arg name="udp_port" default="9112" />
+    <!-- dog命令接收的地址 -->
+    <arg name="udp_server_host" default="0.0.0.0" />
+    <arg name="udp_server_port" default="9111" />
+
+    <group ns="dk">
+        <node pkg="dankong" type="dankong_node" name="dankong" output="screen"
+            required="$(eval not arg('respawn'))" respawn="$(arg respawn)">
+            <!-- <rosparam command="load" file="$(find mavproxy_ros)/config/control.yml" /> -->
+            <param name="planner_enable" value="$(arg planner_enable)" />
+            <param name="robot_type" value="$(arg robot_type)" />
+            <param name="udp_host" value="$(arg udp_host)" />
+            <param name="udp_port" value="$(arg udp_port)" />
+            <param name="udp_server_host" value="$(arg udp_server_host)" />
+            <param name="udp_server_port" value="$(arg udp_server_port)" />
+            <remap from="/cmd_vel" to="/control/cmd_vel" />
+        </node>
+        <node pkg="mavproxy_ros" type="dummy_service.py" name="dummy" output="screen"
+            if="$(arg debug)" respawn="$(arg respawn)" />
+    </group>
+
+    <include if="$(arg start_ntrip)" file="$(find ntrip_client)/launch/ntrip_client.launch" />
+</launch>

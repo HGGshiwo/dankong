@@ -1,0 +1,147 @@
+#include "states/state_utils.hpp"
+
+#include "states/ground_state.hpp"
+#include "states/hover_state.hpp"
+#include "states/init_state.hpp"
+
+namespace state_utils {
+dk::Future<bool> set_mode(RobotContext& ctx, FixedString64 mode) {
+    using Promise = dk::Promise<bool>;
+    if (ctx.mode.load() == mode) return Promise::resolve(ctx.engine, true);
+    ctx.mavlink->set_mode(mode);
+
+    return ctx.engine->wait_for(1000, [mode](const FlightModeEvent& e) -> bool {
+        if (mode != e.cur) return false;
+        return true;
+    });
+}
+
+// TODO: 带上一个停止token，如果重复调用就返回或者做别的事情
+dk::Future<bool> prearm_check(RobotContext& ctx) {
+    if (!ctx.robot->is_prearm_enable()) {
+        return arm_vehicle(ctx);
+    }
+    ApmParam param = ctx.mavlink->get_param("ARMING_CHECK", 0);
+    int value = IMavlink::unpack<int>(param);
+    spdlog::info("prearm_check: ARMING_CHECK={}", value);
+    if (value == 0) return dk::Promise<bool>::resolve(ctx.engine, true);  // 禁用起飞检查
+
+    auto check_sensor_health = [&ctx](uint32_t sensor_health) -> bool {
+        int bits = 0x10000000;
+        if ((sensor_health & bits) == bits) {
+            spdlog::info("prearm_check: sensor_health check pass!");
+            return true;
+        }
+        return false;
+    };
+
+    if (check_sensor_health(ctx.sensor_health)) {
+        return dk::Promise<bool>::resolve(ctx.engine, true);
+    }
+
+    // 检查是否已经通过prearm check
+    int bits = 0x10000000;
+    if ((ctx.sensor_health & bits) == bits) {
+        return dk::Promise<bool>::resolve(ctx.engine, true);
+    }
+
+    auto p = std::make_shared<dk::Promise<bool>>(ctx.engine);
+
+    // 等待错误信息
+    ctx.engine->wait_for(
+        1000,
+        [p](const StatusTextEvent& status_text) -> bool {
+            if (status_text.text.rfind("PreArm: ", 0) == 0 || status_text.text.rfind("Arm: ", 0) == 0) {
+                p->reject(status_text.text);
+                return true;
+            }
+            return false;
+        },
+        [p, check_sensor_health](const SysStatusEvent& sys_status) -> bool {
+            if (check_sensor_health(sys_status.data)) {
+                p->resolve(true);
+                return true;
+            }
+            return false;
+        });
+
+    ctx.mavlink->run_prearm_checks();
+    return p->get_future();
+}
+
+dk::Future<bool> arm_vehicle(RobotContext& ctx) {
+    auto promise = std::make_shared<dk::Promise<bool>>(ctx.engine);
+
+    auto future = dk::Promise<bool>::resolve(ctx.engine, true);
+    if (ctx.robot->is_prearm_enable()) {
+        future = prearm_check(ctx).catch_error([promise](std::exception_ptr error) -> void { promise->reject(error); });
+    }
+    return future.then([&ctx, promise]() -> auto {
+        // 等待解锁
+        return ctx.engine->wait_for(
+            3000,
+            [promise](const ArmEvent& arm_event) -> bool {
+                if (arm_event.armed) {
+                    promise->resolve(true);
+                    return true;
+                }
+                return false;
+            },
+            [promise](const StatusTextEvent& e) -> bool {
+                promise->reject(e.text);
+                return true;
+            });
+    });
+}
+
+std::shared_ptr<dk::IState<RobotEvent, RobotContext>> check_state(const RobotContext& ctx) {
+    if (!ctx.odom_ok) return InitState::instance();
+    if (ctx.robot->check_hover(ctx.arm, ctx.pos.get().z())) return HoverState::instance();
+    return GroundState::instance();
+}
+
+dk::Future<bool> takeoff_vehicle(RobotContext& ctx, double alt) {
+    return set_mode(ctx, "GUIDED").then([&ctx, alt]() -> auto {
+        if (ctx.robot->check_hover(ctx.arm, ctx.pos.get().z())) {
+            Eigen::Vector3d pos = ctx.pos.get();
+            pos.z() = alt;
+            ctx.robot->send_cmd(pos, std::nullopt, std::nullopt, std::nullopt, std::nullopt, CmdFrame::ENU);
+            return dk::Promise<bool>::resolve(ctx.engine, true);
+        }
+        return arm_vehicle(ctx)
+            .then([&ctx, alt]() -> bool {
+                ctx.robot->takeoff(alt);
+                return true;
+            })
+            .then([&ctx, alt]() -> bool {
+                auto pos = ctx.pos.get();
+                ctx.takeoff_pos.set({pos.x(), pos.y(), alt});
+                return true;
+            });
+    });
+}
+
+bool check_alt(RobotContext& ctx, double target) {
+    double TAKEOFF_RATE = 0.1;
+    double TAKEOFF_DIFF_THRSH = 0.6;
+    auto pos = ctx.pos.get();
+    return std::fabs(pos.z() - target) < std::fmax(target * TAKEOFF_RATE, TAKEOFF_DIFF_THRSH);
+}
+
+Eigen::Vector3d gps_to_enu(RobotContext& ctx, double lat, double lon, double alt) {
+    Eigen::Vector3d diff = gps_to_enu_body(lat, lon, alt);
+    Eigen::Vector3d enu;
+    auto pos = ctx.pos.get();
+    enu += pos;
+    return enu;
+}
+
+Eigen::Vector3d gps_to_enu_body(double lat, double lon, double alt) {
+    return Eigen::Vector3d::Zero();
+}
+
+void do_land(RobotContext& ctx) {
+    ctx.robot->land();
+}
+
+}  // namespace state_utils
