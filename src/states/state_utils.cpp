@@ -65,7 +65,7 @@ dk::Future<bool> prearm_check(RobotContext& ctx) {
             return false;
         });
 
-    ctx.mavlink->run_prearm_checks();
+    ctx.engine->post_future_task([&ctx]() { ctx.mavlink->run_prearm_checks(); });
     return p->get_future();
 }
 

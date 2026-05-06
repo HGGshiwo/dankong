@@ -73,7 +73,7 @@ class DKNode {
         web_adapter_ = std::make_shared<WebAdapterType>(engine_, 8000);
         dk::WsEndpoint endpoint;
         web_adapter_->register_ws_route("/ws", endpoint);
-        web_adapter_->register_route<PrearmEvent, EventResult>(boost::beast::http::verb::get, "/prearm", 5000);
+        web_adapter_->register_route<PrearmEvent, EventResult>(boost::beast::http::verb::get, "/prearms", 5000);
         web_adapter_->register_route<TakeoffEvent, EventResult>(boost::beast::http::verb::post, "/takeoff", 5000);
     }
 

@@ -23,10 +23,10 @@ class ServiceClient {
     }
 
     bool call(MsgType& srv) {
-        if (!ros::service::waitForService(srv_name_, ros::Duration(3.0))) {
-            spdlog::error("Service {} not available after 3 seconds", srv_name_);
-            return false;
-        }
+        // if (!ros::service::waitForService(srv_name_, ros::Duration(3.0))) {
+        //     spdlog::error("Service {} not available after 3 seconds", srv_name_);
+        //     return false;
+        // }
         if (!srv_client_.call(srv)) {
             spdlog::error("{} service call failed!", srv_name_);
             return false;
