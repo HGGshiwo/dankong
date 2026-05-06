@@ -2,6 +2,9 @@
 
 #include <ros/ros.h>
 
+#include "mavros_msgs/CommandBool.h"
+#include "mavros_msgs/CommandTOL.h"
+
 bool MavRos::set_stream_rate(int rate) {
     // 填充请求
     mavros_msgs::StreamRate srv;
@@ -35,6 +38,26 @@ bool MavRos::run_prearm_checks() {
     srv.request.param7 = 0.0;
     // 调用服务 (如果服务存在且通信成功，返回 true)
     return cmd_client_->call(srv);
+}
+
+bool MavRos::arm() {
+    mavros_msgs::CommandBool srv;
+    srv.request.value = true;
+    return arm_client_->call(srv);
+}
+
+bool MavRos::takeoff(double alt) {
+    mavros_msgs::CommandTOL srv;
+    srv.request.altitude = alt;
+    srv.request.latitude = 0;
+    srv.request.longitude = 0;
+    srv.request.min_pitch = 0;
+    srv.request.yaw = 0;
+    return takeoff_client_->call(srv);
+}
+
+bool MavRos::land() {
+    return set_mode("LAND");
 }
 
 ApmParam MavRos::get_param(std::string name, ApmParam value) {

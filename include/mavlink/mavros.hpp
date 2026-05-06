@@ -1,10 +1,14 @@
+#pragma once
+#include <mavros_msgs/CommandBool.h>
 #include <mavros_msgs/CommandLong.h>
+#include <mavros_msgs/CommandTOL.h>
 #include <mavros_msgs/SetMode.h>
 #include <mavros_msgs/StreamRate.h>
 #include <memory.h>
 #include <ros/ros.h>
 
 #include <functional>
+#include <memory>
 
 #include "./imavlink.hpp"
 #include "dk/logger.hpp"
@@ -32,7 +36,7 @@ class ServiceClient {
             return false;
         }
         if (check_(srv)) {
-            spdlog::info("{} srvice call success!", srv_name_);
+            spdlog::info("{} service call success!", srv_name_);
             return true;
         }
         spdlog::info("{} service call return false!", srv_name_);
@@ -45,6 +49,8 @@ class MavRos : public IMavlink {
     std::shared_ptr<ServiceClient<mavros_msgs::CommandLong>> cmd_client_;
     std::shared_ptr<ServiceClient<mavros_msgs::SetMode>> set_mode_client_;
     std::shared_ptr<ServiceClient<mavros_msgs::StreamRate>> set_rate_client_;
+    std::shared_ptr<ServiceClient<mavros_msgs::CommandTOL>> takeoff_client_;
+    std::shared_ptr<ServiceClient<mavros_msgs::CommandBool>> arm_client_;
 
    public:
     MavRos() {
@@ -54,14 +60,25 @@ class MavRos : public IMavlink {
             "/mavros/set_mode", [](mavros_msgs::SetMode srv) -> bool { return srv.response.mode_sent != 0; });
         set_rate_client_ = std::make_shared<ServiceClient<mavros_msgs::StreamRate>>(
             "/mavros/set_stream_rate", [](mavros_msgs::StreamRate srv) -> bool { return true; });
+
+        takeoff_client_ = std::make_shared<ServiceClient<mavros_msgs::CommandTOL>>(
+            "/mavros/cmd/takeoff", [](mavros_msgs::CommandTOL srv) -> bool { return srv.response.success; });
+        arm_client_ = std::make_shared<ServiceClient<mavros_msgs::CommandBool>>(
+            "/mavros/cmd/arming", [](mavros_msgs::CommandBool srv) -> bool { return srv.response.success; });
     }
 
-    bool set_mode(const FixedString64& mode);
+    bool arm() override;
+
+    bool takeoff(double alt) override;
+
+    bool land() override;
+
+    bool set_mode(const FixedString64& mode) override;
 
     // MAV_CMD_RUN_PREARM_CHECKS
-    bool run_prearm_checks();
+    bool run_prearm_checks() override;
 
-    bool set_stream_rate(int rate);
+    bool set_stream_rate(int rate) override;
 
-    ApmParam get_param(std::string name, ApmParam value = 0);
+    ApmParam get_param(std::string name, ApmParam value = 0) override;
 };

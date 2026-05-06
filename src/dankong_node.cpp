@@ -67,6 +67,9 @@ class DKNode {
         ros_adapter_->bind_event(
             "/mavros/statustext/recv",
             [](mavros_msgs::StatusText::ConstPtr data) -> StatusTextEvent { return {data->text}; });
+
+        ros_adapter_->bind_event("/mavros/state",
+                                 [](mavros_msgs::State::ConstPtr data) -> ArmEvent { return {data->armed != 0}; });
     }
 
     void setup_web_adapter() {
@@ -89,9 +92,8 @@ class DKNode {
         setup_web_adapter();
         setup_ros_config();
         setup_evente_listener();
-        engine_->get_context().robot = std::make_shared<Drone>();
-        engine_->get_context().mavlink = std::make_shared<MavRos>();
-        engine_->get_context().mavlink->set_stream_rate(10);
+        engine_->get_context().robot = std::make_shared<Drone<MavRos>>();
+        engine_->get_context().robot->set_stream_rate(10);
         engine_->start(InitState::instance(), std::chrono::milliseconds(50));
     }
 

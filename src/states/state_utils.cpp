@@ -1,14 +1,20 @@
 #include "states/state_utils.hpp"
 
+#include "dk/future.hpp"
+#include "spdlog/spdlog.h"
 #include "states/ground_state.hpp"
 #include "states/hover_state.hpp"
 #include "states/init_state.hpp"
+
+bool is_prearm_msg(const std::string& text) {
+    return text.rfind("PreArm: ", 0) == 0 || text.rfind("Arm: ", 0) == 0;
+}
 
 namespace state_utils {
 dk::Future<bool> set_mode(RobotContext& ctx, FixedString64 mode) {
     using Promise = dk::Promise<bool>;
     if (ctx.mode.load() == mode) return Promise::resolve(ctx.engine, true);
-    ctx.mavlink->set_mode(mode);
+    ctx.robot->set_mode(mode);
 
     return ctx.engine->wait_for(1000, [mode](const FlightModeEvent& e) -> bool {
         if (mode != e.cur) return false;
@@ -21,7 +27,7 @@ dk::Future<bool> prearm_check(RobotContext& ctx) {
     if (!ctx.robot->is_prearm_enable()) {
         return arm_vehicle(ctx);
     }
-    ApmParam param = ctx.mavlink->get_param("ARMING_CHECK", 0);
+    ApmParam param = ctx.robot->get_param("ARMING_CHECK", 0);
     int value = IMavlink::unpack<int>(param);
     spdlog::info("prearm_check: ARMING_CHECK={}", value);
     if (value == 0) return dk::Promise<bool>::resolve(ctx.engine, true);  // 禁用起飞检查
@@ -51,7 +57,7 @@ dk::Future<bool> prearm_check(RobotContext& ctx) {
     ctx.engine->wait_for(
         1000,
         [p](const StatusTextEvent& status_text) -> bool {
-            if (status_text.text.rfind("PreArm: ", 0) == 0 || status_text.text.rfind("Arm: ", 0) == 0) {
+            if (is_prearm_msg(status_text.text)) {
                 p->reject(status_text.text);
                 return true;
             }
@@ -65,7 +71,7 @@ dk::Future<bool> prearm_check(RobotContext& ctx) {
             return false;
         });
 
-    ctx.engine->post_future_task([&ctx]() { ctx.mavlink->run_prearm_checks(); });
+    ctx.engine->post_future_task([&ctx]() { ctx.robot->run_prearm_checks(); });
     return p->get_future();
 }
 
@@ -74,22 +80,44 @@ dk::Future<bool> arm_vehicle(RobotContext& ctx) {
 
     auto future = dk::Promise<bool>::resolve(ctx.engine, true);
     if (ctx.robot->is_prearm_enable()) {
-        future = prearm_check(ctx).catch_error([promise](std::exception_ptr error) -> void { promise->reject(error); });
+        spdlog::info("do prearm check");
+        future = prearm_check(ctx).catch_error([promise](std::exception_ptr error) -> void {
+            spdlog::error("prearm check failed!");
+            promise->reject(error);
+        });
     }
+
     return future.then([&ctx, promise]() -> auto {
+        if (ctx.arm) return dk::Promise<bool>::resolve(ctx.engine, true);
         // 等待解锁
-        return ctx.engine->wait_for(
-            3000,
-            [promise](const ArmEvent& arm_event) -> bool {
+        auto source = dk::CancellationTokenSource();
+        source.cancel_after(3000, ctx.engine);
+        auto token = source.get_token();
+        ctx.robot->arm();
+        return ctx.engine->wait(
+            token,
+            [promise, token](const ArmEvent& arm_event) -> bool {
+                if (token.is_cancelled()) {
+                    promise->reject("Wait for arm timeout!");
+                    return true;
+                }
                 if (arm_event.armed) {
                     promise->resolve(true);
                     return true;
                 }
                 return false;
             },
-            [promise](const StatusTextEvent& e) -> bool {
-                promise->reject(e.text);
-                return true;
+            [promise, token](const StatusTextEvent& e) -> bool {
+                if (token.is_cancelled()) {
+                    promise->reject("Wait for arm timeout!");
+                    return true;
+                }
+                if (is_prearm_msg(e.text)) {
+                    spdlog::error("arm failed: {}!", e.text);
+                    promise->reject(e.text);
+                    return true;
+                }
+                return false;
             });
     });
 }
@@ -103,6 +131,7 @@ std::shared_ptr<dk::IState<RobotEvent, RobotContext>> check_state(const RobotCon
 dk::Future<bool> takeoff_vehicle(RobotContext& ctx, double alt) {
     return set_mode(ctx, "GUIDED").then([&ctx, alt]() -> auto {
         if (ctx.robot->check_hover(ctx.arm, ctx.pos.get().z())) {
+            spdlog::info("vechicle already in air, change alt to {}", alt);
             Eigen::Vector3d pos = ctx.pos.get();
             pos.z() = alt;
             ctx.robot->send_cmd(pos, std::nullopt, std::nullopt, std::nullopt, std::nullopt, CmdFrame::ENU);
@@ -111,11 +140,13 @@ dk::Future<bool> takeoff_vehicle(RobotContext& ctx, double alt) {
         return arm_vehicle(ctx)
             .then([&ctx, alt]() -> bool {
                 ctx.robot->takeoff(alt);
+                spdlog::info("send takeoff command done!");
                 return true;
             })
             .then([&ctx, alt]() -> bool {
                 auto pos = ctx.pos.get();
                 ctx.takeoff_pos.set({pos.x(), pos.y(), alt});
+                spdlog::info("record takeoff pos: x={:.2f} y={:.2f} z={:.2f}", pos.x(), pos.y(), alt);
                 return true;
             });
     });

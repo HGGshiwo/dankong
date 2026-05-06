@@ -5,7 +5,7 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Release")
     set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG -march=native")
 endif()
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+# set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 #set(CMAKE_C_COMPILER clang)
 #set(CMAKE_CXX_COMPILER clang++)
 
@@ -157,15 +157,11 @@ set(STATE_SRC
   src/states/init_state.cpp
 )
 
-set (ROBOT_SRC
-  src/robot/drone.cpp
-)
-
 set (MAVLINK_SRC
   src/mavlink/mavros.cpp
 )
 
-add_executable(${PROJECT_NAME}_node ${STATE_SRC} ${ROBOT_SRC} ${MAVLINK_SRC}  src/dankong_node.cpp)
+add_executable(${PROJECT_NAME}_node ${STATE_SRC} ${MAVLINK_SRC}  src/dankong_node.cpp)
 
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the

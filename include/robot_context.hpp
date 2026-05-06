@@ -6,13 +6,13 @@
 #include "dk/core.hpp"
 #include "dk/utils.hpp"
 #include "mavlink/imavlink.hpp"
+#include "mavlink/mavros.hpp"
 #include "robot/robot_base.hpp"
 #include "robot_event.hpp"
 
 struct RobotContext : public dk::BaseContext<RobotEvent, RobotContext> {
     // 这两个需要小心，没有加锁
-    std::shared_ptr<IRobot> robot;
-    std::shared_ptr<IMavlink> mavlink;
+    std::shared_ptr<IRobot<MavRos>> robot;
 
     std::atomic<bool> odom_ok = false;
     std::atomic<bool> arm = false;

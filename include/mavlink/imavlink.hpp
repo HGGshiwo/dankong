@@ -13,6 +13,9 @@ class IMavlink {
     // MAV_CMD_RUN_PREARM_CHECKS
     virtual bool run_prearm_checks() = 0;
     virtual bool set_stream_rate(int rate) = 0;
+    virtual bool arm() = 0;
+    virtual bool takeoff(double alt) = 0;
+    virtual bool land() = 0;
     virtual ApmParam get_param(std::string name, ApmParam value = 0) = 0;
 
     // 获取实际的数据

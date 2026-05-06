@@ -22,4 +22,19 @@ class EventListener : public dk::BaseEventListener<RobotEvent, RobotContext, Eve
                 }
             });
     }
+
+    void on_event(TakeoffEvent event, RobotContext& ctx) {
+        state_utils::takeoff_vehicle(ctx, event.alt)
+            .then([event](bool res) {
+                if (res) event.resolve({"success", "OK"});
+                event.resolve({"error", "Unknown Error"});
+            })
+            .catch_error([event](std::exception_ptr exp) {
+                try {
+                    std::rethrow_exception(exp);
+                } catch (const std::exception& e) {
+                    event.resolve({"error", e.what()});
+                }
+            });
+    }
 };

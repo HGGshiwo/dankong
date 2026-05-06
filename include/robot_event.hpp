@@ -14,7 +14,7 @@ struct EventResult {
 
 // @JSON_ENABLE
 struct TakeoffEvent : dk::AsyncEvent<EventResult> {
-    double alt = 0;
+    double alt = 10.0;
 };
 
 // @JSON_ENABLE
