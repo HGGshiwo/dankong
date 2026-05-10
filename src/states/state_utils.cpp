@@ -1,16 +1,10 @@
 #include "states/state_utils.hpp"
 
-#include "dk/future.hpp"
-#include "spdlog/spdlog.h"
-#include "states/ground_state.hpp"
-#include "states/hover_state.hpp"
-#include "states/init_state.hpp"
-
+namespace state_utils {
 bool is_prearm_msg(const std::string& text) {
     return text.rfind("PreArm: ", 0) == 0 || text.rfind("Arm: ", 0) == 0;
 }
 
-namespace state_utils {
 dk::Future<bool> set_mode(RobotContext& ctx, FixedString64 mode) {
     using Promise = dk::Promise<bool>;
     if (ctx.mode.load() == mode) return Promise::resolve(ctx.engine, true);
@@ -22,28 +16,30 @@ dk::Future<bool> set_mode(RobotContext& ctx, FixedString64 mode) {
     });
 }
 
-// TODO: 带上一个停止token，如果重复调用就返回或者做别的事情
-dk::Future<bool> prearm_check(RobotContext& ctx) {
+// 判断是否真的需要进行prearm_check
+bool should_do_prearm_check(RobotContext& ctx) {
     if (!ctx.robot->is_prearm_enable()) {
-        return arm_vehicle(ctx);
+        return false;
     }
     ApmParam param = ctx.robot->get_param("ARMING_CHECK", 0);
     int value = IMavlink::unpack<int>(param);
     spdlog::info("prearm_check: ARMING_CHECK={}", value);
-    if (value == 0) return dk::Promise<bool>::resolve(ctx.engine, true);  // 禁用起飞检查
+    if (value == 0) return false;
+    return true;
+}
 
-    auto check_sensor_health = [&ctx](uint32_t sensor_health) -> bool {
-        int bits = 0x10000000;
-        if ((sensor_health & bits) == bits) {
-            spdlog::info("prearm_check: sensor_health check pass!");
-            return true;
-        }
-        return false;
-    };
-
-    if (check_sensor_health(ctx.sensor_health)) {
-        return dk::Promise<bool>::resolve(ctx.engine, true);
+bool check_sensor_health(uint32_t sensor_health) {
+    int bits = 0x10000000;
+    if ((sensor_health & bits) == bits) {
+        spdlog::info("prearm_check: sensor_health check pass!");
+        return true;
     }
+    return false;
+};
+
+// TODO: 带上一个停止token，如果重复调用就返回或者做别的事情
+dk::Future<bool> prearm_check(RobotContext& ctx) {
+    if (!should_do_prearm_check(ctx)) return dk::Promise<bool>::resolve(ctx.engine, true);
 
     // 检查是否已经通过prearm check
     int bits = 0x10000000;
@@ -63,7 +59,7 @@ dk::Future<bool> prearm_check(RobotContext& ctx) {
             }
             return false;
         },
-        [p, check_sensor_health](const SysStatusEvent& sys_status) -> bool {
+        [p](const SysStatusEvent& sys_status) -> bool {
             if (check_sensor_health(sys_status.data)) {
                 p->resolve(true);
                 return true;
@@ -75,104 +71,101 @@ dk::Future<bool> prearm_check(RobotContext& ctx) {
     return p->get_future();
 }
 
-dk::Future<bool> arm_vehicle(RobotContext& ctx) {
-    auto promise = std::make_shared<dk::Promise<bool>>(ctx.engine);
-
-    auto future = dk::Promise<bool>::resolve(ctx.engine, true);
-    if (ctx.robot->is_prearm_enable()) {
-        spdlog::info("do prearm check");
-        future = prearm_check(ctx).catch_error([promise](std::exception_ptr error) -> void {
-            spdlog::error("prearm check failed!");
-            promise->reject(error);
-        });
-    }
-
-    return future.then([&ctx, promise]() -> auto {
-        if (ctx.arm) return dk::Promise<bool>::resolve(ctx.engine, true);
-        // 等待解锁
-        auto source = dk::CancellationTokenSource();
-        source.cancel_after(3000, ctx.engine);
-        auto token = source.get_token();
-        ctx.robot->arm();
-        return ctx.engine->wait(
-            token,
-            [promise, token](const ArmEvent& arm_event) -> bool {
-                if (token.is_cancelled()) {
-                    promise->reject("Wait for arm timeout!");
-                    return true;
-                }
-                if (arm_event.armed) {
-                    promise->resolve(true);
-                    return true;
-                }
-                return false;
-            },
-            [promise, token](const StatusTextEvent& e) -> bool {
-                if (token.is_cancelled()) {
-                    promise->reject("Wait for arm timeout!");
-                    return true;
-                }
-                if (is_prearm_msg(e.text)) {
-                    spdlog::error("arm failed: {}!", e.text);
-                    promise->reject(e.text);
-                    return true;
-                }
-                return false;
-            });
-    });
-}
-
-std::shared_ptr<dk::IState<RobotEvent, RobotContext>> check_state(const RobotContext& ctx) {
-    if (!ctx.odom_ok) return InitState::instance();
-    if (ctx.robot->check_hover(ctx.arm, ctx.pos.get().z())) return HoverState::instance();
-    return GroundState::instance();
-}
-
-dk::Future<bool> takeoff_vehicle(RobotContext& ctx, double alt) {
-    return set_mode(ctx, "GUIDED").then([&ctx, alt]() -> auto {
-        if (ctx.robot->check_hover(ctx.arm, ctx.pos.get().z())) {
-            spdlog::info("vechicle already in air, change alt to {}", alt);
-            Eigen::Vector3d pos = ctx.pos.get();
-            pos.z() = alt;
-            ctx.robot->send_cmd(pos, std::nullopt, std::nullopt, std::nullopt, std::nullopt, CmdFrame::ENU);
-            return dk::Promise<bool>::resolve(ctx.engine, true);
-        }
-        return arm_vehicle(ctx)
-            .then([&ctx, alt]() -> bool {
-                ctx.robot->takeoff(alt);
-                spdlog::info("send takeoff command done!");
-                return true;
-            })
-            .then([&ctx, alt]() -> bool {
-                auto pos = ctx.pos.get();
-                ctx.takeoff_pos.set({pos.x(), pos.y(), alt});
-                spdlog::info("record takeoff pos: x={:.2f} y={:.2f} z={:.2f}", pos.x(), pos.y(), alt);
-                return true;
-            });
-    });
-}
-
 bool check_alt(RobotContext& ctx, double target) {
     double TAKEOFF_RATE = 0.1;
     double TAKEOFF_DIFF_THRSH = 0.6;
-    auto pos = ctx.pos.get();
+    auto pos = ctx.pos_enu.get();
     return std::fabs(pos.z() - target) < std::fmax(target * TAKEOFF_RATE, TAKEOFF_DIFF_THRSH);
 }
 
-Eigen::Vector3d gps_to_enu(RobotContext& ctx, double lat, double lon, double alt) {
-    Eigen::Vector3d diff = gps_to_enu_body(lat, lon, alt);
-    Eigen::Vector3d enu;
-    auto pos = ctx.pos.get();
-    enu += pos;
-    return enu;
+Eigen::Vector3d gps_to_enu(RobotContext& ctx, Eigen::Vector3d lon_lat_alt) {
+    Eigen::Vector3d diff = get_relevant_enu(ctx.lon_lat_alt.get(), lon_lat_alt);
+    auto pos = ctx.pos_enu.get();
+    return diff + pos;
 }
 
-Eigen::Vector3d gps_to_enu_body(double lat, double lon, double alt) {
-    return Eigen::Vector3d::Zero();
+// 计算目标 GPS 点相对于无人机当前 GPS 点的 ENU 偏差向量
+Eigen::Vector3d get_relevant_enu(const Eigen::Vector3d& drone_lon_lat_alt, const Eigen::Vector3d& target_lon_lat_alt) {
+    // 1. 获取无人机当前的 UTM 投影参数
+    int drone_zone;
+    bool is_north;
+    double drone_x, drone_y;
+
+    // drone_gps[1] 是纬度， drone_gps[0] 是经度
+    GeographicLib::UTMUPS::Forward(drone_lon_lat_alt[1], drone_lon_lat_alt[0], drone_zone, is_north, drone_x, drone_y);
+    // 2. 获取目标点的 UTM 投影参数
+    int target_zone;
+    bool target_northp;
+    double target_x, target_y;
+    // 关键点：强制目标点使用无人机当前的投影带 (setzone = drone_zone)
+    // 这样算出来的欧式距离才是准确的
+    GeographicLib::UTMUPS::Forward(target_lon_lat_alt[1], target_lon_lat_alt[0], target_zone, target_northp, target_x,
+                                   target_y, drone_zone);
+    // 3. 返回相对偏差 (Target - Drone)
+    return {
+        target_x - drone_x,                           // 偏差 East (X)
+        target_y - drone_y,                           // 偏差 North (Y)
+        target_lon_lat_alt[2] - drone_lon_lat_alt[2]  // 偏差 Up (Z)
+    };
 }
 
-void do_land(RobotContext& ctx) {
-    ctx.robot->land();
+dk::Future<bool> do_land(RobotContext& ctx) {
+    return ctx.robot->land(ctx);
+}
+
+// enu坐标系的yaw转为ned
+double yaw_enu_to_ned(double yaw_enu) {
+    double heading = M_PI * 0.5 - yaw_enu;
+    heading = norm_yaw(heading);
+    return heading;
+}
+
+// 规范化到0~pi之间
+double norm_yaw(double yaw) {
+    while (yaw < 0) yaw += M_PI * 2;
+    while (yaw >= 2 * M_PI) yaw -= M_PI * 2;
+    return yaw;
+}
+
+// 给定两个坐标的差值，计算enu下的yaw
+double get_heading(double enu_x, double enu_y) {
+    double enu_yaw = atan2(enu_y, enu_x);
+    return norm_yaw(enu_yaw);
+}
+
+// 计算两个角度之间的差值
+double get_yaw_diff(double a, double b) {
+    double diff = a - b;
+    double theta = atan2(sin(diff), cos(diff));
+    return fabs(theta);
+}
+
+Eigen::Quaterniond euler_to_orientation(double r, double p, double y) {
+    Eigen::Quaterniond q = Eigen::AngleAxisd(y, Eigen::Vector3d::UnitZ()) *
+                           Eigen::AngleAxisd(p, Eigen::Vector3d::UnitY()) *
+                           Eigen::AngleAxisd(r, Eigen::Vector3d::UnitX());
+
+    return q;
+}
+
+Eigen::Vector3d orientation_to_euler(double x, double y, double z, double w) {
+    Eigen::Quaterniond q(w, x, y, z);  // 假设这是你的四元数
+    // 转为旋转矩阵，然后提取欧拉角。
+    // 参数 (2, 1, 0) 代表提取顺序为 Z轴(2), Y轴(1), X轴(0)
+    Eigen::Vector3d euler = q.toRotationMatrix().eulerAngles(2, 1, 0);
+    // ⚠️ 极其重要的陷阱：
+    // Eigen 返回的 vector 索引 0,1,2 对应的是你传入的顺序 2,1,0 ！！！
+    double yaw = euler[0];    // 对应 Z 轴
+    double pitch = euler[1];  // 对应 Y 轴
+    double roll = euler[2];   // 对应 X 轴
+    Eigen::Vector3d rpy = {roll, pitch, yaw};
+    return rpy;
+}
+
+// 获取经过的时长
+double get_time_span(std::chrono::steady_clock::time_point start) {
+    auto diff = std::chrono::steady_clock::now() - start;
+    return std::chrono::duration<double>(diff).count();
 }
 
 }  // namespace state_utils

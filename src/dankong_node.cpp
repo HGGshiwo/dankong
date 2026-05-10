@@ -4,7 +4,9 @@
 #include <mavros_msgs/VFR_HUD.h>
 #include <nav_msgs/Odometry.h>
 #include <ros/ros.h>
+#include <sensor_msgs/NavSatFix.h>
 #include <sensor_msgs/Range.h>
+#include <std_msgs/Float64.h>
 #include <std_msgs/String.h>
 
 #include <chrono>
@@ -12,7 +14,7 @@
 
 #include "dk/adapters/ros.hpp"
 #include "dk/adapters/web.hpp"
-#include "dk/core.hpp"
+#include "dk/engine.hpp"
 #include "dk/logger.hpp"
 #include "dk_auto_json.hpp"
 #include "event_listener.hpp"
@@ -22,12 +24,13 @@
 #include "robot_event.hpp"
 #include "states/ground_state.hpp"
 #include "states/init_state.hpp"
+#include "states/state_utils.hpp"
 
-class Engine : public dk::BaseEngine<RobotEvent, RobotContext, Engine> {};
+class Engine : public dk::BaseEngine<RobotContext, Engine> {};
 
 class DKNode {
-    using RosAdapterType = dk::RosAdapter<RobotEvent, RobotContext, Engine>;
-    using WebAdapterType = dk::WebAdapter<RobotEvent, RobotContext, Engine>;
+    using RosAdapterType = dk::RosAdapter<RobotContext, Engine>;
+    using WebAdapterType = dk::WebAdapter<RobotContext, Engine>;
 
    private:
     std::shared_ptr<Engine> engine_;
@@ -55,10 +58,29 @@ class DKNode {
                                    [](const sensor_msgs::Range::ConstPtr& range_msg, RobotContext& ctx) -> auto {
                                        ctx.rangefinder_alt = range_msg->range;
                                    });
-        ros_adapter_->bind_context("/mavros/local_position/odom",
-                                   [](const nav_msgs::Odometry::ConstPtr& odom, RobotContext& ctx) -> void {
-                                       auto pos = odom->pose.pose.position;
-                                       ctx.pos.set({pos.x, pos.y, pos.z});
+        ros_adapter_->bind_context(
+            "/mavros/local_position/odom", [](const nav_msgs::Odometry::ConstPtr& odom, RobotContext& ctx) -> void {
+                auto pos = odom->pose.pose.position;
+                ctx.pos_enu.set({pos.x, pos.y, pos.z});
+
+                auto orientation = odom->pose.pose.orientation;
+                auto yaw_enu =
+                    state_utils::orientation_to_euler(orientation.x, orientation.y, orientation.z, orientation.w).z();
+
+                ctx.yaw_enu = yaw_enu;
+                ctx.yaw_ned = state_utils::yaw_enu_to_ned(yaw_enu);
+            });
+        ros_adapter_->bind_context("/mavros/global_position/global",
+                                   [](const sensor_msgs::NavSatFix::ConstPtr& msg, RobotContext& ctx) -> void {
+                                       ctx.lon_lat_alt.write([msg](Eigen::Vector3d& data) {
+                                           data.x() = msg->longitude;
+                                           data.y() = msg->latitude;
+                                       });
+                                       ctx.odom_ok = true;
+                                   });
+        ros_adapter_->bind_context("/mavros/global_position/rel_alt",
+                                   [](const std_msgs::Float64::ConstPtr& msg, RobotContext& ctx) -> void {
+                                       ctx.lon_lat_alt.write([msg](Eigen::Vector3d& data) { data.z() = msg->data; });
                                    });
         ros_adapter_->bind_event(
             "/mavros/sys_status",
@@ -78,6 +100,8 @@ class DKNode {
         web_adapter_->register_ws_route("/ws", endpoint);
         web_adapter_->register_route<PrearmEvent, EventResult>(boost::beast::http::verb::get, "/prearms", 5000);
         web_adapter_->register_route<TakeoffEvent, EventResult>(boost::beast::http::verb::post, "/takeoff", 5000);
+        web_adapter_->register_route<SetWaypointEvent, EventResult>(boost::beast::http::verb::post, "/set_waypoint",
+                                                                    5000);
     }
 
     void setup_evente_listener() {
@@ -86,6 +110,8 @@ class DKNode {
     }
 
    public:
+    using AllowedEvents = std::tuple<>();
+
     DKNode() : nh_(), pnh_("~") {
         engine_ = std::make_shared<Engine>();
         setup_ros_adapter();
@@ -94,7 +120,7 @@ class DKNode {
         setup_evente_listener();
         engine_->get_context().robot = std::make_shared<Drone<MavRos>>();
         engine_->get_context().robot->set_stream_rate(10);
-        engine_->start(InitState::instance(), std::chrono::milliseconds(50));
+        engine_->start<InitState>(std::chrono::milliseconds(50));
     }
 
     ~DKNode() { engine_->stop(); }

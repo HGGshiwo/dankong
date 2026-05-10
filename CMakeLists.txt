@@ -25,7 +25,7 @@ find_package(catkin REQUIRED COMPONENTS
   mavros
   mavros_msgs
 )
-
+find_package(Eigen3 REQUIRED)
 ## System dependencies are found with CMake's conventions
 #find_package(Boost REQUIRED COMPONENTS system)
 
@@ -155,6 +155,7 @@ set(STATE_SRC
   src/states/state_utils.cpp
   src/states/takeoff_state.cpp
   src/states/init_state.cpp
+  src/states/waypoint_state.cpp
 )
 
 set (MAVLINK_SRC
@@ -177,6 +178,9 @@ add_executable(${PROJECT_NAME}_node ${STATE_SRC} ${MAVLINK_SRC}  src/dankong_nod
 target_link_libraries(${PROJECT_NAME}_node
     dk       # 链接框架
     my_json_lib    # 链接刚才生成的 JSON 宏库
+    Geographic
+    atomic  
+    Eigen3::Eigen
   ${catkin_LIBRARIES}
 )
 

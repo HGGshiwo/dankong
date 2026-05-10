@@ -12,6 +12,8 @@
 
 #include "./imavlink.hpp"
 #include "dk/logger.hpp"
+#include "mavros_msgs/PositionTarget.h"
+#include "ros/publisher.h"
 #include "spdlog/spdlog.h"
 
 template <typename MsgType>
@@ -51,6 +53,7 @@ class MavRos : public IMavlink {
     std::shared_ptr<ServiceClient<mavros_msgs::StreamRate>> set_rate_client_;
     std::shared_ptr<ServiceClient<mavros_msgs::CommandTOL>> takeoff_client_;
     std::shared_ptr<ServiceClient<mavros_msgs::CommandBool>> arm_client_;
+    std::shared_ptr<ros::Publisher> setpoint_pub_;
 
    public:
     MavRos() {
@@ -62,9 +65,14 @@ class MavRos : public IMavlink {
             "/mavros/set_stream_rate", [](mavros_msgs::StreamRate srv) -> bool { return true; });
 
         takeoff_client_ = std::make_shared<ServiceClient<mavros_msgs::CommandTOL>>(
-            "/mavros/cmd/takeoff", [](mavros_msgs::CommandTOL srv) -> bool { return srv.response.success; });
+            "/mavros/cmd/takeoff", [](mavros_msgs::CommandTOL srv) -> bool {
+                spdlog::info("takeoff result: {}", srv.response.result);
+                return srv.response.success;
+            });
         arm_client_ = std::make_shared<ServiceClient<mavros_msgs::CommandBool>>(
             "/mavros/cmd/arming", [](mavros_msgs::CommandBool srv) -> bool { return srv.response.success; });
+        setpoint_pub_ = std::make_shared<ros::Publisher>(
+            nh_.advertise<mavros_msgs::PositionTarget>("/mavros/setpoint_raw/local", 1));
     }
 
     bool arm() override;
@@ -81,4 +89,8 @@ class MavRos : public IMavlink {
     bool set_stream_rate(int rate) override;
 
     ApmParam get_param(std::string name, ApmParam value = 0) override;
+
+    bool send_cmd(std::optional<Eigen::Vector3d> pos, std::optional<Eigen::Vector3d> vel,
+                  std::optional<Eigen::Vector3d> acc, std::optional<double> yaw, std::optional<double> yaw_rate,
+                  CmdFrame frame) override;
 };

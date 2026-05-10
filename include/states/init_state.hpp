@@ -3,8 +3,10 @@
 #include "states/ground_state.hpp"
 #include "states/hover_state.hpp"
 
-class InitState : public dk::PureState<RobotEvent, RobotContext, InitState> {
+class InitState : public dk::BaseState<RobotContext, InitState, void> {
    public:
-    const std::string name() const override { return "初始状态"; }
-    StatePtr on_event(dk::TickEvent e, RobotContext& ctx);
+    using AllowedEvents = std::tuple<dk::TickEvent>;
+    using StateAction = dk::StateAction<RobotContext>;
+    StateAction on_event(dk::TickEvent e, RobotContext& ctx);
+    static constexpr std::string_view static_name() { return "初始状态"; }
 };

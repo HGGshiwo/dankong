@@ -1,5 +1,6 @@
 #pragma once
-#include "dk/core.hpp"
+#include "dk/engine.hpp"
 #include "robot_context.hpp"
 #include "robot_event.hpp"
-using StatePtr = std::shared_ptr<dk::IState<RobotEvent, RobotContext>>;
+
+using StateAction = dk::StateAction<RobotContext>;
