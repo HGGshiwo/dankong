@@ -5,6 +5,7 @@
 #include <initializer_list>
 #include <memory>
 #include <optional>
+#include <vector>
 
 #include "../robot_context.hpp"
 #include "./utils.hpp"
@@ -66,10 +67,11 @@ class StallChecker {
     bool is_initialized_ = false;  //
    public:
     // 构造函数：直接接收 std::array 作为阈值，保证元素个数绝对等于 N
-    StallChecker(const std::array<double, N>& threshold, double check_time_s)
+    StallChecker(std::array<double, N> threshold, double check_time_s)
         : threshold_(threshold), check_time_s_(check_time_s), start_time_(std::chrono::steady_clock::now()) {}
+
     // 参数也改为接收 std::array 或者 double 数组指针
-    bool is_stall(const double data[]) {
+    bool is_stall(std::array<double, N> data) {
         if (!is_initialized_) {
             // 第一次初始化
             for (int i = 0; i < N; ++i) {

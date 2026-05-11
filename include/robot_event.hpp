@@ -1,4 +1,6 @@
 #pragma once
+#include <string.h>
+
 #include <Eigen/Dense>
 #include <nlohmann/json.hpp>
 #include <variant>

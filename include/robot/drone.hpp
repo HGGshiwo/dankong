@@ -2,7 +2,9 @@
 #include "./robot_base.hpp"
 #include "dk/future.hpp"
 #include "mavlink/mavros.hpp"
+#include "robot_context.hpp"
 #include "states/state_utils.hpp"
+#include "utils.hpp"
 
 template <typename MavlinkType>
 class Drone : public IRobot<MavlinkType, RobotContext> {
@@ -40,7 +42,7 @@ template <typename MavlinkType>
 dk::Future<bool> Drone<MavlinkType>::land(RobotContext& ctx) {
     using Promise = dk::Promise<bool>;
     FixedString64 mode("LAND");
-    if (ctx.mode.load() == mode) return Promise::resolve(ctx.engine, true);
+    if (ctx.mode.get() == mode) return Promise::resolve(ctx.engine, true);
     ctx.robot->set_mode(mode);
 
     return ctx.engine->wait_for(1000, [mode](const FlightModeEvent& e) -> bool {

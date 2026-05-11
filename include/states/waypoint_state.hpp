@@ -32,6 +32,8 @@ class WaypointState : public dk::BaseState<RobotContext, WaypointState, void> {
 
     void on_enter(RobotContext& ctx) override;
 
+    void on_exit(RobotContext& ctx) override;
+
     WaypointState(SetWaypointEvent e, state_utils::FinishAction action);
 
     static constexpr std::string_view static_name() { return "航点模式"; };
@@ -49,6 +51,7 @@ class WaypointState::LiftingState : public dk::BaseState<RobotContext, LiftingSt
     double last_alt_;
     double last_yaw_;
     double target_yaw_;
+    std::shared_ptr<state_utils::StallChecker<2>> checker_;
 
    public:
     using AllowedEvents = std::tuple<dk::TickEvent>;

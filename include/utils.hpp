@@ -1,6 +1,14 @@
 #pragma once
+#include <yaml-cpp/yaml.h>
+
+#include <boost/filesystem.hpp>
 #include <cstring>
+#include <nlohmann/json.hpp>
 #include <string>
+
+namespace fs = boost::filesystem;
+
+fs::path get_current_run_path();
 
 struct FixedString64 {
     char data[64];
@@ -44,3 +52,6 @@ struct FixedString64 {
 
 // 确认可以用于 std::atomic
 static_assert(std::is_trivially_copyable_v<FixedString64>);
+
+using json = nlohmann::json;
+json yaml_to_json(const YAML::Node& yaml_node);

@@ -1,3 +1,4 @@
+#include <mavros_msgs/GPSRAW.h>
 #include <mavros_msgs/State.h>
 #include <mavros_msgs/StatusText.h>
 #include <mavros_msgs/SysStatus.h>
@@ -8,15 +9,19 @@
 #include <sensor_msgs/Range.h>
 #include <std_msgs/Float64.h>
 #include <std_msgs/String.h>
+#include <std_msgs/UInt32.h>
 
+#include <boost/beast/http/verb.hpp>
 #include <chrono>
+#include <dk_auto_json.hpp>
 #include <memory>
 
+#include "./utils.hpp"
 #include "dk/adapters/ros.hpp"
 #include "dk/adapters/web.hpp"
 #include "dk/engine.hpp"
 #include "dk/logger.hpp"
-#include "dk_auto_json.hpp"
+#include "dk/utils.hpp"
 #include "event_listener.hpp"
 #include "mavlink/mavros.hpp"
 #include "robot/drone.hpp"
@@ -25,6 +30,10 @@
 #include "states/ground_state.hpp"
 #include "states/init_state.hpp"
 #include "states/state_utils.hpp"
+
+const std::string STAIC_DIR = "/home/hgg/catkin_ws/src/event_callback/event-callback-app/dist";
+const std::string UI_CONFIG_PATH = "/home/hgg/catkin_ws/src/dankong/config/ui.yaml";
+const std::string JSON_PATH = (get_current_run_path() / "config.json").string();
 
 class Engine : public dk::BaseEngine<RobotContext, Engine> {};
 
@@ -47,8 +56,8 @@ class DKNode {
         ros_adapter_ = std::make_shared<RosAdapterType>(engine_, nh_);
         ros_adapter_->bind_context("/mavros/state",
                                    [](const mavros_msgs::State::ConstPtr& state_ptr, RobotContext& ctx) -> void {
-                                       ctx.arm = state_ptr->armed;
-                                       ctx.mode = state_ptr->mode;
+                                       ctx.arm.set(state_ptr->armed);
+                                       ctx.mode.set(state_ptr->mode);
                                    });
         ros_adapter_->bind_context("/mavros/vfr_hud",
                                    [](const mavros_msgs::VFR_HUD::ConstPtr& vfr_hud_msg, RobotContext& ctx) -> auto {
@@ -68,7 +77,7 @@ class DKNode {
                     state_utils::orientation_to_euler(orientation.x, orientation.y, orientation.z, orientation.w).z();
 
                 ctx.yaw_enu = yaw_enu;
-                ctx.yaw_ned = state_utils::yaw_enu_to_ned(yaw_enu);
+                ctx.yaw_ned.set(state_utils::yaw_enu_to_ned(yaw_enu));
             });
         ros_adapter_->bind_context("/mavros/global_position/global",
                                    [](const sensor_msgs::NavSatFix::ConstPtr& msg, RobotContext& ctx) -> void {
@@ -82,6 +91,18 @@ class DKNode {
                                    [](const std_msgs::Float64::ConstPtr& msg, RobotContext& ctx) -> void {
                                        ctx.lon_lat_alt.write([msg](Eigen::Vector3d& data) { data.z() = msg->data; });
                                    });
+        ros_adapter_->bind_context("/mavros/gpsstatus/gps1/raw",
+                                   [](const mavros_msgs::GPSRAW::ConstPtr& msg, RobotContext& ctx) -> void {
+                                       ctx.gps_fix_type.set(msg->fix_type);
+                                   });
+        ros_adapter_->bind_context("/mavros/sys_status",
+                                   [](const mavros_msgs::SysStatus::ConstPtr& status, RobotContext& ctx) -> void {
+                                       ctx.battery_remaining.set(status->battery_remaining);
+                                   });
+
+        ros_adapter_->bind_context(
+            "/mavros/global_position/raw/satellites",
+            [](const std_msgs::UInt32::ConstPtr& msg, RobotContext& ctx) -> void { ctx.gps_nsats.set(msg->data); });
         ros_adapter_->bind_event(
             "/mavros/sys_status",
             [](const mavros_msgs::SysStatus::ConstPtr status) -> SysStatusEvent { return {status->sensors_health}; });
@@ -95,9 +116,19 @@ class DKNode {
     }
 
     void setup_web_adapter() {
+        // 生成配置文件
+        const std::string json_path = (get_current_run_path() / "config.json").string();
+        dk::generate_json_file(UI_CONFIG_PATH, JSON_PATH);
+
         web_adapter_ = std::make_shared<WebAdapterType>(engine_, 8000);
-        dk::WsEndpoint endpoint;
-        web_adapter_->register_ws_route("/ws", endpoint);
+        web_adapter_->enable_cors();
+
+        engine_->get_context().ws_manager = web_adapter_->get_manager();
+
+        web_adapter_->register_file_route(boost::beast::http::verb::get, "/page_config", JSON_PATH);
+        web_adapter_->register_static_dir("/", STAIC_DIR);
+        web_adapter_->register_static_dir("/home", STAIC_DIR);
+        web_adapter_->register_managed_ws_route("/ws", [](auto, auto&) {});
         web_adapter_->register_route<PrearmEvent, EventResult>(boost::beast::http::verb::get, "/prearms", 5000);
         web_adapter_->register_route<TakeoffEvent, EventResult>(boost::beast::http::verb::post, "/takeoff", 5000);
         web_adapter_->register_route<SetWaypointEvent, EventResult>(boost::beast::http::verb::post, "/set_waypoint",
@@ -107,6 +138,9 @@ class DKNode {
     void setup_evente_listener() {
         auto event_listener = std::make_shared<EventListener>();
         engine_->add_listener(event_listener);
+
+        auto report_listener = std::make_shared<StateReportListener>(web_adapter_->get_manager());
+        engine_->add_listener(report_listener);
     }
 
    public:

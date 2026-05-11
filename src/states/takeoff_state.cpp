@@ -67,7 +67,7 @@ void TakeoffState::TakingoffState::on_enter(RobotContext& ctx) {
         // 记录下起飞时候的经纬高
         auto pos = ctx.lon_lat_alt.get();
         ctx.takeoff_lon_lat_alt.set({pos.x(), pos.y(), parent()->alt_});
-        std::visit([](const auto& obj) { return obj.resolve({"sucess", "OK"}); }, parent()->event_);
+        std::visit([](const auto& obj) { return obj.resolve({"success", "OK"}); }, parent()->event_);
     }
 }
 
@@ -82,10 +82,9 @@ StateAction TakeoffState::TakingoffState::on_event(const dk::TickEvent& e, Robot
         return step<GroundState>();
     }
     double alt = ctx.pos_enu.get().z();
-    double tmp[1] = {alt};
-    bool is_stall = checker_->is_stall(tmp);
+    bool is_stall = checker_->is_stall({alt});
     if (is_stall) {
-        if (!ctx.robot->check_hover(ctx.arm, alt)) {
+        if (!ctx.robot->check_hover(ctx.arm.get(), alt)) {
             return step<GroundState>();
         }
     };

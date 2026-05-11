@@ -5,5 +5,5 @@
 #include "states/takeoff_state.hpp"
 
 StateAction GroundState::on_event(const dk::TickEvent& e, RobotContext& ctx) {
-    return ctx.robot->check_hover(ctx.arm, ctx.pos_enu.get().z()) ? step<HoverState>() : StateAction::unhandled();
+    return ctx.robot->check_hover(ctx.arm.get(), ctx.pos_enu.get().z()) ? step<HoverState>() : StateAction::unhandled();
 }

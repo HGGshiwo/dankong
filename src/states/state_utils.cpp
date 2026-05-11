@@ -7,7 +7,7 @@ bool is_prearm_msg(const std::string& text) {
 
 dk::Future<bool> set_mode(RobotContext& ctx, FixedString64 mode) {
     using Promise = dk::Promise<bool>;
-    if (ctx.mode.load() == mode) return Promise::resolve(ctx.engine, true);
+    if (ctx.mode.get() == mode) return Promise::resolve(ctx.engine, true);
     ctx.robot->set_mode(mode);
 
     return ctx.engine->wait_for(1000, [mode](const FlightModeEvent& e) -> bool {
@@ -149,15 +149,16 @@ Eigen::Quaterniond euler_to_orientation(double r, double p, double y) {
 }
 
 Eigen::Vector3d orientation_to_euler(double x, double y, double z, double w) {
-    Eigen::Quaterniond q(w, x, y, z);  // 假设这是你的四元数
-    // 转为旋转矩阵，然后提取欧拉角。
-    // 参数 (2, 1, 0) 代表提取顺序为 Z轴(2), Y轴(1), X轴(0)
-    Eigen::Vector3d euler = q.toRotationMatrix().eulerAngles(2, 1, 0);
-    // ⚠️ 极其重要的陷阱：
-    // Eigen 返回的 vector 索引 0,1,2 对应的是你传入的顺序 2,1,0 ！！！
-    double yaw = euler[0];    // 对应 Z 轴
-    double pitch = euler[1];  // 对应 Y 轴
-    double roll = euler[2];   // 对应 X 轴
+    Eigen::Quaterniond q(w, x, y, z);
+    Eigen::Matrix3d R = q.toRotationMatrix();
+    // Extract yaw using atan2 to keep range in [-pi, pi]
+    double yaw = std::atan2(R(1, 0), R(0, 0));
+    // Extract pitch using asin, clamp to [-1.0, 1.0] to prevent NaN
+    double sin_pitch = -R(2, 0);
+    sin_pitch = std::max(-1.0, std::min(1.0, sin_pitch));
+    double pitch = std::asin(sin_pitch);
+    // Extract roll using atan2
+    double roll = std::atan2(R(2, 1), R(2, 2));
     Eigen::Vector3d rpy = {roll, pitch, yaw};
     return rpy;
 }

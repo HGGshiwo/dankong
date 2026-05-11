@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.0.2)
+cmake_minimum_required(VERSION 3.12)
 project(dankong)
 
 if(NOT CMAKE_BUILD_TYPE)
@@ -12,7 +12,7 @@ endif()
 add_subdirectory(dk)
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 #调用函数，扫描用户自己的 src 目录
-dk_create_json_library(my_json_lib "${CMAKE_CURRENT_SOURCE_DIR}/include")
+dk_create_json_library(my_json_lib "${CMAKE_CURRENT_SOURCE_DIR}")
 
 ## Compile as C++11, supported in ROS Kinetic and newer
 #add_compile_options(-std = c++ 11)
@@ -132,6 +132,7 @@ catkin_package(
 include_directories(
 include
 ${catkin_INCLUDE_DIRS}
+${EIGEN3_INCLUDE_DIRS} 
 )
 
 ## Declare a C++ library
@@ -162,7 +163,12 @@ set (MAVLINK_SRC
   src/mavlink/mavros.cpp
 )
 
-add_executable(${PROJECT_NAME}_node ${STATE_SRC} ${MAVLINK_SRC}  src/dankong_node.cpp)
+set (NODE_SRC
+  src/dankong_node.cpp 
+  src/utils.cpp
+)
+
+add_executable(${PROJECT_NAME}_node ${STATE_SRC} ${MAVLINK_SRC} ${NODE_SRC})
 
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
