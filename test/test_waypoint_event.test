@@ -1,5 +1,5 @@
 <launch>
-    <arg name="robot_type" />  <!-- dog/drone -->
+    <arg name="robot_type" />
     <arg name="gui" default="true" />
 
     <include file="$(find gazebo_sim)/launch/iris_with_roscam2.launch">
@@ -8,7 +8,7 @@
         <arg name="robot_type" value="$(arg robot_type)" />
         <arg name="output" value="log" />
     </include>
-    <test pkg="dankong" type="test_waypoint.py" test-name="test_waypoint" time-limit="600">
+    <test pkg="dankong" type="test_waypoint_event.py" test-name="test_waypoint_event" time-limit="600">
         <param name="robot_type" value="$(arg robot_type)" />
     </test>
 

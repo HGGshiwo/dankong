@@ -18,11 +18,13 @@ struct TrackingConfig {
     double kp_yaw = 2.0;
     double command_timeout_sec = 0.5;  // Safety watchdog
     int loop_rate_hz = 50;             // Internal thread frequency
+    double pos_tolerance_m = 0.05;     // 位置到达容差 (例如5厘米)
+    double yaw_tolerance_rad = 0.05;  // 偏航角到达容差 (例如约2.8度)
 };
 
 class ITrackerRuntime {
    public:
-    virtual RobotContext get_context() = 0;
+    virtual RobotContext& get_context() = 0;
     virtual void cmd_vel(Eigen::Vector4d) = 0;  // body x,y,z + yaw_rate
 };
 
@@ -129,7 +131,6 @@ class ThreadedTracker {
         std::chrono::steady_clock::time_point time_copy;
         bool ctrl_pos_copy;
         bool ctrl_yaw_copy;
-
         {
             std::lock_guard<std::mutex> lock(data_mutex_);
             is_active = has_active_command_;
@@ -139,26 +140,54 @@ class ThreadedTracker {
             ctrl_pos_copy = ctrl_pos_;
             ctrl_yaw_copy = ctrl_yaw_;
         }
-
         if (!is_active) {
             return;
         }
-
-        auto now = std::chrono::steady_clock::now();
-        std::chrono::duration<double> elapsed = now - time_copy;
-        if (elapsed.count() > config_.command_timeout_sec) {
-            {
-                std::lock_guard<std::mutex> lock(data_mutex_);
-                has_active_command_ = false;
-            }
-            send_zero_velocity();
-            return;
-        }
-
+        // 【修改】提前获取当前位姿，用于判断是否到达目标点
         Eigen::Vector4d current_pose;
-
         current_pose.head<3>() = runtime_->get_context().pos_enu.get();
         current_pose.w() = runtime_->get_context().yaw_enu.load();
+        bool is_pos_control = ctrl_pos_copy || ctrl_yaw_copy;
+        if (is_pos_control) {
+            // 【逻辑分支 1：位置控制】 -> 计算误差，判断是否到达，不需要超时
+            double pos_error = 0.0;
+            double yaw_error = 0.0;
+            if (ctrl_pos_copy) {
+                double dx = target_pose_copy.x() - current_pose.x();
+                double dy = target_pose_copy.y() - current_pose.y();
+                double dz = target_pose_copy.z() - current_pose.z();
+                pos_error = std::sqrt(dx * dx + dy * dy + dz * dz);
+            }
+
+            if (ctrl_yaw_copy) {
+                yaw_error = std::abs(state_utils::norm_yaw(
+                    target_pose_copy.w() - current_pose.w()));
+            }
+            // 如果位置和偏航角都在容差范围内，认为到达目标点
+            if (pos_error <= config_.pos_tolerance_m &&
+                yaw_error <= config_.yaw_tolerance_rad) {
+                {
+                    std::lock_guard<std::mutex> lock(data_mutex_);
+                    has_active_command_ = false;  // 到达后设为无效
+                }
+                send_zero_velocity();  // 停止控制
+                return;
+            }
+            // 注：位置控制不进行 timeout 判断，会一直控制直到到达目标位置。
+            // (建议：实际工程中可以加一个超大的"导航超时"，防止机器人在死角卡死推墙)
+        } else {
+            // 【逻辑分支 2：速度控制】 -> 判断超时
+            auto now = std::chrono::steady_clock::now();
+            std::chrono::duration<double> elapsed = now - time_copy;
+            if (elapsed.count() > config_.command_timeout_sec) {
+                {
+                    std::lock_guard<std::mutex> lock(data_mutex_);
+                    has_active_command_ = false;
+                }
+                send_zero_velocity();  // 超时停止
+                return;
+            }
+        }
         // Dynamically zero out position errors if not controlled
         if (!ctrl_pos_copy) {
             target_pose_copy.x() = current_pose.x();
@@ -168,7 +197,6 @@ class ThreadedTracker {
         if (!ctrl_yaw_copy) {
             target_pose_copy.w() = current_pose.w();
         }
-
         Eigen::Vector4d output_vel =
             compute_tracker(current_pose, target_pose_copy, ff_vel_copy);
         runtime_->cmd_vel(output_vel);

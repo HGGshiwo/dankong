@@ -14,8 +14,9 @@
 class WaypointState : public dk::BaseState<RobotContext, WaypointState, void> {
    public:
     std::vector<Eigen::Vector3d> wp_list_;
-    std::optional<std::vector<std::vector<std::string>>> event_list_;
+    std::optional<std::vector<nlohmann::json>> node_event_list_;
     FinishAction action_;
+
     int land_target_id_;
     int wp_idx_;  // 当前点的序号
 
@@ -80,6 +81,8 @@ class WaypointState::ExcuteState
     double wp_dist_;           // 到下一个目标的距离
     Eigen::Vector3d wp_goal_;  // 点在enu坐标系下的目标
     using AllowedEvents = std::tuple<dk::TickEvent>;
+
+    void run_wp_event(RobotContext& ctx, const nlohmann::json& event_list);
 
    public:
     ExcuteState() = default;

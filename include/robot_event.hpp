@@ -4,6 +4,7 @@
 #include <Eigen/Dense>
 #include <nlohmann/json.hpp>
 #include <variant>
+#include <vector>
 
 #include "./utils.hpp"
 #include "dk/engine.hpp"
@@ -40,6 +41,7 @@ enum FinishAction {
 //@JSON_ENABLE
 struct SetWaypointEvent : dk::AsyncEvent<EventResult> {
     std::vector<Eigen::Vector3d> waypoint;
+    std::optional<std::vector<nlohmann::json>> nodeEventList;
     int land_target_id = -1;
     FinishAction finish_action = FinishAction::HOVER;
 };

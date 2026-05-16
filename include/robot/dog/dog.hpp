@@ -32,7 +32,7 @@ class Dog : public IRobot, ITrackerRuntime {
         tracker_ = std::make_shared<ThreadedTracker>(TrackingConfig(), this);
     }
 
-    RobotContext get_context() override { return ctx_; }
+    RobotContext& get_context() override { return ctx_; }
 
     bool send_cmd(std::optional<Eigen::Vector3d> pos,
                   std::optional<Eigen::Vector3d> vel,

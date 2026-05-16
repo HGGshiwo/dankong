@@ -1,6 +1,7 @@
 #include "states/waypoint_state.hpp"
 
 #include <chrono>
+#include <cmath>
 #include <optional>
 #include <stdexcept>
 
@@ -16,6 +17,7 @@ WaypointState::WaypointState(SetWaypointEvent e)
     : wp_list_(e.waypoint),
       wp_idx_(0),
       action_(e.finish_action),
+      node_event_list_(e.nodeEventList),
       land_target_id_(e.land_target_id) {}
 
 void WaypointState::WaypointState::on_enter(RobotContext& ctx) {
@@ -146,12 +148,18 @@ void WaypointState::ExcuteState::on_enter(RobotContext& ctx) {
         ctx.robot->send_cmd(wp_goal_, std::nullopt, std::nullopt, std::nullopt,
                             std::nullopt, CmdFrame::ENU);
     }
-    // if (event_list.has_value()) {
-    //     auto events = wp_data.event_list.value().at(wp_data.wp_idx);
-    //     for (const auto& event : events) {
-    //         run_wp_envet(event);
-    //     }
-    // }
+
+    if (parent()->node_event_list_.has_value()) {
+        auto events = parent()->node_event_list_.value().at(parent()->wp_idx_);
+        spdlog::info("run event: {}", events.dump());
+        if (!events.is_null()) {
+            for (const auto& event : events) {
+                run_wp_event(ctx, event);
+            }
+        }
+    } else {
+        spdlog::info("no event for wp_idx: {}!", parent()->wp_idx_);
+    }
 }
 
 StateAction WaypointState::ExcuteState::on_event(const dk::TickEvent& event,
@@ -181,4 +189,70 @@ StateAction WaypointState::ExcuteState::on_event(const dk::TickEvent& event,
     return StateAction::unhandled();
 }
 
-void WaypointState::run_wp_event(std::string e) {}
+void WaypointState::ExcuteState::run_wp_event(RobotContext& ctx,
+                                              const nlohmann::json& j) {
+    // 定义处理函数的类型
+    using EventHandler =
+        std::function<void(RobotContext&, const nlohmann::json&)>;
+
+    // 静态注册表，只在第一次调用时初始化，开销极小
+    static const std::unordered_map<std::string, EventHandler> event_handlers =
+        {{"video:on",
+          [](RobotContext& c, const nlohmann::json& j) {
+              StartRecordEvent e;
+              e.bag_name = j.value("eventParam", "");
+              c.engine->dispatch(e);
+          }},
+         {"video:off",
+          [](RobotContext& c, const nlohmann::json& j) {
+              StopRecordEvent e;
+              c.engine->dispatch(e);
+          }},
+         {"hat:on",
+          [](RobotContext& c, const nlohmann::json& j) {
+              EnableDetectEvent e;
+              e.type = "hat";
+              c.engine->dispatch(e);
+          }},
+         {"hat:off",
+          [](RobotContext& c, const nlohmann::json& j) {
+              DisableDetectEvent e;
+              c.engine->dispatch(e);
+          }},
+         {"smoke:on",
+          [](RobotContext& c, const nlohmann::json& j) {
+              EnableDetectEvent e;
+              e.type = "smoke";
+              c.engine->dispatch(e);
+          }},
+         {"gimbal:", [](RobotContext& c, const nlohmann::json& j) {
+              double angle_d = std::nanf("");
+              std::string angle = j.value("eventParam", "25");
+              try {
+                  angle_d = std::stof(angle);
+              } catch (const std::exception& e) {
+                  spdlog::error("run event error, event={} error={}", j.dump(),
+                                e.what());
+                  return;
+              }
+              SetGimbalEvent e;
+              e.angle = angle_d;
+              e.mode = "body";
+              c.engine->dispatch(e);
+          }}};
+    // 使用 value() 提供默认值，防止 JSON 缺少字段导致抛出异常
+    std::string event_type = j.value("eventType", "");
+    std::string status = j.value("eventStatus", "");
+
+    // 组合 Key
+    std::string handler_key = event_type + ":" + status;
+    // 查表并执行
+    auto it = event_handlers.find(handler_key);
+    if (it != event_handlers.end()) {
+        it->second(ctx, j);
+        spdlog::info("dispatch: {}!", j.dump());
+    } else {
+        // 可选：记录日志，提示未知的事件类型或状态
+        spdlog::error("Unknow event: {}", handler_key);
+    }
+}

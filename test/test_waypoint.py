@@ -4,11 +4,11 @@ import math
 import random
 import time
 import unittest
+from test.test_helper import Robot, http_post, sitl_env
+from test.utils import gps_distance
 
 import rospy
 import rostest
-from mavproxy_ros.test.test_helper import Robot, http_post, sitl_env
-from mavproxy_ros.test.utils import gps_distance
 
 XY_THRESHOLD = 3  # 目标的距离阈值
 Z_THRESHOLD = 1.2  # 高度的距离阈值
@@ -41,7 +41,11 @@ class TestWaypoint(unittest.TestCase):
         pass
 
     def set_waypoint(self, waypoint):
-        http_post("/set_waypoint", dict(waypoint=waypoint), check=True)
+        for i in range(10):
+            res = http_post("/set_waypoint", dict(waypoint=waypoint), check=True)
+            if res.get("status", None) == "success":
+                break
+            time.sleep(1)
 
         for i, wp in enumerate(waypoint[1:]):
             for _ in range(10):
@@ -61,7 +65,7 @@ class TestWaypoint(unittest.TestCase):
             lon = self.robot.state["lon"]
             dist = gps_distance(lon, lat, wp[0], wp[1])
             assert dist < XY_THRESHOLD, f"dist: {dist}, wp:[{wp[0]}, {wp[1]}]"
-            if self.robot.get_robot_type() == "drone":
+            if rospy.get_param("~robot_type") == "drone":
                 dist_z = math.fabs(self.robot.state["rel_alt"] - wp[2])
                 assert dist_z < Z_THRESHOLD, f"z: {dist_z}"
         self.robot.wait_for_state("state", "悬停状态")
@@ -74,22 +78,29 @@ class TestWaypoint(unittest.TestCase):
         IRIS_X = random.randint(-3, 3)
         IRIS_Y = random.randint(-3, 3)
         self.robot.set_state(x=IRIS_X, y=IRIS_Y, z=0.02)
+        robot_type = rospy.get_param("~robot_type")
+
         with sitl_env():
             self.robot.init()
             self.robot.takeoff()
             http_post("/stop_pland", check=True)
             http_post("/stop_planner", check=True)
 
-            self.set_waypoint(test_waypoint1)
-            http_post("/land", check=True)
-            self.robot.wait_for_state("state", "地面状态", 120)
+            if robot_type == "drone":
+                home_lat = self.robot.state["lat"]
+                home_lon = self.robot.state["lon"]
+                self.set_waypoint(test_waypoint1)
+                http_post("/return", check=True)
+            else:
+                self.set_waypoint(test_waypoint1)
+                http_post("/land", check=True)
+                self.robot.wait_for_state("state", "地面状态", 120)
+                home_lat = self.robot.state["lat"]
+                home_lon = self.robot.state["lon"]
 
-            home_lat = self.robot.state["lat"]
-            home_lon = self.robot.state["lon"]
-
-            self.set_waypoint(test_waypoint2)
-            self.robot.wait_for_state("state", "悬停状态", 120)
-            http_post("/return", check=True)
+                self.set_waypoint(test_waypoint2)
+                self.robot.wait_for_state("state", "悬停状态", 120)
+                http_post("/return", check=True)
             self.robot.wait_for_state("state", "地面状态", 120)
             dist_to_home = gps_distance(
                 home_lon, home_lat, self.robot.state["lon"], self.robot.state["lat"]
@@ -99,4 +110,4 @@ class TestWaypoint(unittest.TestCase):
 
 if __name__ == "__main__":
     # 将 unittest 挂载到 rostest 框架上
-    rostest.rosrun("mavproxy_ros", "test_waypoint", TestWaypoint)
+    rostest.rosrun("dankong", "test_waypoint", TestWaypoint)
