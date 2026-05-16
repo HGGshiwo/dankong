@@ -6,10 +6,6 @@
 #include <nlohmann/json.hpp>
 #include <string>
 
-namespace fs = boost::filesystem;
-
-fs::path get_current_run_path();
-
 struct FixedString64 {
     char data[64];
 
@@ -34,9 +30,15 @@ struct FixedString64 {
     FixedString64& operator=(const FixedString64&) = default;
 
     // 比较
-    bool operator==(const FixedString64& o) const noexcept { return strcmp(data, o.data) == 0; }
-    bool operator!=(const FixedString64& o) const noexcept { return !(*this == o); }
-    bool operator<(const FixedString64& o) const noexcept { return strcmp(data, o.data) < 0; }
+    bool operator==(const FixedString64& o) const noexcept {
+        return strcmp(data, o.data) == 0;
+    }
+    bool operator!=(const FixedString64& o) const noexcept {
+        return !(*this == o);
+    }
+    bool operator<(const FixedString64& o) const noexcept {
+        return strcmp(data, o.data) < 0;
+    }
 
     // 获取内容
     const char* c_str() const noexcept { return data; }
@@ -52,6 +54,3 @@ struct FixedString64 {
 
 // 确认可以用于 std::atomic
 static_assert(std::is_trivially_copyable_v<FixedString64>);
-
-using json = nlohmann::json;
-json yaml_to_json(const YAML::Node& yaml_node);

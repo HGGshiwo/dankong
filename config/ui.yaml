@@ -2,76 +2,106 @@
 # 1. 状态指示器配置 (StatusConfig)
 # 对应 config_type: "state"
 # ==========================================
-state:
+state_bool:
   - key: connected
-    name: "连接状态"
+    name: "飞控连接"
     collapse: false
+    
   - key: arm
     name: "解锁"
     collapse: false
+    
+  - key: planner
+    name: "避障"
+    collapse: false
+ 
+  - key: detect_type
+    name: "检测"
+    collapse: false
+
+  - key: pland
+    name: "精准降落"
+    collapse: false
+  
+  - key: recording
+    name: "录制"
+    collapse: false
+
+state_value:
   - key: mode
     name: "飞控模式"
     collapse: false
+  
   - key: state
     name: "单控模式"
     collapse: false
+
+state:
   - key: gps_nsats
     name: "GPS星数"
     collapse: false
+  
   - key: gps_fix_type
     name: "GPS fix_type"
     collapse: false
+  
   - key: rel_alt
     name: "相对高度"
     collapse: false
+    fixed: 2
+  
   - key: dist
     name: "目标距离"
     collapse: false
-  - key: planner
-    name: "避障状态"
-    collapse: false
+    fixed: 2
+  
   - key: version
     name: "version"
     collapse: false
-  - key: pland
-    name: "精准降落状态"
-    collapse: false
+  
   - key: basic_state
     name: "基本状态"
     collapse: false
+  
   - key: battery_level
     name: "电量"
     collapse: false
+  
   - key: yaw_diff
     name: "偏航误差"
     collapse: true
+  
   - key: yr
     name: "期望角速"
     collapse: true
+  
   - key: vx
     name: "期望速度"
     collapse: true
+  
   - key: alt_diff
     name: "高度误差"
     collapse: true
+  
   - key: wp_idx
     name: "当前航点"
     collapse: true
-  - key: follow x
-    name: "跟随速度X"
-    collapse: true
-  - key: follow y
-    name: "跟随速度Y"
-    collapse: true
-  - key: follow z
-    name: "跟随速度Z"
-    collapse: true
-  - key: max_forward_vel
-    name: "最大前向速度"
-    collapse: true
-  - key: max_backward_vel
-    name: "最大后向速度"
-    collapse: true
+  
+  # - key: follow x
+  #   name: "跟随速度X"
+  #   collapse: true
+  # - key: follow y
+  #   name: "跟随速度Y"
+  #   collapse: true
+  # - key: follow z
+  #   name: "跟随速度Z"
+  #   collapse: true
+  # - key: max_forward_vel
+  #   name: "最大前向速度"
+  #   collapse: true
+  # - key: max_backward_vel
+  #   name: "最大后向速度"
+  #   collapse: true
 
 # ==========================================
 # 2. 按钮触发器配置 (PrimaryButtonConfig)
@@ -80,6 +110,7 @@ state:
 button:
   - key: btn_prearms
     name: "起飞检查"
+    group: "飞行控制"
     target:
       config_type: "toast"
       url: "/prearms"
@@ -87,6 +118,7 @@ button:
 
   - key: btn_takeoff
     name: "起飞"
+    group: "飞行控制"
     target:
       config_type: "form"
       title: "起飞"
@@ -111,6 +143,7 @@ button:
 
   - key: btn_guided
     name: "GUIDED"
+    group: "飞行控制"
     target:
       config_type: "toast"
       url: "/set_mode"
@@ -120,77 +153,90 @@ button:
 
   - key: btn_loiter
     name: "悬停"
+    group: "飞行控制"
     target: { config_type: "toast", url: "/loiter", method: "POST" }
 
   - key: btn_return
     name: "返航"
+    group: "飞行控制"
     target: { config_type: "toast", url: "/return", method: "POST" }
 
   - key: btn_land
     name: "降落"
+    group: "飞行控制"
     target: { config_type: "toast", url: "/land", method: "POST" }
 
   - key: btn_pland
     name: "精准降落"
+    group: "飞行控制"
     target: { config_type: "toast", url: "/land", method: "POST" }
 
   - key: btn_reboot_fcu
     name: "重启飞控"
+    group: "飞行控制"
     target: { config_type: "toast", url: "/reboot_fcu", method: "POST" }
 
-  - key: btn_input_waypoint
-    name: "输入航点"
-    target:
-      config_type: "form"
-      title: "输入航点"
-      items:
-        - key: waypoint
-          type: "input"
-          name: "输入航点"
-          default: ""
-          transform: "json"
-        - key: vel
-          type: "number"
-          name: "输入速度"
-          default: 5
-      submit:
-        config_type: "button"
-        target: { config_type: "toast", url: "/set_waypoint", method: "POST" }
+  # - key: btn_input_waypoint
+  #   name: "输入航点"
+  #   target:
+  #     config_type: "form"
+  #     title: "输入航点"
+  #     items:
+  #       - key: waypoint
+  #         type: "input"
+  #         name: "输入航点"
+  #         default: ""
+  #         transform: "json"
+  #       - key: vel
+  #         type: "number"
+  #         name: "输入速度"
+  #         default: 5
+  #     submit:
+  #       config_type: "button"
+  #       target: { config_type: "toast", url: "/set_waypoint", method: "POST" }
 
   - key: btn_get_waypoint
     name: "获取航点"
+    group: "参数获取"
     target: { config_type: "copy", url: "/get_waypoint", method: "GET" }
 
   - key: btn_get_gps
     name: "获取GPS"
+    group: "参数获取"
     target: { config_type: "copy", url: "/get_gps", method: "GET" }
 
-  - key: btn_get_gpsv2
-    name: "获取GPSv2"
-    target: { config_type: "copy", url: "/get_gpsv2", method: "GET" }
+  # - key: btn_get_gpsv2
+  #   name: "获取GPSv2"
+  #   target: { config_type: "copy", url: "/get_gpsv2", method: "GET" }
 
   - key: btn_stop_follow
     name: "停止跟随"
+    group: "算法控制"
     target: { config_type: "toast", url: "/stop_follow", method: "POST" }
 
   - key: btn_start_pland
     name: "启用pland"
+    group: "算法控制"
     target: { config_type: "toast", url: "/start_pland", method: "POST" }
 
   - key: btn_stop_pland
     name: "关闭pland"
+    group: "算法控制"
     target: { config_type: "toast", url: "/stop_pland", method: "POST" }
 
   - key: btn_start_planner
     name: "启用避障"
+    group: "算法控制"
     target: { config_type: "toast", url: "/start_planner", method: "POST" }
 
   - key: btn_stop_planner
     name: "关闭避障"
+    group: "算法控制"
     target: { config_type: "toast", url: "/stop_planner", method: "POST" }
 
   - key: btn_start_detect
     name: "开启检测"
+    group: "算法控制"
     target:
       config_type: "form"
       title: "开启检测"
@@ -211,10 +257,12 @@ button:
 
   - key: btn_stop_detect
     name: "关闭检测"
+    group: "算法控制"
     target: { config_type: "toast", url: "/stop_detect", method: "POST" }
 
   - key: btn_start_record
     name: "开始录制"
+    group: "算法控制"
     target:
       config_type: "form"
       title: "开始录制"
@@ -230,10 +278,12 @@ button:
 
   - key: btn_stop_record
     name: "结束录制"
+    group: "算法控制"
     target: { config_type: "toast", url: "/stop_record", method: "POST" }
 
   - key: btn_gimbal_ctrl
     name: "云台控制"
+    group: "载荷控制"
     target:
       config_type: "form"
       title: "云台控制"
@@ -258,6 +308,7 @@ button:
 
   - key: btn_exposure_ctrl
     name: "曝光控制"
+    group: "载荷控制"
     target:
       config_type: "form"
       title: "曝光控制"
@@ -277,6 +328,7 @@ button:
 
   - key: btn_param_set
     name: "参数设置"
+    group: "参数获取"
     target:
       config_type: "form"
       title: "参数设置"

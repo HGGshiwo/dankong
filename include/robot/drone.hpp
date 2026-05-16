@@ -1,52 +1,38 @@
 #pragma once
+#include <Eigen/Dense>
+#include <memory>
+
+#include "../robot_context.hpp"
 #include "./robot_base.hpp"
 #include "dk/future.hpp"
 #include "mavlink/mavros.hpp"
 #include "robot_context.hpp"
 #include "states/state_utils.hpp"
 #include "utils.hpp"
+inline double THROTTLE_THRESH = 0.1;
 
-template <typename MavlinkType>
-class Drone : public IRobot<MavlinkType, RobotContext> {
-    bool check_hover(bool arm, double rel_alt) override;
-    double get_distance(Eigen::Vector3d pos, Eigen::Vector3d goal) override;
-    bool is_prearm_enable() override;
-    bool is_alt_enable() override;
+class Drone : public IRobot {
+   public:
+    Drone(std::shared_ptr<IMavlink> mavlink) : IRobot(mavlink) {};
 
-    dk::Future<bool> land(RobotContext& ctx) override;
+    double get_distance(Eigen::Vector3d pos, Eigen::Vector3d goal) {
+        return (pos - goal).norm();
+    }
+
+    bool is_prearm_enable() { return true; }
+
+    bool is_alt_enable() { return true; }
+
+    bool check_hover(IContext& ctx) {
+        return ctx.arm.get() && ctx.throttle.load() > THROTTLE_THRESH;
+    }
+
+    bool land(IContext& ctx) {
+        FixedString64 mode("LAND");
+        return mavlink_->set_mode(mode);
+    }
+
+    bool loiter() { return mavlink_->set_mode("LOITER"); }
+
+    bool takeoff(double alt) { return mavlink_->takeoff(alt); }
 };
-
-inline double HOVER_THRESH = 1.0;
-
-template <typename MavlinkType>
-double Drone<MavlinkType>::get_distance(Eigen::Vector3d pos, Eigen::Vector3d goal) {
-    return (pos - goal).norm();
-}
-
-template <typename MavlinkType>
-bool Drone<MavlinkType>::is_prearm_enable() {
-    return true;
-}
-
-template <typename MavlinkType>
-bool Drone<MavlinkType>::is_alt_enable() {
-    return true;
-}
-
-template <typename MavlinkType>
-bool Drone<MavlinkType>::check_hover(bool arm, double rel_alt) {
-    return arm && rel_alt > HOVER_THRESH;
-}
-
-template <typename MavlinkType>
-dk::Future<bool> Drone<MavlinkType>::land(RobotContext& ctx) {
-    using Promise = dk::Promise<bool>;
-    FixedString64 mode("LAND");
-    if (ctx.mode.get() == mode) return Promise::resolve(ctx.engine, true);
-    ctx.robot->set_mode(mode);
-
-    return ctx.engine->wait_for(1000, [mode](const FlightModeEvent& e) -> bool {
-        if (mode != e.cur) return false;
-        return true;
-    });
-}

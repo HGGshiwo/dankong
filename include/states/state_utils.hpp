@@ -15,26 +15,29 @@
 
 namespace state_utils {
 
-enum FinishAction {
-    HOVER,   // 执行后悬停
-    RETURN,  // 执行后返航
-    LAND,    // 执行后降落
-};
-
 bool check_alt(RobotContext& ctx, double target);
 
-Eigen::Vector3d get_relevant_enu(const Eigen::Vector3d& drone_lon_lat_alt, const Eigen::Vector3d& target_lon_lat_alt);
+Eigen::Vector3d get_relevant_enu(const Eigen::Vector3d& drone_lon_lat_alt,
+                                 const Eigen::Vector3d& target_lon_lat_alt);
 
 Eigen::Vector3d gps_to_enu(RobotContext& ctx, Eigen::Vector3d lon_lat_alt);
 
+Eigen::Vector3d enu_to_gps(RobotContext& ctx, const Eigen::Vector3d& enu);
+
 dk::Future<bool> prearm_check(RobotContext& ctx);
+
 double yaw_enu_to_ned(double yaw_enu);
+
+double yaw_ned_to_enu(double yaw_ned);
 
 Eigen::Quaterniond euler_to_orientation(double r, double p, double y);
 
 Eigen::Vector3d orientation_to_euler(double x, double y, double z, double w);
 
 double norm_yaw(double yaw);
+
+Eigen::Vector4d body_to_enu(const Eigen::Vector4d& body_target,
+                            const Eigen::Vector4d& current_odom);
 
 double get_heading(double enu_x, double enu_y);
 
@@ -48,12 +51,7 @@ bool check_sensor_health(uint32_t sensor_health);
 
 bool is_prearm_msg(const std::string& text);
 
-// 模板必须直接给函数定义，否则链接时找不到定义
-template <typename StateType>
-inline bool is_state(std::shared_ptr<dk::IState<RobotContext>> state) {
-    auto* stateA = dynamic_cast<StateType*>(state.get());
-    return !!stateA;
-}
+dk::Future<bool> set_mode(RobotContext& ctx, FixedString64 mode);
 
 // 对double数组进行检查，是否所有值都被卡住
 template <int N>
@@ -68,7 +66,9 @@ class StallChecker {
    public:
     // 构造函数：直接接收 std::array 作为阈值，保证元素个数绝对等于 N
     StallChecker(std::array<double, N> threshold, double check_time_s)
-        : threshold_(threshold), check_time_s_(check_time_s), start_time_(std::chrono::steady_clock::now()) {}
+        : threshold_(threshold),
+          check_time_s_(check_time_s),
+          start_time_(std::chrono::steady_clock::now()) {}
 
     // 参数也改为接收 std::array 或者 double 数组指针
     bool is_stall(std::array<double, N> data) {

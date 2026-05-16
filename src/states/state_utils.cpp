@@ -21,8 +21,7 @@ bool should_do_prearm_check(RobotContext& ctx) {
     if (!ctx.robot->is_prearm_enable()) {
         return false;
     }
-    ApmParam param = ctx.robot->get_param("ARMING_CHECK", 0);
-    int value = IMavlink::unpack<int>(param);
+    int value = ctx.robot->get_param<int>("ARMING_CHECK", 0);
     spdlog::info("prearm_check: ARMING_CHECK={}", value);
     if (value == 0) return false;
     return true;
@@ -39,7 +38,8 @@ bool check_sensor_health(uint32_t sensor_health) {
 
 // TODO: 带上一个停止token，如果重复调用就返回或者做别的事情
 dk::Future<bool> prearm_check(RobotContext& ctx) {
-    if (!should_do_prearm_check(ctx)) return dk::Promise<bool>::resolve(ctx.engine, true);
+    if (!should_do_prearm_check(ctx))
+        return dk::Promise<bool>::resolve(ctx.engine, true);
 
     // 检查是否已经通过prearm check
     int bits = 0x10000000;
@@ -75,7 +75,8 @@ bool check_alt(RobotContext& ctx, double target) {
     double TAKEOFF_RATE = 0.1;
     double TAKEOFF_DIFF_THRSH = 0.6;
     auto pos = ctx.pos_enu.get();
-    return std::fabs(pos.z() - target) < std::fmax(target * TAKEOFF_RATE, TAKEOFF_DIFF_THRSH);
+    return std::fabs(pos.z() - target) <
+           std::fmax(target * TAKEOFF_RATE, TAKEOFF_DIFF_THRSH);
 }
 
 Eigen::Vector3d gps_to_enu(RobotContext& ctx, Eigen::Vector3d lon_lat_alt) {
@@ -84,22 +85,44 @@ Eigen::Vector3d gps_to_enu(RobotContext& ctx, Eigen::Vector3d lon_lat_alt) {
     return diff + pos;
 }
 
+// Helper: Convert relative BODY pose to absolute ENU pose
+// Vector4d: body_x, body_y, body_z, body_yaw -> enu_x, enu_y, enu_z, enu_yaw
+Eigen::Vector4d body_to_enu(const Eigen::Vector4d& body_target,
+                            const Eigen::Vector4d& current_odom) {
+    Eigen::Vector4d enu_target;
+    // 2D Rotation matrix transformation
+    double cos_yaw = std::cos(current_odom.w());
+    double sin_yaw = std::sin(current_odom.w());
+
+    enu_target.x() = current_odom.x() +
+                     (body_target.x() * cos_yaw - body_target.y() * sin_yaw);
+    enu_target.y() = current_odom.y() +
+                     (body_target.x() * sin_yaw + body_target.y() * cos_yaw);
+    enu_target.z() = current_odom.z() + body_target.z();
+    enu_target.w() = state_utils::norm_yaw(current_odom.w() + body_target.w());
+
+    return enu_target;
+}
+
 // 计算目标 GPS 点相对于无人机当前 GPS 点的 ENU 偏差向量
-Eigen::Vector3d get_relevant_enu(const Eigen::Vector3d& drone_lon_lat_alt, const Eigen::Vector3d& target_lon_lat_alt) {
+Eigen::Vector3d get_relevant_enu(const Eigen::Vector3d& drone_lon_lat_alt,
+                                 const Eigen::Vector3d& target_lon_lat_alt) {
     // 1. 获取无人机当前的 UTM 投影参数
     int drone_zone;
     bool is_north;
     double drone_x, drone_y;
 
     // drone_gps[1] 是纬度， drone_gps[0] 是经度
-    GeographicLib::UTMUPS::Forward(drone_lon_lat_alt[1], drone_lon_lat_alt[0], drone_zone, is_north, drone_x, drone_y);
+    GeographicLib::UTMUPS::Forward(drone_lon_lat_alt[1], drone_lon_lat_alt[0],
+                                   drone_zone, is_north, drone_x, drone_y);
     // 2. 获取目标点的 UTM 投影参数
     int target_zone;
     bool target_northp;
     double target_x, target_y;
     // 关键点：强制目标点使用无人机当前的投影带 (setzone = drone_zone)
     // 这样算出来的欧式距离才是准确的
-    GeographicLib::UTMUPS::Forward(target_lon_lat_alt[1], target_lon_lat_alt[0], target_zone, target_northp, target_x,
+    GeographicLib::UTMUPS::Forward(target_lon_lat_alt[1], target_lon_lat_alt[0],
+                                   target_zone, target_northp, target_x,
                                    target_y, drone_zone);
     // 3. 返回相对偏差 (Target - Drone)
     return {
@@ -109,13 +132,47 @@ Eigen::Vector3d get_relevant_enu(const Eigen::Vector3d& drone_lon_lat_alt, const
     };
 }
 
-dk::Future<bool> do_land(RobotContext& ctx) {
-    return ctx.robot->land(ctx);
+// Calculate the target GPS point based on the drone's current GPS and the ENU
+// offset vector
+Eigen::Vector3d enu_to_gps(RobotContext& ctx, const Eigen::Vector3d& enu) {
+    // 1. Get the UTM projection parameters and coordinates of the drone
+    int drone_zone;
+    bool is_north;
+    double drone_x, drone_y;
+    auto drone_lon_lat_alt = ctx.lon_lat_alt.get();
+    // drone_lon_lat_alt[1] is Latitude, drone_lon_lat_alt[0] is Longitude
+    GeographicLib::UTMUPS::Forward(drone_lon_lat_alt[1], drone_lon_lat_alt[0],
+                                   drone_zone, is_north, drone_x, drone_y);
+    // 2. Add the ENU offset to the drone's UTM coordinates to get the target's
+    // UTM coordinates enu_vector[0] is East offset, enu_vector[1] is North
+    // offset
+    auto drone_enu = ctx.pos_enu.get();
+    double target_x = drone_x + enu[0] - drone_enu.x();
+    double target_y = drone_y + enu[1] - drone_enu.y();
+    // 3. Reverse project the target's UTM coordinates back to Latitude and
+    // Longitude Must use the drone's UTM zone and hemisphere (is_north)
+    double target_lat, target_lon;
+    GeographicLib::UTMUPS::Reverse(drone_zone, is_north, target_x, target_y,
+                                   target_lat, target_lon);
+    // 4. Return the target's {Longitude, Latitude, Altitude}
+    return {
+        target_lon,  // Target Longitude
+        target_lat,  // Target Latitude
+        drone_lon_lat_alt[2] + enu[2] -
+            drone_enu.z()  // Target Altitude (Drone Alt + Up offset)
+    };
 }
 
 // enu坐标系的yaw转为ned
 double yaw_enu_to_ned(double yaw_enu) {
     double heading = M_PI * 0.5 - yaw_enu;
+    heading = norm_yaw(heading);
+    return heading;
+}
+
+// ned坐标系的yaw转为enu
+double yaw_ned_to_enu(double yaw_ned) {
+    double heading = M_PI * 0.5 - yaw_ned;
     heading = norm_yaw(heading);
     return heading;
 }
@@ -128,6 +185,7 @@ double norm_yaw(double yaw) {
 }
 
 // 给定两个坐标的差值，计算enu下的yaw
+// 注意要判断两点是否足够的近
 double get_heading(double enu_x, double enu_y) {
     double enu_yaw = atan2(enu_y, enu_x);
     return norm_yaw(enu_yaw);

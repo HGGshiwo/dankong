@@ -24,8 +24,16 @@ find_package(catkin REQUIRED COMPONENTS
   roscpp
   mavros
   mavros_msgs
+  rsos_msgs
 )
 find_package(Eigen3 REQUIRED)
+
+find_library(TINYXML2_LIBRARY NAMES tinyxml2)
+find_path(TINYXML2_INCLUDE_DIR NAMES tinyxml2.h)
+if(NOT TINYXML2_LIBRARY OR NOT TINYXML2_INCLUDE_DIR)
+    message(FATAL_ERROR "tinyxml2 not found")
+endif()
+
 ## System dependencies are found with CMake's conventions
 #find_package(Boost REQUIRED COMPONENTS system)
 
@@ -165,11 +173,10 @@ set (MAVLINK_SRC
 
 set (NODE_SRC
   src/dankong_node.cpp 
-  src/utils.cpp
 )
 
 add_executable(${PROJECT_NAME}_node ${STATE_SRC} ${MAVLINK_SRC} ${NODE_SRC})
-
+target_compile_definitions(${PROJECT_NAME}_node PUBLIC BUILD_DRONE)
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
 ## target back to the shorter version for ease of user use
@@ -180,6 +187,7 @@ add_executable(${PROJECT_NAME}_node ${STATE_SRC} ${MAVLINK_SRC} ${NODE_SRC})
 ## same as for the library above
 #add_dependencies(${PROJECT_NAME} _node ${${PROJECT_NAME} _EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
+add_dependencies(${PROJECT_NAME}_node ${catkin_EXPORTED_TARGETS})
 ## Specify libraries to link a library or executable target against
 target_link_libraries(${PROJECT_NAME}_node
     dk       # 链接框架
@@ -187,9 +195,10 @@ target_link_libraries(${PROJECT_NAME}_node
     Geographic
     atomic  
     Eigen3::Eigen
+  ${TINYXML2_LIBRARY}
   ${catkin_LIBRARIES}
 )
-
+target_include_directories(${PROJECT_NAME}_node PRIVATE ${TINYXML2_INCLUDE_DIR})
 #############
 ## Install ##
 #############
@@ -247,5 +256,25 @@ target_link_libraries(${PROJECT_NAME}_node
 
 if(CATKIN_ENABLE_TESTING)
   find_package(rostest REQUIRED)
-  add_rostest(test/start_all.test)
+  # dog测试
+  # add_rostest(test/test_dog.test)
+  # add_rostest(test/test_posvel_dog.test)
+  # add_rostest(test/test_waypoint_dog.test )
+
+  # drone测试
+  add_rostest(test/test_follow.test)
+  # add_rostest(test/test_pland.test)
+  # add_rostest(test/test_planner.test)
+  add_rostest(test/test_posvel_drone.test)
+  add_rostest(test/test_waypoint_drone.test)
+
+  
+  # catkin_add_gtest(test_landing_controller test/pland/landing_controller_test.cpp)
+  
+  # 测试程序也需要链接你的核心算法库
+  # target_link_libraries(test_landing_controller
+  #   pland_core
+  #   ${catkin_LIBRARIES}
+  # )
+  
 endif()

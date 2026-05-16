@@ -7,7 +7,7 @@
         <arg name="robot_type" value="drone" />
         <arg name="output" value="log" />
     </include>
-    <test pkg="dankong" type="test_forever.py" test-name="test_forever" time-limit="100000">
+    <test pkg="dankong" type="debug.py" test-name="debug" time-limit="100000">
         <param name="robot_type" value="$(arg robot_type)" />
     </test>
 

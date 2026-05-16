@@ -17,9 +17,10 @@ class TakeoffState : public dk::BaseState<RobotContext, TakeoffState, void> {
     using TriggerEvent = std::variant<SetWaypointEvent, TakeoffEvent>;
     std::chrono::steady_clock::time_point start_time_;
     TriggerEvent event_;
-    bool step_waypoint_ = false;  // 是否进入waypoint
     double alt_;
-    state_utils::FinishAction action_;
+
+    // 和waypoint相关
+    bool step_waypoint_ = false;  // 是否进入waypoint
 
    public:
     class PrearmCheckState;
@@ -28,14 +29,20 @@ class TakeoffState : public dk::BaseState<RobotContext, TakeoffState, void> {
 
     TakeoffState(TakeoffEvent e);
 
-    TakeoffState(SetWaypointEvent e, state_utils::FinishAction action);
+    TakeoffState(SetWaypointEvent e);
+
+    void report_takeoff(RobotContext& ctx) {
+        ctx.ws_manager->publish_reliable(
+            nlohmann::json{{"type", "event"}, {"event", "takeoff"}});
+    }
 
     StateAction on_event(const dk::TickEvent& e, RobotContext& ctx);
 
     static constexpr std::string_view static_name() { return "起飞状态"; }
 };
 
-class TakeoffState::PrearmCheckState : public dk::BaseState<RobotContext, PrearmCheckState, TakeoffState> {
+class TakeoffState::PrearmCheckState
+    : public dk::BaseState<RobotContext, PrearmCheckState, TakeoffState> {
    public:
     using AllowedEvents = std::tuple<SysStatusEvent, StatusTextEvent>;
 
@@ -48,7 +55,8 @@ class TakeoffState::PrearmCheckState : public dk::BaseState<RobotContext, Prearm
     static constexpr std::string_view static_name() { return "起飞检查"; }
 };
 
-class TakeoffState::ArmState : public dk::BaseState<RobotContext, ArmState, TakeoffState> {
+class TakeoffState::ArmState
+    : public dk::BaseState<RobotContext, ArmState, TakeoffState> {
    public:
     using AllowedEvents = std::tuple<ArmEvent>;
 
@@ -59,7 +67,8 @@ class TakeoffState::ArmState : public dk::BaseState<RobotContext, ArmState, Take
     static constexpr std::string_view static_name() { return "解锁状态"; }
 };
 
-class TakeoffState::TakingoffState : public dk::BaseState<RobotContext, TakingoffState, TakeoffState> {
+class TakeoffState::TakingoffState
+    : public dk::BaseState<RobotContext, TakingoffState, TakeoffState> {
    public:
     using AllowedEvents = std::tuple<dk::TickEvent>;
 

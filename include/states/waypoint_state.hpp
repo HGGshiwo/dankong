@@ -15,13 +15,14 @@ class WaypointState : public dk::BaseState<RobotContext, WaypointState, void> {
    public:
     std::vector<Eigen::Vector3d> wp_list_;
     std::optional<std::vector<std::vector<std::string>>> event_list_;
-    state_utils::FinishAction action_;
+    FinishAction action_;
+    int land_target_id_;
     int wp_idx_;  // 当前点的序号
 
    private:
     void waypoint_finish(RobotContext& ctx);
 
-    void run_wp_envet(std::string e);
+    void run_wp_event(std::string e);
 
     bool check_arrive(RobotContext& ctx);
 
@@ -30,11 +31,16 @@ class WaypointState : public dk::BaseState<RobotContext, WaypointState, void> {
    public:
     using AllowedEvents = std::tuple<>;
 
+    void report_task_done(RobotContext& ctx) {
+        ctx.ws_manager->publish_reliable(
+            json{{"type", "event"}, {"event", "disarm"}});
+    }
+
     void on_enter(RobotContext& ctx) override;
 
     void on_exit(RobotContext& ctx) override;
 
-    WaypointState(SetWaypointEvent e, state_utils::FinishAction action);
+    WaypointState(SetWaypointEvent e);
 
     static constexpr std::string_view static_name() { return "航点模式"; };
 
@@ -45,7 +51,8 @@ class WaypointState : public dk::BaseState<RobotContext, WaypointState, void> {
     class ExcuteState;
 };
 
-class WaypointState::LiftingState : public dk::BaseState<RobotContext, LiftingState, WaypointState> {
+class WaypointState::LiftingState
+    : public dk::BaseState<RobotContext, LiftingState, WaypointState> {
     std::chrono::time_point<std::chrono::steady_clock> start_time_;
     double target_alt_;
     double last_alt_;
@@ -67,7 +74,8 @@ class WaypointState::LiftingState : public dk::BaseState<RobotContext, LiftingSt
     StateAction on_event(const dk::TickEvent& e, RobotContext& ctx);
 };
 
-class WaypointState::ExcuteState : public dk::BaseState<RobotContext, ExcuteState, WaypointState> {
+class WaypointState::ExcuteState
+    : public dk::BaseState<RobotContext, ExcuteState, WaypointState> {
    public:
     double wp_dist_;           // 到下一个目标的距离
     Eigen::Vector3d wp_goal_;  // 点在enu坐标系下的目标
