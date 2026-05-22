@@ -413,7 +413,8 @@ class Robot(GazeboObject):
                 else:
                     rospy.loginfo(f"起飞失败，{out['msg']}")
                     break
-
+            print("等待10s尝试")
+            time.sleep(10)
         raise RuntimeError("Prearm timeout!")
 
 

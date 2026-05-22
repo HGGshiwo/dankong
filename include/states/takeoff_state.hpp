@@ -3,6 +3,7 @@
 #include <memory>
 #include <variant>
 
+#include "features/control/events.hpp"
 #include "ground_state.hpp"
 #include "hover_state.hpp"
 #include "state_common.hpp"
@@ -58,11 +59,13 @@ class TakeoffState::PrearmCheckState
 class TakeoffState::ArmState
     : public dk::BaseState<RobotContext, ArmState, TakeoffState> {
    public:
-    using AllowedEvents = std::tuple<ArmEvent>;
+    using AllowedEvents = std::tuple<ArmEvent, StatusTextEvent>;
 
     void on_enter(RobotContext& ctx) override;
 
     StateAction on_event(const ArmEvent& event, RobotContext& ctx);
+
+    StateAction on_event(const StatusTextEvent& event, RobotContext& ctx);
 
     static constexpr std::string_view static_name() { return "解锁状态"; }
 };
@@ -71,8 +74,6 @@ class TakeoffState::TakingoffState
     : public dk::BaseState<RobotContext, TakingoffState, TakeoffState> {
    public:
     using AllowedEvents = std::tuple<dk::TickEvent>;
-
-    bool takeoff_res_;
 
     std::shared_ptr<state_utils::StallChecker<1>> checker_;
 

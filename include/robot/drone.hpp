@@ -1,38 +1,54 @@
 #pragma once
-#include <Eigen/Dense>
+#include <any>
+#include <atomic>
 #include <memory>
 
-#include "../robot_context.hpp"
-#include "./robot_base.hpp"
-#include "dk/future.hpp"
-#include "mavlink/mavros.hpp"
-#include "robot_context.hpp"
-#include "states/state_utils.hpp"
-#include "utils.hpp"
+#include "dk/report.hpp"
+#include "dk/utils.hpp"
+#include "mavlink/imavlink.hpp"
+#include "robot/irobot.hpp"
+
 inline double THROTTLE_THRESH = 0.1;
 
+// 无人机硬件逻辑实现
+// 依赖注入 DroneSpecificData，check_hover()/land() 直接读取内部数据，零 cast
 class Drone : public IRobot {
    public:
-    Drone(std::shared_ptr<IMavlink> mavlink) : IRobot(mavlink) {};
+    explicit Drone(std::shared_ptr<IMavlink> mavlink) : IRobot(mavlink) {}
 
-    double get_distance(Eigen::Vector3d pos, Eigen::Vector3d goal) {
+    bool inner_check_hover(bool arm, double throttle) override {
+        return arm && throttle > THROTTLE_THRESH;
+    }
+
+    bool cmd_vel(Eigen::Vector4d vel) override {
+        mavlink_->cmd_vel(vel);
+        return true;
+    };
+
+    static constexpr std::string_view ROBOT_TYPE = "DRONE";
+
+    bool inner_is_landed(bool arm, double throttle,
+                         double rangefinder) override {
+        bool disarmed = !arm;
+        bool ground_check = throttle >= 0 && throttle < 0.01 &&
+                            rangefinder >= 0 && rangefinder < 0.5;
+        return disarmed || ground_check;
+    }
+
+    double get_distance(Eigen::Vector3d pos, Eigen::Vector3d goal) override {
         return (pos - goal).norm();
     }
 
-    bool is_prearm_enable() { return true; }
+    bool is_prearm_enable() override { return true; }
 
-    bool is_alt_enable() { return true; }
+    bool is_alt_enable() override { return true; }
 
-    bool check_hover(IContext& ctx) {
-        return ctx.arm.get() && ctx.throttle.load() > THROTTLE_THRESH;
-    }
-
-    bool land(IContext& ctx) {
+    bool land() override {
         FixedString64 mode("LAND");
         return mavlink_->set_mode(mode);
     }
 
-    bool loiter() { return mavlink_->set_mode("LOITER"); }
+    bool loiter() override { return mavlink_->set_mode("LOITER"); }
 
-    bool takeoff(double alt) { return mavlink_->takeoff(alt); }
+    bool takeoff(double alt) override { return mavlink_->takeoff(alt); }
 };

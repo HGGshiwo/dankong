@@ -8,7 +8,6 @@ import rospy
 import rostest
 from mavproxy_ros.test.test_helper import Robot, sitl_env
 
-MODEL_NAME = "iris_demo"
 XY_THRESHOLD = 2.5  # 目标的距离阈值
 Z_THRESHOLD = 1.0  # 高度的距离阈值
 

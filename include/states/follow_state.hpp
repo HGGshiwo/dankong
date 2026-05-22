@@ -1,6 +1,7 @@
 #pragma once
 #include <chrono>
 
+#include "features/tracker/tracker.hpp"
 #include "state_common.hpp"
 #include "states/hover_state.hpp"
 #include "states/state_common.hpp"
@@ -36,13 +37,15 @@ StateAction FollowState<ParentState>::on_event(const DetectEvent& event,
         event.score >= 0 ? event.cmd_vel : Eigen::Vector3d::Zero();
 
     if (event.score > 0) {
-        auto gps = state_utils::enu_to_gps(ctx, event.target_pos);
+        auto gps = state_utils::enu_to_gps(ctx.lon_lat_alt.get(),
+                                           ctx.pos_enu.get(), event.target_pos);
         DetectTargetEvent target_event;
         target_event.pos = gps;
         ctx.engine->dispatch_internal(target_event);
     }
-    ctx.robot->send_cmd(std::nullopt, cmd_vel, std::nullopt, std::nullopt,
-                        std::nullopt, CmdFrame::BODY);
+
+    ctx.tracker->send_vel_cmd(cmd_vel, std::nullopt, std::nullopt,
+                              CmdFrame::BODY);
     return StateAction::handled();
 }
 

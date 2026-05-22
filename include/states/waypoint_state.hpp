@@ -16,6 +16,7 @@ class WaypointState : public dk::BaseState<RobotContext, WaypointState, void> {
     std::vector<Eigen::Vector3d> wp_list_;
     std::optional<std::vector<nlohmann::json>> node_event_list_;
     FinishAction action_;
+    std::optional<double> target_vel_;  // 期望的速度
 
     int land_target_id_;
     int wp_idx_;  // 当前点的序号

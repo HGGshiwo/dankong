@@ -5,23 +5,12 @@ bool is_prearm_msg(const std::string& text) {
     return text.rfind("PreArm: ", 0) == 0 || text.rfind("Arm: ", 0) == 0;
 }
 
-dk::Future<bool> set_mode(RobotContext& ctx, FixedString64 mode) {
-    using Promise = dk::Promise<bool>;
-    if (ctx.mode.get() == mode) return Promise::resolve(ctx.engine, true);
-    ctx.robot->set_mode(mode);
-
-    return ctx.engine->wait_for(1000, [mode](const FlightModeEvent& e) -> bool {
-        if (mode != e.cur) return false;
-        return true;
-    });
-}
-
 // 判断是否真的需要进行prearm_check
-bool should_do_prearm_check(RobotContext& ctx) {
-    if (!ctx.robot->is_prearm_enable()) {
+bool should_do_prearm_check(std::shared_ptr<IRobot> robot) {
+    if (!robot->is_prearm_enable()) {
         return false;
     }
-    int value = ctx.robot->get_param<int>("ARMING_CHECK", 0);
+    int value = robot->get_param<int>("ARMING_CHECK", 0);
     spdlog::info("prearm_check: ARMING_CHECK={}", value);
     if (value == 0) return false;
     return true;
@@ -36,52 +25,11 @@ bool check_sensor_health(uint32_t sensor_health) {
     return false;
 };
 
-// TODO: 带上一个停止token，如果重复调用就返回或者做别的事情
-dk::Future<bool> prearm_check(RobotContext& ctx) {
-    if (!should_do_prearm_check(ctx))
-        return dk::Promise<bool>::resolve(ctx.engine, true);
-
-    // 检查是否已经通过prearm check
-    int bits = 0x10000000;
-    if ((ctx.sensor_health & bits) == bits) {
-        return dk::Promise<bool>::resolve(ctx.engine, true);
-    }
-
-    auto p = std::make_shared<dk::Promise<bool>>(ctx.engine);
-
-    // 等待错误信息
-    ctx.engine->wait_for(
-        1000,
-        [p](const StatusTextEvent& status_text) -> bool {
-            if (is_prearm_msg(status_text.text)) {
-                p->reject(status_text.text);
-                return true;
-            }
-            return false;
-        },
-        [p](const SysStatusEvent& sys_status) -> bool {
-            if (check_sensor_health(sys_status.data)) {
-                p->resolve(true);
-                return true;
-            }
-            return false;
-        });
-
-    ctx.engine->post_future_task([&ctx]() { ctx.robot->run_prearm_checks(); });
-    return p->get_future();
-}
-
-bool check_alt(RobotContext& ctx, double target) {
-    double TAKEOFF_RATE = 0.1;
-    double TAKEOFF_DIFF_THRSH = 0.6;
-    auto pos = ctx.pos_enu.get();
-    return std::fabs(pos.z() - target) <
-           std::fmax(target * TAKEOFF_RATE, TAKEOFF_DIFF_THRSH);
-}
-
-Eigen::Vector3d gps_to_enu(RobotContext& ctx, Eigen::Vector3d lon_lat_alt) {
-    Eigen::Vector3d diff = get_relevant_enu(ctx.lon_lat_alt.get(), lon_lat_alt);
-    auto pos = ctx.pos_enu.get();
+Eigen::Vector3d gps_to_enu(Eigen::Vector3d cur_lon_lat_alt,
+                           Eigen::Vector3d cur_pos_enu,
+                           Eigen::Vector3d lon_lat_alt) {
+    Eigen::Vector3d diff = get_relevant_enu(cur_lon_lat_alt, lon_lat_alt);
+    auto pos = cur_pos_enu;
     return diff + pos;
 }
 
@@ -134,19 +82,21 @@ Eigen::Vector3d get_relevant_enu(const Eigen::Vector3d& drone_lon_lat_alt,
 
 // Calculate the target GPS point based on the drone's current GPS and the ENU
 // offset vector
-Eigen::Vector3d enu_to_gps(RobotContext& ctx, const Eigen::Vector3d& enu) {
+Eigen::Vector3d enu_to_gps(Eigen::Vector3d cur_lon_lat_alt,
+                           Eigen::Vector3d cur_pos_enu,
+                           const Eigen::Vector3d& enu) {
     // 1. Get the UTM projection parameters and coordinates of the drone
     int drone_zone;
     bool is_north;
     double drone_x, drone_y;
-    auto drone_lon_lat_alt = ctx.lon_lat_alt.get();
+    auto drone_lon_lat_alt = cur_lon_lat_alt;
     // drone_lon_lat_alt[1] is Latitude, drone_lon_lat_alt[0] is Longitude
     GeographicLib::UTMUPS::Forward(drone_lon_lat_alt[1], drone_lon_lat_alt[0],
                                    drone_zone, is_north, drone_x, drone_y);
     // 2. Add the ENU offset to the drone's UTM coordinates to get the target's
     // UTM coordinates enu_vector[0] is East offset, enu_vector[1] is North
     // offset
-    auto drone_enu = ctx.pos_enu.get();
+    auto drone_enu = cur_pos_enu;
     double target_x = drone_x + enu[0] - drone_enu.x();
     double target_y = drone_y + enu[1] - drone_enu.y();
     // 3. Reverse project the target's UTM coordinates back to Latitude and

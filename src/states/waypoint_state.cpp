@@ -5,6 +5,7 @@
 #include <optional>
 #include <stdexcept>
 
+#include "features/tracker/tracker.hpp"
 #include "mavlink/imavlink.hpp"
 #include "states/ground_state.hpp"
 #include "states/hover_state.hpp"
@@ -18,7 +19,8 @@ WaypointState::WaypointState(SetWaypointEvent e)
       wp_idx_(0),
       action_(e.finish_action),
       node_event_list_(e.nodeEventList),
-      land_target_id_(e.land_target_id) {}
+      land_target_id_(e.land_target_id),
+      target_vel_(e.speed) {}
 
 void WaypointState::WaypointState::on_enter(RobotContext& ctx) {
     // 现在一定是起飞中了
@@ -95,7 +97,7 @@ void WaypointState::LiftingState::on_enter(RobotContext& ctx) {
     auto diff = state_utils::get_relevant_enu(ctx.lon_lat_alt.get(), cur_wp);
     target_alt_ = cur_wp.z();
     target_yaw_ = diff.head<2>().norm() < CLOSE_THRESH
-                      ? ctx.yaw_ned.get()
+                      ? ctx.yaw_enu.load()
                       : state_utils::get_heading(diff.x(), diff.y());
 }
 
@@ -107,8 +109,8 @@ StateAction WaypointState::LiftingState::on_event(const dk::TickEvent& e,
 
     if (yaw_diff < YAW_TOLERANCE &&
         (!ctx.robot->is_alt_enable() || alt_diff < ALT_TOLERANCE)) {
-        ctx.robot->send_cmd(std::nullopt, Eigen::Vector3d::Zero(), std::nullopt,
-                            std::nullopt, std::nullopt, CmdFrame::ENU);
+        ctx.tracker->send_vel_cmd(Eigen::Vector3d::Zero(), std::nullopt,
+                                  std::nullopt, CmdFrame::ENU);
         return step<WaypointState::ExcuteState>();
     }
 
@@ -118,20 +120,19 @@ StateAction WaypointState::LiftingState::on_event(const dk::TickEvent& e,
 
     double vz = std::clamp(target_alt_ - ctx.lon_lat_alt.get().z(), -MAX_Z_VEL,
                            MAX_Z_VEL);
-    ctx.robot->send_cmd(std::nullopt, Eigen::Vector3d{0.0, 0.0, vz},
-                        std::nullopt, target_yaw_, std::nullopt, CmdFrame::ENU);
+    ctx.tracker->send_vel_cmd(Eigen::Vector3d{0.0, 0.0, vz}, target_yaw_,
+                              std::nullopt, CmdFrame::ENU);
     return StateAction::unhandled();
 }
 
 void WaypointState::LiftingState::on_exit(RobotContext& ctx) {
-    ctx.robot->send_cmd(std::nullopt, Eigen::Vector3d{0.0, 0.0, 0.0},
-                        std::nullopt, std::nullopt, std::nullopt,
-                        CmdFrame::ENU);
+    ctx.tracker->send_vel_cmd(Eigen::Vector3d{0.0, 0.0, 0.0}, std::nullopt,
+                              std::nullopt, CmdFrame::ENU);
 }
 
 //============= excute_state =============
 
-double TOLERANCE = 2.0;
+double TOLERANCE = 1.2;
 bool WaypointState::ExcuteState::check_arrive(RobotContext& ctx) {
     if (!ctx.odom_ok) return false;
     double dist = ctx.robot->get_distance(ctx.pos_enu.get(), wp_goal_);
@@ -142,11 +143,13 @@ bool WaypointState::ExcuteState::check_arrive(RobotContext& ctx) {
 // 执行当前wp_idx指向的航点
 void WaypointState::ExcuteState::on_enter(RobotContext& ctx) {
     auto wp = parent()->get_cur_wp();
-    wp_goal_ = state_utils::gps_to_enu(ctx, wp);
+    wp_goal_ =
+        state_utils::gps_to_enu(ctx.lon_lat_alt.get(), ctx.pos_enu.get(), wp);
 
     if (!ctx.planner_enable.get()) {
-        ctx.robot->send_cmd(wp_goal_, std::nullopt, std::nullopt, std::nullopt,
-                            std::nullopt, CmdFrame::ENU);
+        ctx.tracker->send_pos_cmd(wp_goal_, std::nullopt, std::nullopt,
+                                  std::nullopt, parent()->target_vel_,
+                                  std::nullopt, CmdFrame::ENU);
     }
 
     if (parent()->node_event_list_.has_value()) {

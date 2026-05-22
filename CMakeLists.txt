@@ -5,21 +5,14 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Release")
     set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG -march=native")
 endif()
-# set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-#set(CMAKE_C_COMPILER clang)
-#set(CMAKE_CXX_COMPILER clang++)
 
 add_subdirectory(dk)
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
-#调用函数，扫描用户自己的 src 目录
+
+# 调用函数，扫描用户自己的 src 目录
 dk_create_json_library(my_json_lib "${CMAKE_CURRENT_SOURCE_DIR}")
 
-## Compile as C++11, supported in ROS Kinetic and newer
-#add_compile_options(-std = c++ 11)
-
 ## Find catkin macros and libraries
-## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
-## is used, also find other catkin packages
 find_package(catkin REQUIRED COMPONENTS 
   roscpp
   mavros
@@ -34,228 +27,137 @@ if(NOT TINYXML2_LIBRARY OR NOT TINYXML2_INCLUDE_DIR)
     message(FATAL_ERROR "tinyxml2 not found")
 endif()
 
-## System dependencies are found with CMake's conventions
-#find_package(Boost REQUIRED COMPONENTS system)
+catkin_package()
 
-
-## Uncomment this if the package has a setup.py. This macro ensures
-## modules and global scripts declared therein get installed
-## See http://ros.org/doc/api/catkin/html/user_guide/setup_dot_py.html
-#catkin_python_setup()
-
-################################################
-## Declare ROS messages, services and actions ##
-################################################
-
-## To declare and build messages, services or actions from within this
-## package, follow these steps:
-## * Let MSG_DEP_SET be the set of packages whose message types you use in
-##   your messages/services/actions (e.g. std_msgs, actionlib_msgs, ...).
-## * In the file package.xml:
-##   * add a build_depend tag for "message_generation"
-##   * add a build_depend and a exec_depend tag for each package in MSG_DEP_SET
-##   * If MSG_DEP_SET isn't empty the following dependency has been pulled in
-##     but can be declared for certainty nonetheless:
-##     * add a exec_depend tag for "message_runtime"
-## * In this file (CMakeLists.txt):
-##   * add "message_generation" and every package in MSG_DEP_SET to
-##     find_package(catkin REQUIRED COMPONENTS ...)
-##   * add "message_runtime" and every package in MSG_DEP_SET to
-##     catkin_package(CATKIN_DEPENDS ...)
-##   * uncomment the add_*_files sections below as needed
-##     and list every .msg/.srv/.action file to be processed
-##   * uncomment the generate_messages entry below
-##   * add every package in MSG_DEP_SET to generate_messages(DEPENDENCIES ...)
-
-## Generate messages in the 'msg' folder
-#add_message_files(
-#FILES
-#Message1.msg
-#Message2.msg
-#)
-
-## Generate services in the 'srv' folder
-#add_service_files(
-#FILES
-#Service1.srv
-#Service2.srv
-#)
-
-## Generate actions in the 'action' folder
-#add_action_files(
-#FILES
-#Action1.action
-#Action2.action
-#)
-
-## Generate added messages and services with any dependencies listed here
-#generate_messages(
-#DEPENDENCIES
-#std_msgs #Or other packages containing msgs
-#mavros_msgs
-#)
-
-################################################
-## Declare ROS dynamic reconfigure parameters ##
-################################################
-
-## To declare and build dynamic reconfigure parameters within this
-## package, follow these steps:
-## * In the file package.xml:
-##   * add a build_depend and a exec_depend tag for "dynamic_reconfigure"
-## * In this file (CMakeLists.txt):
-##   * add "dynamic_reconfigure" to
-##     find_package(catkin REQUIRED COMPONENTS ...)
-##   * uncomment the "generate_dynamic_reconfigure_options" section below
-##     and list every .cfg file to be processed
-
-## Generate dynamic reconfigure parameters in the 'cfg' folder
-#generate_dynamic_reconfigure_options(
-#cfg / DynReconf1.cfg
-#cfg / DynReconf2.cfg
-#)
-
-###################################
-## catkin specific configuration ##
-###################################
-## The catkin_package macro generates cmake config files for your package
-## Declare things to be passed to dependent projects
-## INCLUDE_DIRS: uncomment this if your package contains header files
-## LIBRARIES: libraries you create in this project that dependent projects also need
-## CATKIN_DEPENDS: catkin_packages dependent projects also need
-## DEPENDS: system dependencies of this project that dependent projects also need
-catkin_package(
-#INCLUDE_DIRS include
-#LIBRARIES dankong
-#CATKIN_DEPENDS other_catkin_pkg
-#DEPENDS system_lib
-)
-
-###########
-## Build ##
-###########
-
-## Specify additional locations of header files
-## Your package locations should be listed before other locations
+# 全局的 include 目录
 include_directories(
-include
-${catkin_INCLUDE_DIRS}
-${EIGEN3_INCLUDE_DIRS} 
+  include
+  ${catkin_INCLUDE_DIRS}
+  ${EIGEN3_INCLUDE_DIRS} 
 )
 
-## Declare a C++ library
-#add_library(${PROJECT_NAME}
-#src / ${PROJECT_NAME } / dankong.cpp
-#)
-
-## Add cmake target dependencies of the library
-## as an example, code may need to be generated before libraries
-## either from message generation or dynamic reconfigure
-#add_dependencies(${PROJECT_NAME} ${${PROJECT_NAME} _EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-
-## Declare a C++ executable
-## With catkin_make all packages are built within a single CMake context
-## The recommended prefix ensures that target names across packages don't collide
-set(STATE_SRC
+# 基础的源文件（所有 target 共享）
+set(BASE_STATE_SRC
   src/states/ground_state.cpp
   src/states/hover_state.cpp
   src/states/init_state.cpp
   src/states/land_state.cpp
   src/states/state_utils.cpp
   src/states/takeoff_state.cpp
-  src/states/init_state.cpp
   src/states/waypoint_state.cpp
 )
 
-set (MAVLINK_SRC
-  src/mavlink/mavros.cpp
+set(FEATURES_SRC
+  src/features/algo/event_listener.cpp
+  src/features/control/event_listener.cpp
 )
 
-set (NODE_SRC
-  src/dankong_node.cpp 
-)
+set(BASE_MAVLINK_SRC src/mavlink/mavros.cpp)
+set(BASE_NODE_SRC src/dankong_node.cpp)
 
-add_executable(${PROJECT_NAME}_node ${STATE_SRC} ${MAVLINK_SRC} ${NODE_SRC})
-target_compile_definitions(${PROJECT_NAME}_node PUBLIC BUILD_DRONE)
-## Rename C++ executable without prefix
-## The above recommended prefix causes long target names, the following renames the
-## target back to the shorter version for ease of user use
-## e.g. "rosrun someones_pkg node" instead of "rosrun someones_pkg someones_pkg_node"
-#set_target_properties(${PROJECT_NAME} _node PROPERTIES OUTPUT_NAME node PREFIX "")
 
-## Add cmake target dependencies of the executable
-## same as for the library above
-#add_dependencies(${PROJECT_NAME} _node ${${PROJECT_NAME} _EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+# ==============================================================================
+# 定义生成目标节点的函数
+# 语法: create_dankong_target(
+#           TARGET_TYPE         # 必填: 类型名，例如 drone 或 dog
+#           [EXTRA_SOURCES ...] # 可选: 额外的 .cpp 文件
+#           [EXTRA_INCLUDES ...]# 可选: 额外的 include 路径
+#           [EXTRA_LIBS ...]    # 可选: 额外的第三方库
+#           [EXTRA_DEFS ...]    # 可选: 额外的编译宏定义
+#       )
+# ==============================================================================
+function(create_dankong_target TARGET_TYPE)
+    # 解析传入的可选参数
+    cmake_parse_arguments(
+        PARSED_ARGS
+        "" # options
+        "" # one_value_keywords
+        "EXTRA_SOURCES;EXTRA_INCLUDES;EXTRA_LIBS;EXTRA_DEFS" # multi_value_keywords
+        ${ARGN}
+    )
 
-add_dependencies(${PROJECT_NAME}_node ${catkin_EXPORTED_TARGETS})
-## Specify libraries to link a library or executable target against
-target_link_libraries(${PROJECT_NAME}_node
-    dk       # 链接框架
-    my_json_lib    # 链接刚才生成的 JSON 宏库
-    Geographic
-    atomic  
-    Eigen3::Eigen
-  ${TINYXML2_LIBRARY}
-  ${catkin_LIBRARIES}
-)
-target_include_directories(${PROJECT_NAME}_node PRIVATE ${TINYXML2_INCLUDE_DIR})
-#############
-## Install ##
-#############
+    # 定义当前 Target 的名称 (例如: dankong_drone_node)
+    set(TARGET_NAME ${PROJECT_NAME}_${TARGET_TYPE}_node)
 
-#all install targets should use catkin DESTINATION variables
-#See http:  // ros.org/doc/api/catkin/html/adv_user_guide/variables.html
+    # 1. 创建可执行文件 (包含基础源码 + 额外传入的源码)
+    add_executable(${TARGET_NAME} 
+        ${BASE_STATE_SRC} 
+        ${BASE_MAVLINK_SRC} 
+        ${BASE_NODE_SRC}
+        ${FEATURES_SRC}
+        ${PARSED_ARGS_EXTRA_SOURCES}
+    )
 
-## Mark executable scripts (Python etc.) for installation
-## in contrast to setup.py, you can choose the destination
-#catkin_install_python(PROGRAMS
-#scripts / my_python_script
-#DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION }
-#)
+    # 2. 设置 Include 目录 (特定 Target 的 include 优先级最高)
+    # 使用 BEFORE 关键字确保 target 专属的 include 排在全局 include 前面
+    target_include_directories(${TARGET_NAME} BEFORE PRIVATE 
+        ${CMAKE_CURRENT_SOURCE_DIR}/include/targets/${TARGET_TYPE}
+        ${TINYXML2_INCLUDE_DIR}
+        ${PARSED_ARGS_EXTRA_INCLUDES}
+    )
 
-## Mark executables for installation
-## See http://docs.ros.org/melodic/api/catkin/html/howto/format1/building_executables.html
-#install(TARGETS ${PROJECT_NAME} _node
-#RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION }
-#)
+    # 3. 链接库 (基础依赖 + 额外传入的库)
+    target_link_libraries(${TARGET_NAME} PRIVATE
+        dk              # 链接框架
+        my_json_lib     # 链接刚才生成的 JSON 宏库
+        Geographic
+        atomic  
+        Eigen3::Eigen
+        ${TINYXML2_LIBRARY}
+        ${catkin_LIBRARIES}
+        ${PARSED_ARGS_EXTRA_LIBS}
+    )
 
-## Mark libraries for installation
-## See http://docs.ros.org/melodic/api/catkin/html/howto/format1/building_libraries.html
-#install(TARGETS ${PROJECT_NAME}
-#ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION }
-#LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION }
-#RUNTIME DESTINATION ${CATKIN_GLOBAL_BIN_DESTINATION }
-#)
+    # 4. 编译宏定义 (自动生成类似 BUILD_DRONE 的宏，并支持追加宏)
+    string(TOUPPER "BUILD_${TARGET_TYPE}" DEFAULT_DEF)
+    target_compile_definitions(${TARGET_NAME} PUBLIC 
+        ${DEFAULT_DEF}
+        ${PARSED_ARGS_EXTRA_DEFS}
+    )
 
-## Mark cpp header files for installation
-#install(DIRECTORY include / ${PROJECT_NAME} /
-#DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION }
-#FILES_MATCHING PATTERN "*.h"
-#PATTERN ".svn" EXCLUDE
-#)
+    # 5. 添加依赖关系
+    add_dependencies(${TARGET_NAME} ${catkin_EXPORTED_TARGETS})
 
-## Mark other files for installation (e.g. launch and bag files, etc.)
-#install(FILES
-# #myfile1
-# #myfile2
-#DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION }
-#)
+    # 6. Post-build 文件/文件夹拷贝逻辑
+    set(ITEMS_TO_COPY config dk/frontend/dist)
+    foreach(ITEM IN LISTS ITEMS_TO_COPY)
+        if(IS_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/${ITEM}")
+            add_custom_command(TARGET ${TARGET_NAME} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_CURRENT_SOURCE_DIR}/${ITEM}"
+                "$<TARGET_FILE_DIR:${TARGET_NAME}>/${ITEM}"
+            )
+        else()
+            add_custom_command(TARGET ${TARGET_NAME} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CMAKE_CURRENT_SOURCE_DIR}/${ITEM}"
+                "$<TARGET_FILE_DIR:${TARGET_NAME}>/${ITEM}"
+            )
+        endif()
+    endforeach()
 
-#############
-## Testing ##
-#############
+    message(STATUS "Created target: ${TARGET_NAME} with includes for ${TARGET_TYPE}")
+endfunction()
+# ==============================================================================
 
-## Add gtest based cpp test target and link libraries
-#catkin_add_gtest(${PROJECT_NAME} - test test / test_dankong.cpp)
-#if (TARGET ${PROJECT_NAME} - test)
-#target_link_libraries(${PROJECT_NAME} - test ${PROJECT_NAME})
-#endif()
 
-## Add folders to be run by python nosetests
-#catkin_add_nosetests(test)
+# ==============================================================================
+# 使用函数生成不同的 Targets
+# ==============================================================================
 
+# 1. 生成 Drone (只有基础配置)
+create_dankong_target(drone)
+
+# 2. 生成 Dog (基础配置)
+create_dankong_target(dog)
+
+
+# ==============================================================================
+# 测试部分
+# ==============================================================================
 if(CATKIN_ENABLE_TESTING)
   find_package(rostest REQUIRED)
+  
   # dog测试
   # add_rostest(test/test_dog.test)
   # add_rostest(test/test_posvel_dog.test)
@@ -267,14 +169,21 @@ if(CATKIN_ENABLE_TESTING)
   # add_rostest(test/test_planner.test)
   add_rostest(test/test_posvel_drone.test)
   add_rostest(test/test_waypoint_drone.test)
-
-  
-  # catkin_add_gtest(test_landing_controller test/pland/landing_controller_test.cpp)
-  
-  # 测试程序也需要链接你的核心算法库
-  # target_link_libraries(test_landing_controller
-  #   pland_core
-  #   ${catkin_LIBRARIES}
-  # )
-  
 endif()
+
+
+add_executable(test_tracker_sim 
+    test/tracker/test_tracker.cpp 
+    src/states/state_utils.cpp   # 因为你的 Tracker 用了 angle_ctrl_
+)
+target_include_directories(test_tracker_sim PRIVATE 
+    include 
+    ${EIGEN3_INCLUDE_DIRS}
+)
+target_link_libraries(test_tracker_sim PRIVATE
+    dk
+    Eigen3::Eigen
+    ${catkin_LIBRARIES}
+    pthread
+    my_json_lib
+)

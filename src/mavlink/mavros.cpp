@@ -4,6 +4,7 @@
 #include <ros/ros.h>
 #include <tinyxml2.h>
 
+#include <optional>
 #include <regex>
 
 #include "mavros_msgs/CommandBool.h"
@@ -124,57 +125,34 @@ bool MavRos::pull_params() {
     return false;
 }
 
-bool MavRos::send_cmd(std::optional<Eigen::Vector3d> pos,
-                      std::optional<Eigen::Vector3d> vel,
-                      std::optional<Eigen::Vector3d> acc,
-                      std::optional<double> yaw, std::optional<double> yaw_rate,
-                      CmdFrame frame) {
-    auto mav_frame = frame == CmdFrame::BODY
-                         ? mavros_msgs::PositionTarget::FRAME_BODY_OFFSET_NED
-                         : mavros_msgs::PositionTarget::FRAME_LOCAL_NED;
+bool MavRos::cmd_vel(Eigen::Vector4d vel) {
+    auto mav_frame = mavros_msgs::PositionTarget::FRAME_BODY_OFFSET_NED;
     mavros_msgs::PositionTarget target;
     target.header.stamp = ros::Time::now();
     target.header.frame_id = "local_ned";
     target.coordinate_frame = mav_frame;
     uint32_t type_mask = 0;
-    if (!pos.has_value()) {
-        type_mask = type_mask | mavros_msgs::PositionTarget::IGNORE_PX |
-                    mavros_msgs::PositionTarget::IGNORE_PY |
-                    mavros_msgs::PositionTarget::IGNORE_PZ;
-        pos = Eigen::Vector3d::Zero();
-    }
+    type_mask |= mavros_msgs::PositionTarget::IGNORE_PX |
+                 mavros_msgs::PositionTarget::IGNORE_PY |
+                 mavros_msgs::PositionTarget::IGNORE_PZ;
 
-    if (!vel.has_value()) {
-        type_mask = type_mask | mavros_msgs::PositionTarget::IGNORE_VX |
-                    mavros_msgs::PositionTarget::IGNORE_VY |
-                    mavros_msgs::PositionTarget::IGNORE_VZ;
-        vel = Eigen::Vector3d::Zero();
-    }
-    if (!acc.has_value()) {
-        type_mask = type_mask | mavros_msgs::PositionTarget::IGNORE_AFX |
-                    mavros_msgs::PositionTarget::IGNORE_AFY |
-                    mavros_msgs::PositionTarget::IGNORE_AFZ;
-        acc = Eigen::Vector3d::Zero();
-    }
-    if (!yaw.has_value()) {
-        type_mask |= mavros_msgs::PositionTarget::IGNORE_YAW;
-        yaw = 0;
-    }
-    if (!yaw_rate.has_value()) {
-        type_mask |= mavros_msgs::PositionTarget::IGNORE_YAW_RATE;
-        yaw_rate = 0;
-    }
-    target.position.x = pos->x();
-    target.position.y = pos->y();
-    target.position.z = pos->z();
-    target.velocity.x = vel->x();
-    target.velocity.y = vel->y();
-    target.velocity.z = vel->z();
-    target.acceleration_or_force.x = acc->x();
-    target.acceleration_or_force.y = acc->y();
-    target.acceleration_or_force.z = acc->z();
-    target.yaw = yaw.value();
-    target.yaw_rate = yaw_rate.value();
+    type_mask |= mavros_msgs::PositionTarget::IGNORE_AFX |
+                 mavros_msgs::PositionTarget::IGNORE_AFY |
+                 mavros_msgs::PositionTarget::IGNORE_AFZ;
+
+    type_mask |= mavros_msgs::PositionTarget::IGNORE_YAW;
+
+    target.position.x = 0;
+    target.position.y = 0;
+    target.position.z = 0;
+    target.velocity.x = vel.x();
+    target.velocity.y = vel.y();
+    target.velocity.z = vel.z();
+    target.acceleration_or_force.x = 0;
+    target.acceleration_or_force.y = 0;
+    target.acceleration_or_force.z = 0;
+    target.yaw = 0;
+    target.yaw_rate = vel.w();
     target.type_mask = type_mask;
     setpoint_pub_->publish(target);
     return true;

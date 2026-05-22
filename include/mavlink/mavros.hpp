@@ -142,10 +142,7 @@ class MavRos : public IMavlink {
 
     bool reboot_fcu() override;
 
-    bool send_cmd(std::optional<Eigen::Vector3d> pos,
-                  std::optional<Eigen::Vector3d> vel,
-                  std::optional<Eigen::Vector3d> acc, std::optional<double> yaw,
-                  std::optional<double> yaw_rate, CmdFrame frame) override;
+    bool cmd_vel(Eigen::Vector4d vel) override;
 
     void param_callback(const mavros_msgs::Param::ConstPtr& msg);
 };

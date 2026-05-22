@@ -15,6 +15,6 @@
         <arg name="fcu_url" value="tcp://:5760@" />
         <arg name="respawn_mavros" value="true" />
     </include>
-    <node pkg="dankong" name="dankong_node" type="dankong_node" respawn="true" output="screen">
+    <node pkg="dankong" name="dankong_node" type="dankong_$(arg robot_type)_node" respawn="true" output="screen">
     </node>
 </launch>

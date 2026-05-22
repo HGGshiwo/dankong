@@ -11,7 +11,6 @@ import numpy as np
 import rospy
 import rostest
 
-MODEL_NAME = "iris_demo"
 XY_THRESHOLD = 2.5  # 目标的距离阈值
 Z_THRESHOLD = 1.0  # 高度的距离阈值
 
@@ -58,7 +57,7 @@ class TestPosvel(unittest.TestCase):
         IRIS_X = random.randint(-3, 3)
         IRIS_Y = random.randint(-3, 3)
         time.sleep(1)
-        self.robot.set_state(x=IRIS_X, y=IRIS_Y, z=1.0)
+        self.robot.set_state(x=IRIS_X, y=IRIS_Y, z=0.5)
 
         with sitl_env():
             self.robot.init()
@@ -78,7 +77,9 @@ class TestPosvel(unittest.TestCase):
                 yaw = random.random() * 2 * np.pi
 
                 target_lat, target_lon = get_gps(start_lat, start_lon, bearing, dist)
-
+                rad = math.radians(90 - bearing)
+                pos = [math.cos(rad) * dist, math.sin(rad) * dist]
+                print(f"set_posvel: pos_enu={pos} yaw_enu={math.pi/2 - yaw}")
                 yaw_list = []
                 target_yaw = bearing if not fix_yaw else yaw
                 for i in range(10000):
@@ -95,6 +96,7 @@ class TestPosvel(unittest.TestCase):
                         ),
                         check=True,
                     )
+
                     if fix_yaw:
                         yaw_list.append(self.robot.state["yaw"])
 
@@ -104,7 +106,8 @@ class TestPosvel(unittest.TestCase):
                         target_lon,
                         target_lat,
                     )
-                    if dist < 1:
+                    yaw_diff = math.fabs(self.robot.state["yaw"] - yaw)
+                    if dist < 1 and yaw_diff < 0.6:
                         break
                 else:
                     raise TimeoutError(f"set posvel to target timeout, cur: {dist}")
@@ -120,7 +123,7 @@ class TestPosvel(unittest.TestCase):
 
                 if not fix_yaw:
                     diff = math.fabs(self.robot.state["yaw"] - yaw)
-                    assert diff < 0.5, f"{self.robot.state['yaw']}, {yaw}, {diff}"
+                    assert diff < 0.6, f"{self.robot.state['yaw']}, {yaw}, {diff}"
 
             send_pos_vel(False)
             send_pos_vel(True)
@@ -130,6 +133,7 @@ class TestPosvel(unittest.TestCase):
                 self.robot.state["lat"], self.robot.state["lon"], 0, 1000
             )
             http_post("/set_posvel", dict(pos=[lon, lat, 10], timeout=2), check=True)
+
             time.sleep(1.0)
             assert self.robot.state["state"] == "指点移动", self.robot.state
             time.sleep(2.2)

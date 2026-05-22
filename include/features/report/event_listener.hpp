@@ -1,6 +1,7 @@
 #pragma once
-#include "../robot_context.hpp"
-#include "../robot_event.hpp"
+#include <nlohmann/json.hpp>
+
+#include "context_config.hpp"
 #include "dk/adapters/web/adapter.hpp"
 #include "dk/event_listener.hpp"
 
