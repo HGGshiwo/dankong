@@ -1,12 +1,10 @@
 #pragma once
 #include <nlohmann/json.hpp>
 
-#include "context_config.hpp"
+#include "core/global_config.hpp"
 #include "dk/adapters/web/adapter.hpp"
 #include "dk/event_listener.hpp"
-
-const double REPORT_HZ = 10.0;
-const double REPORT_MISSION_HZ = 1.0;
+#include "robot_context.hpp"
 
 // 和ws事件相关的状态监听器
 class ReportEventListener

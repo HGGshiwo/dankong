@@ -7,10 +7,11 @@
 #include <optional>
 #include <string_view>
 
-#include "context_config.hpp"
+#include "core/global_config.hpp"
 #include "dk/state.hpp"
 #include "features/control/events.hpp"
 #include "features/tracker/tracker.hpp"
+#include "robot_context.hpp"
 #include "spdlog/spdlog.h"
 #include "states/hover_state.hpp"
 #include "states/posvel_state.hpp"
@@ -96,10 +97,6 @@ class PosVelState<ParentState>::LaterTurnState
     void on_enter(RobotContext& ctx);
 };
 
-const double POSVEL_TIMEOUT = 3.0;
-const double POS_TOLERANCE = 1.0;
-const double YAW_TOLERANCE = 0.08;  // Approx 4.5 degrees
-
 template <typename ParentState>
 PosVelState<ParentState>::PosVelState(SetPosVelEvent e)
     : event_(e), start_time_(std::chrono::steady_clock::now()) {
@@ -144,21 +141,20 @@ StateAction PosVelState<ParentState>::get_next_state() {
 template <typename ParentState>
 StateAction PosVelState<ParentState>::on_event(const dk::TickEvent& e,
                                                RobotContext& ctx) {
-    if (state_utils::get_time_span(start_time_) > POSVEL_TIMEOUT) {
+    if (state_utils::get_time_span(start_time_) >
+        GlobalConfig.GetConfig().posvel_timeout) {
         spdlog::error("[PosvelState] set_posvel timeout!");
         return get_next_state();
     }
     return StateAction::handled();
 }
 
-const double FIX_YAW_DIST = 1.0;
-
 // 工具函数，调用ctx.tracker
 template <typename ParentState>
 void PosVelState<ParentState>::MoveState::base_move(RobotContext& ctx) {
     auto p = this->parent();
-    auto current_pos = ctx.pos_enu.get();
-    auto target_pos = state_utils::gps_to_enu(ctx.lon_lat_alt.get(),
+    auto current_pos = ctx.pos_enu.load();
+    auto target_pos = state_utils::gps_to_enu(ctx.lon_lat_alt.load(),
                                               current_pos, p->event_.pos);
     // [可选] 如果固定角度，就传；否则传 nullopt，Tracker 会自动计算朝向
     std::optional<double> target_yaw = std::nullopt;
@@ -193,9 +189,10 @@ template <typename ParentState>
 StateAction PosVelState<ParentState>::MoveState::on_event(
     const dk::TickEvent& e, RobotContext& ctx) {
     auto p = this->parent();
-    auto current_pos = ctx.pos_enu.get();
+    auto& cfg = GlobalConfig.GetConfig();
+    auto current_pos = ctx.pos_enu.load();
     double current_yaw = ctx.yaw_enu;
-    auto target_pos = state_utils::gps_to_enu(ctx.lon_lat_alt.get(),
+    auto target_pos = state_utils::gps_to_enu(ctx.lon_lat_alt.load(),
                                               current_pos, p->event_.pos);
 
     // 计算误差向量
@@ -204,8 +201,8 @@ StateAction PosVelState<ParentState>::MoveState::on_event(
     double dist_3d = pos_err.norm();
     double dist_xy = xy_err.norm();
 
-    bool arrive = ctx.robot->is_alt_enable() ? (dist_3d < POS_TOLERANCE)
-                                             : (dist_xy < POS_TOLERANCE);
+    bool arrive = ctx.robot->is_alt_enable() ? (dist_3d < cfg.pos_tolerance)
+                                             : (dist_xy < cfg.pos_tolerance);
     // 1. 检查是否到达
     if (arrive) {
         if (p->event_.fix_yaw) {
@@ -222,8 +219,8 @@ template <typename ParentState>
 void PosVelState<ParentState>::LaterTurnState::on_enter(RobotContext& ctx) {
     auto p = this->parent();
     double target_yaw = p->event_.yaw;
-    auto current_pos = ctx.pos_enu.get();
-    auto target_pos = state_utils::gps_to_enu(ctx.lon_lat_alt.get(),
+    auto current_pos = ctx.pos_enu.load();
+    auto target_pos = state_utils::gps_to_enu(ctx.lon_lat_alt.load(),
                                               current_pos, p->event_.pos);
 }
 
@@ -231,10 +228,12 @@ template <typename ParentState>
 StateAction PosVelState<ParentState>::LaterTurnState::on_event(
     const dk::TickEvent& e, RobotContext& ctx) {
     auto p = this->parent();
+    auto& cfg = GlobalConfig.GetConfig();
     double current_yaw = ctx.yaw_enu;
     double target_yaw = p->event_.yaw;
 
-    if (state_utils::get_yaw_diff(target_yaw, current_yaw) < YAW_TOLERANCE) {
+    if (state_utils::get_yaw_diff(target_yaw, current_yaw) <
+        cfg.yaw_tolerance) {
         return p->get_next_state();
     }
 

@@ -10,10 +10,11 @@
 #include <unordered_map>
 
 #include "./events.hpp"
-#include "context_config.hpp"
+#include "core/global_config.hpp"
 #include "dk/event_listener.hpp"
 #include "mavlink/mavros.hpp"
 #include "nlohmann/json.hpp"
+#include "robot_context.hpp"
 
 // 和ROS相关的操作的事件走这个监听器
 class AlgoEventListener
@@ -30,17 +31,13 @@ class AlgoEventListener
     std::shared_ptr<ServiceClient<rsos_msgs::SetCameraExposure>>
         set_exposure_client_;
 
-    std::unordered_map<std::string, std::string> detect_map_ = {
-        {"nohardhat", "/UAV0/perception/yolo_detection/enable_detection"},
-        {"smoke", "/UAV0/perception/yolo_detection_smoke/enable_detection"}};
-
    public:
     using AllowedEvents =
         std::tuple<EnableDetectEvent, DisableDetectEvent, GetDetectEvent,
                    StartRecordEvent, StopRecordEvent, SetGimbalEvent,
                    GetGimbalEvent, GetExposureEvent, SetExposureEvent,
-                   DetectEvent, StopFollowEvent, EnablePlandEvent,
-                   DisablePlandEvent, EnablePlannerEvent, DisablePlannerEvent>;
+                   DetectEvent, StopFollowEvent, EnablePlannerEvent,
+                   DisablePlannerEvent, ReportEvent>;
 
     AlgoEventListener();
 
@@ -55,8 +52,9 @@ class AlgoEventListener
     void on_event(const SetExposureEvent& event, RobotContext& ctx);
     void on_event(const DetectEvent& event, RobotContext& ctx);
     void on_event(const StopFollowEvent& event, RobotContext& ctx);
-    void on_event(const EnablePlandEvent& event, RobotContext& ctx);
-    void on_event(const DisablePlandEvent& event, RobotContext& ctx);
     void on_event(const EnablePlannerEvent& event, RobotContext& ctx);
     void on_event(const DisablePlannerEvent& event, RobotContext& ctx);
+    void on_event(const ReportEvent& event, RobotContext& ctx) {
+        ctx.ws_manager->publish_reliable(nlohmann::json::parse(event.data));
+    }
 };

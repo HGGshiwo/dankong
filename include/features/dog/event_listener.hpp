@@ -1,18 +1,20 @@
+#pragma once
 #include <memory>
 
 #include "./command.hpp"
-#include "context_config.hpp"
 #include "dk/adapters/udp/udp_client.hpp"
 #include "dk/engine.hpp"
 #include "dk/event_listener.hpp"
 #include "dk/report.hpp"
+#include "robot_context.hpp"
+#include "utils/state_registry.hpp"
 
 class DogListener : public dk::BaseEventListener<RobotContext, DogListener> {
    public:
     using AllowedEvents = std::tuple<dk::TickEvent>;
 
     DogListener(RobotContext& ctx)
-        : udp_client_(ctx.udp_client), rate_(dk::RateLimiter(3)) {}
+        : udp_client_(ctx.udp_client), rate_(RateLimiter(3)) {}
 
     void on_event(const dk::TickEvent& event, RobotContext& ctx) {
         if (rate_.check_and_update()) {
@@ -23,5 +25,5 @@ class DogListener : public dk::BaseEventListener<RobotContext, DogListener> {
 
    private:
     std::shared_ptr<UdpClient> udp_client_;
-    dk::RateLimiter rate_;
+    RateLimiter rate_;
 };

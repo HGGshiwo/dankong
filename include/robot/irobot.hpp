@@ -38,7 +38,7 @@ class IRobot : public ITrackerRuntime {
         if constexpr (robot_type == "DOG") {
             return inner_check_hover(ctx.dog_state);
         } else if constexpr (robot_type == "DRONE") {
-            return inner_check_hover(ctx.arm.get(), ctx.throttle.load());
+            return inner_check_hover(ctx.arm.load(), ctx.throttle.load());
         } else {
             return false;
         }
@@ -50,7 +50,7 @@ class IRobot : public ITrackerRuntime {
         if constexpr (robot_type == "DOG") {
             return inner_is_landed(ctx.dog_state);
         } else if constexpr (robot_type == "DRONE") {
-            return inner_is_landed(ctx.arm.get(), ctx.throttle.load(),
+            return inner_is_landed(ctx.arm.load(), ctx.throttle.load(),
                                    ctx.rangefinder_alt.load());
         }
         return false;

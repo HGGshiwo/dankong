@@ -8,13 +8,12 @@
 #include <tuple>
 
 #include "./events.hpp"
-#include "context_config.hpp"
+#include "core/global_config.hpp"
 #include "dk/adapters/web/adapter.hpp"
 #include "dk/adapters/web/protocal.hpp"
 #include "nlohmann/json.hpp"
+#include "robot_context.hpp"
 #include "spdlog/spdlog.h"
-
-inline const int FCU_DATA_RATE = 10;
 
 // 和控制相关的事件监听器
 class ControlEventListener

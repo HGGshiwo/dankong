@@ -1,25 +1,17 @@
 #pragma once
 #include <memory>
 
-#include "./context.hpp"
 #include "./events.hpp"
 #include "core/engine.hpp"
+#include "dk/adapters/ros.hpp"
+#include "std_msgs/String.h"
 
 class AlgoFeature {
    public:
-    // 1. 声明属于自己的 Context（如果没有，就写 EmptyContext）
-    using Context = AlgoContext;
-
     template <typename WebAdapter>
     static void register_web(std::shared_ptr<WebAdapter>& web) {
         web->template register_route<StopFollowEvent, EventResult>(
             boost::beast::http::verb::post, "/stop_follow");
-
-        web->template register_route<EnablePlandEvent, EventResult>(
-            boost::beast::http::verb::post, "/start_pland");
-
-        web->template register_route<DisablePlandEvent, EventResult>(
-            boost::beast::http::verb::post, "/stop_pland");
 
         web->template register_route<EnablePlannerEvent, EventResult>(
             boost::beast::http::verb::post, "/start_planner");
@@ -64,6 +56,16 @@ class AlgoFeature {
     }
 
     static void register_listeners(std::shared_ptr<Engine>& engine);
+
+    static void register_ros(
+        std::shared_ptr<dk::RosAdapter<RobotContext, Engine>>& ros) {
+        ros->bind_event("/mavproxy/ws",
+                        [](std_msgs::String::ConstPtr data) -> ReportEvent {
+                            ReportEvent e;
+                            e.data = data->data;
+                            return e;
+                        });
+    }
 };
 
 #include "./event_listener.hpp"

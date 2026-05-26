@@ -1,7 +1,7 @@
 #pragma once
-#include "dk/report.hpp"
-// 一个什么都不做的假 Context
+#include "utils/state_registry.hpp"
+// 一个什么都不做的假 Cont
 
 struct EmptyContext {
-    explicit EmptyContext(dk::StateRegistry&) {}
+    explicit EmptyContext(StateRegistry&) {}
 };

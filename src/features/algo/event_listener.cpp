@@ -33,6 +33,7 @@ AlgoEventListener::AlgoEventListener() : nh_() {
 // on_event 各重载实现
 void AlgoEventListener::on_event(const EnableDetectEvent& event,
                                  RobotContext& ctx) {
+    auto detect_map_ = GlobalConfig.GetConfig().detect_map.get();
     auto target_it = detect_map_.find(event.type);
     if (target_it == detect_map_.end()) {
         event.reject("can not find event: " + event.type);
@@ -44,7 +45,7 @@ void AlgoEventListener::on_event(const EnableDetectEvent& event,
         else
             nh_.setParam(it->first, false);
     }
-    ctx.detect_type.set(event.type);
+    ctx.detect_type.store(event.type);
     nh_.setParam(
         "/UAV0/perception/object_location/object_location_node/enable_send",
         true);
@@ -53,10 +54,11 @@ void AlgoEventListener::on_event(const EnableDetectEvent& event,
 
 void AlgoEventListener::on_event(const DisableDetectEvent& event,
                                  RobotContext& ctx) {
+    auto detect_map_ = GlobalConfig.GetConfig().detect_map.get();
     for (auto& [k, v] : detect_map_) {
         nh_.setParam(v, false);
     }
-    ctx.detect_type.set("Disabled");
+    ctx.detect_type.store("Disabled");
     nh_.setParam(
         "/UAV0/perception/object_location/object_location_node/enable_send",
         false);
@@ -65,7 +67,7 @@ void AlgoEventListener::on_event(const DisableDetectEvent& event,
 
 void AlgoEventListener::on_event(const GetDetectEvent& event,
                                  RobotContext& ctx) {
-    auto detect_type = ctx.detect_type.get();
+    auto detect_type = ctx.detect_type.load();
     if (detect_type == "Disabled") {
         detect_type = "";
     }
@@ -77,7 +79,7 @@ void AlgoEventListener::on_event(const StartRecordEvent& event,
     rsos_msgs::StartBagRecord srv;
     srv.request.prefix = event.bag_name;
     if (start_record_client_->call(srv)) {
-        ctx.recording.set(true);
+        ctx.recording.store(true);
         event.resolve({"success", srv.response.message});
     } else {
         event.reject(srv.response.message);
@@ -159,7 +161,7 @@ void AlgoEventListener::on_event(const SetExposureEvent& event,
 
 void AlgoEventListener::on_event(const DetectEvent& event, RobotContext& ctx) {
     double FOLLOW_COOL_TIME = 100.0;  // 100秒内不响应
-    if (state_utils::get_time_span(ctx.stop_follow_stamp.get()) <
+    if (state_utils::get_time_span(ctx.stop_follow_stamp.load()) <
         FOLLOW_COOL_TIME) {
         return;
     }
@@ -186,7 +188,7 @@ void AlgoEventListener::on_event(const StopFollowEvent& event,
         return;
     }
     event.resolve({"success", "OK"});
-    ctx.stop_follow_stamp.set(std::chrono::steady_clock::now());
+    ctx.stop_follow_stamp.store(std::chrono::steady_clock::now());
     if (ctx.engine->is_active_state<HoverState>()) {
         ctx.engine->step<HoverState>();
     } else if (ctx.engine->is_active_state<WaypointState>()) {
@@ -197,26 +199,14 @@ void AlgoEventListener::on_event(const StopFollowEvent& event,
     }
 }
 
-void AlgoEventListener::on_event(const EnablePlandEvent& event,
-                                 RobotContext& ctx) {
-    ctx.pland_enable.set(true);
-    event.resolve({"success", "OK"});
-}
-
-void AlgoEventListener::on_event(const DisablePlandEvent& event,
-                                 RobotContext& ctx) {
-    ctx.pland_enable.set(false);
-    event.resolve({"success", "OK"});
-}
-
 void AlgoEventListener::on_event(const EnablePlannerEvent& event,
                                  RobotContext& ctx) {
-    ctx.planner_enable.set(true);
+    ctx.planner_enable.store(true);
     event.resolve({"success", "OK"});
 }
 
 void AlgoEventListener::on_event(const DisablePlannerEvent& event,
                                  RobotContext& ctx) {
-    ctx.planner_enable.set(false);
+    ctx.planner_enable.store(false);
     event.resolve({"success", "OK"});
 }

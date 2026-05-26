@@ -1,8 +1,9 @@
 #include "dk/report.hpp"
+#include "utils/state_registry.hpp"
 
 struct TemplateContext {
-    dk::StateRegistry& reg;
+    StateRegistry& reg;
 
    public:
-    explicit TemplateContext(dk::StateRegistry& r) : reg(r) {};
+    explicit TemplateContext(StateRegistry& r) : reg(r) {};
 };

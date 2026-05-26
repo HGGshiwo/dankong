@@ -7,9 +7,6 @@
 
 class TemplateFeature {
    public:
-    // 1. 声明属于自己的 Context（如果没有，就写 EmptyContext）
-    using Context = TemplateContext;
-
     template <typename RosAdapter>
     static void register_ros(std::shared_ptr<RosAdapter>& ros) {
         // ...

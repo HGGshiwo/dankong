@@ -1,0 +1,48 @@
+ui_config: drone-ui.yaml
+# Drone Settings
+throttle_thresh: 0.1
+
+max_decel_xy: 1.0
+max_acc_xy: 1.0
+
+
+pland_max_decel_xy: 0.1
+pland_max_acc_xy: 0.1
+lost_target_alt: 8.0
+
+# Pland Settings
+inner_tag_size: 0.8
+outter_tag_size: 0.15
+
+camera_inner_matrix: [205.47, 0, 320, 0, 205.47, 240, 0, 0, 1]
+pland_image_topic: /roscam/cam/image_raw
+pland_detect_topic: /pland/detect 
+
+# System Settings (Hidden from UI)
+server_port: 8000
+
+# Path Settings
+static_dir: "dk/frontend/dist"
+ui_config_path: "config/ui.yaml"
+json_path: "config/config.json"
+
+# Control Settings
+fcu_data_rate: 10
+pdef_path: "config/apm.pdef.xml"
+follow_timeout: 1.0
+prearm_timeout: 3.0
+takeoff_timeout: 100.0
+posvel_timeout: 3.0
+pos_tolerance: 1.0
+yaw_tolerance: 0.08
+z_tolerance: 1.0
+fix_yaw_dist: 1.0
+
+# Algo Settings
+detect_map:
+  nohardhat: "/UAV0/perception/yolo_detection/enable_detection"
+  smoke: "/UAV0/perception/yolo_detection_smoke/enable_detection"
+
+# Report Settings
+report_hz: 10.0
+report_mission_hz: 1.0

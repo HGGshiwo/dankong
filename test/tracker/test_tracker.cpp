@@ -30,8 +30,8 @@ int main() {
     std::cout << "  Starting C++ Tracker Simulation...    " << std::endl;
     std::cout << "========================================\n" << std::endl;
 
-    TrackingConfig config;
-    config.loop_rate_hz = 50;  // 频率通常固定，无需每次输入
+    TrackerConfig config;
+    config.loop_rate_hz.set(50);  // 频率通常固定， 无需每次输入
 
     // ==========================================
     // 新增：从标准输入读取关键配置
@@ -46,7 +46,10 @@ int main() {
     }
 
     std::cout << "2. Auto heading enable distance in meters (e.g., 1.0): ";
-    std::cin >> config.auto_heading_enable_dist_m;
+    double dist_input;
+    if (std::cin >> dist_input) {
+        config.auto_heading_enable_dist_m = dist_input;
+    }
 
     double target_x = 0.0, target_y = 0.0;
     std::cout << "3. Target Position X (e.g., -1.5): ";
@@ -67,18 +70,14 @@ int main() {
 
     // 2. 初始化环境与状态变量
     SimRuntime sim_runtime;
-    auto r = dk::StateRegistry();
-    dk::TrackedVar<Eigen::Vector3d> pos_var{
-        r,
-        "pos",
-        1,
+    DirtyVar<Eigen::Vector3d> pos_var{
         Eigen::Vector3d::Zero(),
     };
     std::atomic<double> yaw_var{0.0};
 
     // 3. 实例化你的控制器并启动线程
-    ThreadedTracker tracker(config, &sim_runtime, pos_var, yaw_var);
-    tracker.start(false);
+    ThreadedTracker tracker(config, &sim_runtime, pos_var, yaw_var, false);
+    tracker.start(50);
 
     // 4. 下发目标点 (使用刚刚输入的参数)
     Eigen::Vector3d target_pos(target_x, target_y, 0.0);
@@ -117,7 +116,7 @@ int main() {
         while (sim_yaw < -M_PI) sim_yaw += 2.0 * M_PI;
 
         // c. 将传感器读数更新回 Tracker
-        pos_var.set(sim_pos);
+        pos_var.store(sim_pos);
         yaw_var.store(sim_yaw);
 
         // d. 记录到 CSV
@@ -136,7 +135,7 @@ int main() {
 
         t += dt;
 
-        tracker.process_control_step(dt);
+        tracker.on_step(dt);
 
         // 让物理循环与真实时间同步
         // std::this_thread::sleep_until(

@@ -1,5 +1,7 @@
 // core/robot_assembler.hpp
 #pragma once
+#include <nlohmann/json.hpp>
+
 #include "core/base_context.hpp"
 
 // 魔法1：自动提取所有的 Context 并利用多重继承扁平化组装
@@ -10,6 +12,39 @@ struct ContextGenerator : public BaseRobotContext<ContextGenerator<Context...>>,
     ContextGenerator()
         : BaseRobotContext<ContextGenerator<Context...>>(),
           Context(this->state_registry)... {}
+};
+
+// 魔法1：自动提取所有的 Config 并利用多重继承扁平化组装
+template <typename... Configs>
+struct ConfigGenerator : public Configs... {
+    friend void from_json(const nlohmann::json& j, ConfigGenerator& c) {
+        // 定义一个泛型 lambda 拦截解析过程
+        auto try_parse = [&j](auto& base_config) {
+            using ConfigType = std::decay_t<decltype(base_config)>;
+            try {
+                // 去除 nlohmann:: 前缀，依赖 ADL 查找
+                from_json(j, base_config);
+            } catch (const nlohmann::json::exception& e) {
+                // 捕获异常，提取出错的结构体类型名
+                std::string type_name = typeid(ConfigType).name();
+                std::string error_msg = "配置解析失败! 出错模块: [" +
+                                        type_name + "], 报错信息: " + e.what();
+
+                // 1. 你可以选择打印日志
+                std::cerr << error_msg << std::endl;
+
+                // 2. 建议将原始异常包装后抛出，防止程序带着错误配置继续运行
+                throw std::runtime_error(error_msg);
+            }
+        };
+
+        // 使用折叠表达式逐个调用 lambda
+        (try_parse(static_cast<Configs&>(c)), ...);
+    }
+
+    friend void to_json(nlohmann::json& j, const ConfigGenerator& c) {
+        (to_json(j, static_cast<const Configs&>(c)), ...);
+    }
 };
 
 namespace detail {

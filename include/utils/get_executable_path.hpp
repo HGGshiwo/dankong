@@ -1,3 +1,4 @@
+#pragma once
 #include <boost/filesystem.hpp>
 #include <string>
 #include <vector>
@@ -32,4 +33,8 @@ inline boost::filesystem::path get_executable_path() {
 #else
 #error "Unsupported platform"
 #endif
+}
+
+inline boost::filesystem::path get_executable_dir() {
+    return get_executable_path().parent_path();
 }

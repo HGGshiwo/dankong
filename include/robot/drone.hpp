@@ -3,12 +3,11 @@
 #include <atomic>
 #include <memory>
 
+#include "core/global_config.hpp"
 #include "dk/report.hpp"
 #include "dk/utils.hpp"
 #include "mavlink/imavlink.hpp"
 #include "robot/irobot.hpp"
-
-inline double THROTTLE_THRESH = 0.1;
 
 // 无人机硬件逻辑实现
 // 依赖注入 DroneSpecificData，check_hover()/land() 直接读取内部数据，零 cast
@@ -17,7 +16,7 @@ class Drone : public IRobot {
     explicit Drone(std::shared_ptr<IMavlink> mavlink) : IRobot(mavlink) {}
 
     bool inner_check_hover(bool arm, double throttle) override {
-        return arm && throttle > THROTTLE_THRESH;
+        return arm && throttle > GlobalConfig.GetConfig().throttle_thresh;
     }
 
     bool cmd_vel(Eigen::Vector4d vel) override {

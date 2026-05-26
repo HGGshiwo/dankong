@@ -154,7 +154,7 @@ void ControlEventListener::on_event(SetWaypointEvent event, RobotContext& ctx) {
             ctx.engine->step<LandState>(std::tuple(event.land_target_id));
         } else {
             // 检查是不是半路进入hover，其实没有记录起飞点
-            auto takeoff_lon_lat_alt = ctx.takeoff_lon_lat_alt.get();
+            auto takeoff_lon_lat_alt = ctx.takeoff_lon_lat_alt.load();
             if (action == FinishAction::RETURN &&
                 takeoff_lon_lat_alt.norm() < 1.0) {
                 event.reject("未记录起飞点，请使用降落");
@@ -173,7 +173,7 @@ void ControlEventListener::on_event(const SetModeEvent& event,
                                     RobotContext& ctx) {
     using Promise = dk::Promise<bool>;
     Promise p(ctx.engine);
-    if (ctx.mode.get() == event.mode) {
+    if (ctx.mode.load() == event.mode) {
         p.resolve(true);
     } else {
         ctx.robot->set_mode(event.mode);
@@ -207,7 +207,7 @@ void ControlEventListener::on_event(const RebootFcuEvent& event,
 
 void ControlEventListener::on_event(const GetWpEvent& event,
                                     RobotContext& ctx) {
-    auto mission_data = ctx.mission_data.get();
+    auto mission_data = ctx.mission_data.load();
     std::vector<Eigen::Vector3d> wp_list(mission_data.size());
     for (int i = 0; i < mission_data.size(); ++i) {
         auto cur_mission = mission_data[i];
@@ -219,7 +219,7 @@ void ControlEventListener::on_event(const GetWpEvent& event,
 
 void ControlEventListener::on_event(const GetGpsEvent& event,
                                     RobotContext& ctx) {
-    auto gps = ctx.lon_lat_alt.get();
+    auto gps = ctx.lon_lat_alt.load();
     event.resolve({"success", {gps.y(), gps.x(), gps.z()}});
 }
 
@@ -230,7 +230,8 @@ void ControlEventListener::on_event(const FcuConnectedEvent& event,
             robot->pull_params();
             return true;
         });
-        ctx.engine->get_context().robot->set_stream_rate(FCU_DATA_RATE);
+        ctx.engine->get_context().robot->set_stream_rate(
+            GlobalConfig.GetConfig().fcu_data_rate);
     }
 }
 
@@ -274,6 +275,6 @@ void ControlEventListener::on_event(const DisarmEvent& event,
 void ControlEventListener::on_event(const RestartEvent& event,
                                     RobotContext& ctx) {
     ctx.odom_ok = false;
-    ctx.fcu_connected.set(false);
+    ctx.fcu_connected.store(false);
     ctx.engine->step<InitState>();
 }

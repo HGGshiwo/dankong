@@ -5,12 +5,12 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from test.test_helper import Apriltag, Robot, http_post, sitl_env
 from typing import Callable, Dict, List
 
 import numpy as np
 import rospy
 import rostest
-from mavproxy_ros.test.test_helper import Apriltag, Robot, http_post, sitl_env
 
 MODEL_NAME = "iris_demo"
 TARGET_THRESHOLD = 1
@@ -93,8 +93,8 @@ class TestPland(unittest.TestCase):
                         # pitch=np.pi / 2,
                         # yaw=np.pi / 2,
                     )
-                    http_post("/start_pland", dict(pland_type="apm"), check=True)
-                    http_post("/set_param", get_param(dict(PLND_ENABLED=1)), check=True)
+                    # http_post("/start_pland", dict(pland_type="apm"), check=True)
+                    # http_post("/set_param", get_param(dict(PLND_ENABLED=1)), check=True)
 
                     # 这里手动设置一下PLND_ENABLED参数，reboot之后prearm会超时，原因未知
                     # rospy.logerr("reboot_fcu!")
@@ -103,8 +103,8 @@ class TestPland(unittest.TestCase):
                         "/set_param",
                         get_param(
                             dict(
-                                PLND_TYPE=1,
-                                PLND_OPTIONS=1,
+                                # PLND_TYPE=1,
+                                # PLND_OPTIONS=1,
                                 SIM_SONAR_SCALE=10,
                                 RNGFND1_TYPE=1,
                                 RNGFND1_SCALING=10,
@@ -128,7 +128,7 @@ class TestPland(unittest.TestCase):
 
                     with self.board.moving(writer):
                         start = time.time()
-                        http_post("/land")
+                        http_post("/land", dict(land_target_id=0))
 
                         record_thread = self.start_record(get_dist, writer, stop_event)
 
@@ -196,4 +196,4 @@ class TestPland(unittest.TestCase):
 
 if __name__ == "__main__":
     # 将 unittest 挂载到 rostest 框架上
-    rostest.rosrun("mavproxy_ros", "test_pland", TestPland)
+    rostest.rosrun("dankong", "test_pland", TestPland)

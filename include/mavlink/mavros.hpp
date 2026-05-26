@@ -11,6 +11,7 @@
 #include <functional>
 #include <memory>
 
+#include "core/global_config.hpp"
 #include "dk/logger.hpp"
 #include "imavlink.hpp"
 #include "mavros_msgs/ParamPull.h"
@@ -50,9 +51,6 @@ class ServiceClient {
         return false;
     }
 };
-
-inline const std::string PDEF_PATH =
-    "/home/hgg/catkin_ws/src/dankong/config/apm.pdef.xml";
 
 class MavRos : public IMavlink {
     ros::NodeHandle nh_;
@@ -116,7 +114,7 @@ class MavRos : public IMavlink {
         param_sub_ = nh_.subscribe<mavros_msgs::Param>(
             "/mavros/param/param_value", 1, &MavRos::param_callback, this);
 
-        load_pdef(PDEF_PATH);
+        load_pdef(GlobalConfig.GetConfig().pdef_path);
     }
 
     bool arm() override;

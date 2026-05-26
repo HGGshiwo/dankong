@@ -1,17 +1,28 @@
 #pragma once
 #include "dk/report.hpp"
+#include "utils/dirty_var.hpp"
 #include "utils/fixed_string64.hpp"
+#include "utils/state_registry.hpp"
 
 struct AlgoContext {
-    dk::StateRegistry& reg;
-    dk::TrackedVar<bool> planner_enable{reg, "planner", 2.0, false};
-    dk::TrackedVar<bool> pland_enable{reg, "pland", 2.0, false};
-    dk::TrackedVar<FixedString64> version{reg, "version", 0.5,
-                                          FixedString64("未知")};
-    dk::TrackedVar<FixedString64> detect_type{reg, "detect_type", 1.0,
-                                              "Disabled"};
-    dk::TrackedVar<bool> recording{reg, "recording", 1.0, false};
+    // =========================================================================
+    // 纯净的数据载体 (Data Model)
+    // =========================================================================
+
+    DirtyVar<bool> planner_enable{false};
+    DirtyVar<FixedString64> version{FixedString64("未知")};
+    DirtyVar<FixedString64> detect_type{FixedString64("Disabled")};
+    DirtyVar<bool> recording{false};
 
    public:
-    explicit AlgoContext(dk::StateRegistry& r) : reg(r) {};
+    // =========================================================================
+    // 外部上报绑定 (Telemetry Binding)
+    // =========================================================================
+    explicit AlgoContext(StateRegistry& reg) {
+        // 在构造时进行统一绑定，结构体不再长期持有 reg 的引用
+        reg.bind("planner", planner_enable, 2.0);
+        reg.bind("version", version, 0.5);
+        reg.bind("detect_type", detect_type, 1.0);
+        reg.bind("recording", recording, 1.0);
+    }
 };

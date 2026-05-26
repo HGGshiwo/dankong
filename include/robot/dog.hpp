@@ -3,7 +3,6 @@
 #include <memory>
 #include <optional>
 
-#include "context_config.hpp"
 #include "dk/adapters/udp/udp_client.hpp"
 #include "dk/future.hpp"
 #include "dk/report.hpp"
@@ -11,6 +10,7 @@
 #include "features/tracker/tracker.hpp"
 #include "mavlink/mavros.hpp"
 #include "robot/irobot.hpp"
+#include "robot_context.hpp"
 #include "utils/fixed_string64.hpp"
 
 // 机器狗硬件逻辑实现

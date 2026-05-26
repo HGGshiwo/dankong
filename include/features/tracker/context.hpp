@@ -1,12 +1,10 @@
 #pragma once
-#include "dk/report.hpp"
+#include "utils/state_registry.hpp"
 
 class ThreadedTracker;
 struct TrackerContext {
-    dk::StateRegistry& reg;
-
     std::shared_ptr<ThreadedTracker> tracker;
 
    public:
-    explicit TrackerContext(dk::StateRegistry& r) : reg(r) {};
+    explicit TrackerContext(StateRegistry& r) {};
 };

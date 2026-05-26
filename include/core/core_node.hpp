@@ -11,16 +11,7 @@
 #include "ros/node_handle.h"
 #include "states/init_state.hpp"
 #include "utils/get_executable_path.hpp"
-
-const std::string STAIC_DIR =
-    (get_executable_path().parent_path() / "dk/frontend/dist").string();
-const std::string UI_CONFIG_PATH =
-    (get_executable_path().parent_path() / "config/ui.yaml").string();
-const std::string JSON_PATH =
-    (get_executable_path().parent_path() / "config.json").string();
-
-const int PORT = 8000;
-const int UDP_SERVER_PORT = 9111;
+#include "utils/yaml_helper.hpp"
 
 template <typename AssemblerType, typename ContextType>
 class CoreNode {
@@ -36,27 +27,28 @@ class CoreNode {
     ros::NodeHandle nh_;
 
    public:
-    CoreNode() : nh_() {
-        // 1. 初始化基础引擎
+    CoreNode(const std::string config_path) : nh_() {
+        GlobalConfig.load(get_executable_dir() / config_path);
 
+        auto& cfg = GlobalConfig.GetConfig();
+
+        // 1. 初始化基础引擎
         engine_ = std::make_shared<Engine>();
         engine_->get_context().engine = engine_;
 
-        const std::string json_path =
-            (fs::current_path() / "config.json").string();
-        dk::generate_json_file(UI_CONFIG_PATH, JSON_PATH);
+        boost::filesystem::path config_dir =
+            (get_executable_dir() / config_path).parent_path();
+        // 生成配置文件 (供前端使用)
+        auto yaml_cfg =
+            YamlHelper::load_with_base(config_dir / cfg.ui_config.get());
+        auto json_cfg = YamlHelper::yaml_to_json(yaml_cfg);
 
-        web_adapter_ = std::make_shared<WebAdapterType>(engine_, PORT);
+        YamlHelper::save(json_cfg, get_executable_dir() / cfg.json_path.get());
 
-        web_adapter_->enable_cors();
-
+        // 创建适配器
+        web_adapter_ =
+            std::make_shared<WebAdapterType>(engine_, cfg.server_port);
         engine_->get_context().ws_manager = web_adapter_->get_manager();
-
-        web_adapter_->register_file_route(boost::beast::http::verb::get,
-                                          "/page_config", JSON_PATH);
-        web_adapter_->register_static_dir("/", STAIC_DIR);
-        web_adapter_->register_static_dir("/home", STAIC_DIR);
-        web_adapter_->register_managed_ws_route("/ws", [](auto, auto&) {});
 
         // 2. 调用装配工厂，一键注册全部路由和回调！
         AssemblerType::setup_web(web_adapter_);
@@ -68,7 +60,7 @@ class CoreNode {
 
         if constexpr (AssemblerType::template has_udp<UdpAdpterType>) {
             udp_adapter_ = std::make_shared<UdpAdpterType>(
-                engine_, UDP_SERVER_PORT,
+                engine_, cfg.udp_server_port,
                 [](const std::vector<uint8_t>& data) -> CommandType {
                     return UdpPacketView(data).command();
                 });

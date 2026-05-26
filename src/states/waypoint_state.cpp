@@ -27,7 +27,7 @@ void WaypointState::WaypointState::on_enter(RobotContext& ctx) {
 
     // return 转为land情况
     if (action_ == FinishAction::RETURN) {
-        wp_list_.push_back(ctx.takeoff_lon_lat_alt.get());
+        wp_list_.push_back(ctx.takeoff_lon_lat_alt.load());
     }
     if (wp_list_.size() == 0) {
         // 直接执行剩余命令
@@ -43,7 +43,7 @@ void WaypointState::WaypointState::on_enter(RobotContext& ctx) {
     }
     if (wp_list_.size() == 1) {
         // 偷懒没有传第一个点
-        wp_list_.insert(wp_list_.begin(), ctx.takeoff_lon_lat_alt.get());
+        wp_list_.insert(wp_list_.begin(), ctx.takeoff_lon_lat_alt.load());
     }
 
     // 计算真实的航点
@@ -64,14 +64,14 @@ void WaypointState::WaypointState::on_enter(RobotContext& ctx) {
                                {"alt", cur_wp.z()},
                                {"command", command}});
     }
-    ctx.mission_data.set(wp_data);
+    ctx.mission_data.store(wp_data);
     wp_list_.erase(wp_list_.begin());
-    ctx.wp_idx.set(0);
+    ctx.wp_idx.store(0);
 }
 
 void WaypointState::WaypointState::on_exit(RobotContext& ctx) {
     // 清空数据
-    ctx.dist_to_target.set(0.0);
+    ctx.dist_to_target.store(0.0);
 }
 
 Eigen::Vector3d WaypointState::get_cur_wp() {
@@ -94,7 +94,7 @@ WaypointState::LiftingState::LiftingState()
 
 void WaypointState::LiftingState::on_enter(RobotContext& ctx) {
     auto cur_wp = parent()->get_cur_wp();
-    auto diff = state_utils::get_relevant_enu(ctx.lon_lat_alt.get(), cur_wp);
+    auto diff = state_utils::get_relevant_enu(ctx.lon_lat_alt.load(), cur_wp);
     target_alt_ = cur_wp.z();
     target_yaw_ = diff.head<2>().norm() < CLOSE_THRESH
                       ? ctx.yaw_enu.load()
@@ -105,7 +105,7 @@ StateAction WaypointState::LiftingState::on_event(const dk::TickEvent& e,
                                                   RobotContext& ctx) {
     // 达到目标的高度和航向退出
     double yaw_diff = state_utils::get_yaw_diff(target_yaw_, ctx.yaw_enu);
-    double alt_diff = fabs(target_alt_ - ctx.lon_lat_alt.get().z());
+    double alt_diff = fabs(target_alt_ - ctx.lon_lat_alt.load().z());
 
     if (yaw_diff < YAW_TOLERANCE &&
         (!ctx.robot->is_alt_enable() || alt_diff < ALT_TOLERANCE)) {
@@ -114,11 +114,11 @@ StateAction WaypointState::LiftingState::on_event(const dk::TickEvent& e,
         return step<WaypointState::ExcuteState>();
     }
 
-    if (checker_->is_stall({ctx.yaw_enu, ctx.lon_lat_alt.get().z()})) {
+    if (checker_->is_stall({ctx.yaw_enu, ctx.lon_lat_alt.load().z()})) {
         return step<WaypointState::ExcuteState>();
     }
 
-    double vz = std::clamp(target_alt_ - ctx.lon_lat_alt.get().z(), -MAX_Z_VEL,
+    double vz = std::clamp(target_alt_ - ctx.lon_lat_alt.load().z(), -MAX_Z_VEL,
                            MAX_Z_VEL);
     ctx.tracker->send_vel_cmd(Eigen::Vector3d{0.0, 0.0, vz}, target_yaw_,
                               std::nullopt, CmdFrame::ENU);
@@ -135,8 +135,8 @@ void WaypointState::LiftingState::on_exit(RobotContext& ctx) {
 double TOLERANCE = 1.2;
 bool WaypointState::ExcuteState::check_arrive(RobotContext& ctx) {
     if (!ctx.odom_ok) return false;
-    double dist = ctx.robot->get_distance(ctx.pos_enu.get(), wp_goal_);
-    ctx.dist_to_target.set(std::round(dist * 100.0) / 100.0);
+    double dist = ctx.robot->get_distance(ctx.pos_enu.load(), wp_goal_);
+    ctx.dist_to_target.store(std::round(dist * 100.0) / 100.0);
     return dist < TOLERANCE;
 }
 
@@ -144,9 +144,9 @@ bool WaypointState::ExcuteState::check_arrive(RobotContext& ctx) {
 void WaypointState::ExcuteState::on_enter(RobotContext& ctx) {
     auto wp = parent()->get_cur_wp();
     wp_goal_ =
-        state_utils::gps_to_enu(ctx.lon_lat_alt.get(), ctx.pos_enu.get(), wp);
+        state_utils::gps_to_enu(ctx.lon_lat_alt.load(), ctx.pos_enu.load(), wp);
 
-    if (!ctx.planner_enable.get()) {
+    if (!ctx.planner_enable.load()) {
         ctx.tracker->send_pos_cmd(wp_goal_, std::nullopt, std::nullopt,
                                   std::nullopt, parent()->target_vel_,
                                   std::nullopt, CmdFrame::ENU);
@@ -171,11 +171,11 @@ StateAction WaypointState::ExcuteState::on_event(const dk::TickEvent& event,
     auto arrive = check_arrive(ctx);
     if (arrive) {
         parent()->wp_idx_ += 1;
-        ctx.wp_idx.set(parent()->wp_idx_);
+        ctx.wp_idx.store(parent()->wp_idx_);
 
         // 发布数据
         json j = json{{"total", parent()->wp_list_.size()},
-                      {"cur", ctx.wp_idx.get()},
+                      {"cur", ctx.wp_idx.load()},
                       {"type", "event"},
                       {"event", "progress"}};
         ctx.ws_manager->publish_state("progress", j);

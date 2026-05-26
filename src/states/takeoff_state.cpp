@@ -3,7 +3,8 @@
 #include <chrono>
 #include <memory>
 
-#include "context_config.hpp"
+#include "core/global_config.hpp"
+#include "robot_context.hpp"
 #include "states/ground_state.hpp"
 #include "states/hover_state.hpp"
 #include "states/state_utils.hpp"
@@ -25,8 +26,8 @@ StateAction TakeoffState::on_event(const dk::TickEvent& e, RobotContext& ctx) {
     bool is_settled =
         std::visit([](const auto& obj) { return obj.is_settled(); }, event_);
 
-    if (!is_settled &&
-        state_utils::get_time_span(start_time_) > PREARM_TIMEOUT) {
+    if (!is_settled && state_utils::get_time_span(start_time_) >
+                           GlobalConfig.GetConfig().prearm_timeout) {
         // 超时了，直接拒绝
         std::visit(
             [](const auto& obj) { return obj.reject("Takeoff Timeout!"); },
@@ -65,14 +66,12 @@ StateAction TakeoffState::PrearmCheckState::on_event(
 }
 
 void TakeoffState::ArmState::on_enter(RobotContext& ctx) {
-    if (ctx.arm.get()) {
+    if (ctx.arm.load()) {
         ctx.engine->step<TakingoffState>();
     } else {
         ctx.robot->arm();
     }
 }
-
-const double TAKEOFF_TIMEOUT = 100.0;
 
 StateAction TakeoffState::ArmState::on_event(const ArmEvent& event,
                                              RobotContext& ctx) {
@@ -94,15 +93,16 @@ StateAction TakeoffState::ArmState::on_event(const StatusTextEvent& event,
 }
 
 void TakeoffState::TakingoffState::on_enter(RobotContext& ctx) {
+    auto& cfg = GlobalConfig.GetConfig();
     start_time_ = std::chrono::steady_clock::now();
 
     checker_ = std::make_shared<state_utils::StallChecker<1>>(
-        std::array<double, 1>{1.0}, TAKEOFF_TIMEOUT);
+        std::array<double, 1>{1.0}, cfg.takeoff_timeout);
 
     if (ctx.robot->takeoff(parent()->alt_)) {
         // 记录下起飞时候的经纬高
-        auto pos = ctx.lon_lat_alt.get();
-        ctx.takeoff_lon_lat_alt.set({pos.x(), pos.y(), parent()->alt_});
+        auto pos = ctx.lon_lat_alt.load();
+        ctx.takeoff_lon_lat_alt.emplace(pos.x(), pos.y(), parent()->alt_);
         std::visit(
             [](const auto& obj) { return obj.resolve({"success", "OK"}); },
             parent()->event_);
@@ -116,11 +116,10 @@ void TakeoffState::TakingoffState::on_enter(RobotContext& ctx) {
     }
 }
 
-const double Z_TOLERANCE = 1.0;
-
 StateAction TakeoffState::TakingoffState::on_event(const dk::TickEvent& e,
                                                    RobotContext& ctx) {
-    double alt = ctx.pos_enu.get().z();
+    auto& cfg = GlobalConfig.GetConfig();
+    double alt = ctx.pos_enu.load().z();
     bool is_stall = checker_->is_stall({alt});
     if (is_stall) {
         if (!ctx.robot->check_hover(ctx)) {
@@ -130,10 +129,10 @@ StateAction TakeoffState::TakingoffState::on_event(const dk::TickEvent& e,
 
     // 如果支持高度的，要求等待高度达到指定值
     // 如果不支持高度，只需要在空中即可
-    bool arrive =
-        ctx.robot->is_alt_enable()
-            ? std::fabs(ctx.pos_enu.get().z() - parent()->alt_) < Z_TOLERANCE
-            : ctx.robot->check_hover(ctx);
+    bool arrive = ctx.robot->is_alt_enable()
+                      ? std::fabs(ctx.pos_enu.load().z() - parent()->alt_) <
+                            cfg.z_tolerance
+                      : ctx.robot->check_hover(ctx);
 
     if (!arrive && !is_stall) {
         return StateAction::unhandled();

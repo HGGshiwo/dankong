@@ -6,7 +6,7 @@ class LandState : public dk::BaseState<RobotContext, LandState, void> {
     int land_target_id_;
 
     using AllowedEvents = std::tuple<dk::TickEvent>;
-    LandState(int land_target_id) : land_target_id_(land_target_id) {};
+    LandState(int land_target_id) { land_target_id_ = land_target_id; };
 
     void on_enter(RobotContext& ctx) override;
 

@@ -3,14 +3,13 @@
 #include <memory>
 #include <variant>
 
+#include "core/global_config.hpp"
 #include "features/control/events.hpp"
 #include "ground_state.hpp"
 #include "hover_state.hpp"
 #include "state_common.hpp"
 #include "state_utils.hpp"
 #include "waypoint_state.hpp"
-
-inline double PREARM_TIMEOUT = 3.0;
 
 class TakeoffState : public dk::BaseState<RobotContext, TakeoffState, void> {
    public:

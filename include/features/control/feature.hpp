@@ -15,6 +15,7 @@
 #include <memory>
 
 #include "./context.hpp"
+#include "Eigen/src/Geometry/Quaternion.h"
 #include "core/engine.hpp"
 #include "features/control/events.hpp"
 #include "states/state_utils.hpp"
@@ -30,20 +31,20 @@ class ControlFeature {
             "/mavros/state",
             [](const mavros_msgs::State::ConstPtr& state_ptr,
                RobotContext& ctx) -> void {
-                auto armed = ctx.arm.get();
+                auto armed = ctx.arm.load();
                 auto cur_armed = state_ptr->armed != 0;
                 if (armed != cur_armed) {
-                    ctx.arm.set(cur_armed);
+                    ctx.arm.store(cur_armed);
                     ctx.engine->dispatch_internal(ArmEvent{cur_armed});
                 }
-                if (ctx.mode.get() != state_ptr->mode) {
+                if (ctx.mode.load() != state_ptr->mode) {
                     ctx.engine->dispatch_internal(
-                        FlightModeEvent{ctx.mode.get(), state_ptr->mode});
-                    ctx.mode.set(state_ptr->mode);
+                        FlightModeEvent{ctx.mode.load(), state_ptr->mode});
+                    ctx.mode.store(state_ptr->mode);
                 }
                 auto connected = state_ptr->connected != 0;
-                if (ctx.fcu_connected.get() != connected) {
-                    ctx.fcu_connected.set(connected);
+                if (ctx.fcu_connected.load() != connected) {
+                    ctx.fcu_connected.store(connected);
                     ctx.engine->dispatch_internal(FcuConnectedEvent{connected});
                 }
             });
@@ -53,16 +54,19 @@ class ControlFeature {
             [](const nav_msgs::Odometry::ConstPtr& odom,
                RobotContext& ctx) -> void {
                 auto pos = odom->pose.pose.position;
-                ctx.pos_enu.set({pos.x, pos.y, pos.z});
+                ctx.pos_enu.emplace(pos.x, pos.y, pos.z);
 
                 auto orientation = odom->pose.pose.orientation;
-                auto yaw_enu = state_utils::orientation_to_euler(
-                                   orientation.x, orientation.y, orientation.z,
-                                   orientation.w)
-                                   .z();
+                auto rpy = state_utils::orientation_to_euler(
+                    orientation.x, orientation.y, orientation.z, orientation.w);
 
-                ctx.yaw_enu = yaw_enu;
-                ctx.yaw_ned.set(state_utils::yaw_enu_to_ned(yaw_enu));
+                ctx.yaw_enu = rpy.z();
+                ctx.pitch.store(rpy.y());
+                ctx.roll.store(rpy.x());
+                ctx.orientation.store(
+                    Eigen::Quaterniond(orientation.w, orientation.x,
+                                       orientation.y, orientation.z));
+                ctx.yaw_ned.store(state_utils::yaw_enu_to_ned(rpy.z()));
             });
 
         ros->bind_context(
@@ -88,20 +92,20 @@ class ControlFeature {
         ros->bind_context("/mavros/gpsstatus/gps1/raw",
                           [](const mavros_msgs::GPSRAW::ConstPtr& msg,
                              RobotContext& ctx) -> void {
-                              ctx.gps_fix_type.set(msg->fix_type);
+                              ctx.gps_fix_type.store(msg->fix_type);
                           });
 
         ros->bind_context(
             "/mavros/sys_status",
             [](const mavros_msgs::SysStatus::ConstPtr& status,
                RobotContext& ctx) -> void {
-                ctx.battery_remaining.set(status->battery_remaining);
+                ctx.battery_remaining.store(status->battery_remaining);
             });
 
         ros->bind_context(
             "/mavros/global_position/raw/satellites",
             [](const std_msgs::UInt32::ConstPtr& msg,
-               RobotContext& ctx) -> void { ctx.gps_nsats.set(msg->data); });
+               RobotContext& ctx) -> void { ctx.gps_nsats.store(msg->data); });
 
         ros->bind_event(
             "/mavros/sys_status",
