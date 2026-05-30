@@ -58,6 +58,9 @@ class KalmanFilter2D {
         return Eigen::Vector2d(x_(2), x_(3));
     }
 
+    Eigen::Vector2d get_pos() const { return x_.head<2>(); }
+    Eigen::Vector2d get_vel() const { return x_.tail<2>(); }
+
    private:
     Eigen::Vector4d x_;              // 状态量 [x, y, vx, vy]
     Eigen::Matrix4d P_;              // 状态协方差

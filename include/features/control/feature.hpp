@@ -1,4 +1,5 @@
 #pragma once
+#include <geometry_msgs/TwistStamped.h>
 #include <mavros_msgs/GPSRAW.h>
 #include <mavros_msgs/State.h>
 #include <mavros_msgs/StatusText.h>
@@ -12,6 +13,7 @@
 #include <std_msgs/String.h>
 #include <std_msgs/UInt32.h>
 
+#include <Eigen/Dense>
 #include <memory>
 
 #include "./context.hpp"
@@ -49,6 +51,22 @@ class ControlFeature {
                 }
             });
 
+        ros->bind_context("/mavros/local_position/velocity_body",
+                          [](const geometry_msgs::TwistStamped::ConstPtr& msg,
+                             RobotContext& ctx) -> void {
+                              ctx.vel_body.store(Eigen::Vector3d{
+                                  msg->twist.linear.x, msg->twist.linear.y,
+                                  msg->twist.linear.z});
+                          });
+
+        ros->bind_context("/mavros/local_position/velocity_local",
+                          [](const geometry_msgs::TwistStamped::ConstPtr& msg,
+                             RobotContext& ctx) -> void {
+                              ctx.vel_enu.store(Eigen::Vector3d{
+                                  msg->twist.linear.x, msg->twist.linear.y,
+                                  msg->twist.linear.z});
+                          });
+
         ros->bind_context(
             "/mavros/local_position/odom",
             [](const nav_msgs::Odometry::ConstPtr& odom,
@@ -67,6 +85,12 @@ class ControlFeature {
                     Eigen::Quaterniond(orientation.w, orientation.x,
                                        orientation.y, orientation.z));
                 ctx.yaw_ned.store(state_utils::yaw_enu_to_ned(rpy.z()));
+
+                // [新增] 将当前位姿存入历史记录
+                ctx.pose_history.push(
+                    odom->header.stamp, Eigen::Vector3d(pos.x, pos.y, pos.z),
+                    Eigen::Quaterniond(orientation.w, orientation.x,
+                                       orientation.y, orientation.z));
             });
 
         ros->bind_context(

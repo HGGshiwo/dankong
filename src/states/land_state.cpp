@@ -1,5 +1,7 @@
 #include "states/land_state.hpp"
 
+#include "features/pland/landing_controller.hpp"
+#include "features/pland/landing_detector.hpp"
 #include "robot_context.hpp"
 #include "states/ground_state.hpp"
 
@@ -26,6 +28,7 @@ void update_land_target(ContextType& ctx, int& land_target_id_) {
             do_pland = true;
             ctx.land_detector->set_target_id(land_target_id_);
             ctx.land_detector->start(50);
+            ctx.land_controller->start(50);
         }
     }
     if (!do_pland)
@@ -50,6 +53,7 @@ void stop_pland(ContextType& ctx, int land_target_id) {
     if constexpr (has_land_target<RobotContext>::value) {
         if (land_target_id >= 0) {
             ctx.land_detector->stop();
+            ctx.land_controller->stop();
         }
     }
 }

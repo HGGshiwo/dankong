@@ -248,10 +248,16 @@ def main():
     parser.add_argument("--start-id", type=int, default=0, help="起始 ID (默认 0)")
     parser.add_argument("--count", type=int, default=1, help="生成数量 (默认 1)")
     parser.add_argument(
-        "--outer-size", type=str, default="0.8m", help='外层标称尺寸 (如 "0.8m")'
+        "--outer-size",
+        type=str,
+        default="0.8m",
+        help='最外侧完整物理总尺寸 (如 "0.8m")',
     )
     parser.add_argument(
-        "--inner-size", type=str, default="0.15m", help='内层标称尺寸 (如 "0.15m")'
+        "--inner-ratio",
+        type=float,
+        default=0.8,
+        help="内部tag最外侧相对于外部空心部分的比例系数 (如 0.8)",
     )
     parser.add_argument("--out-dir", type=str, default=".", help="输出文件夹路径")
 
@@ -277,12 +283,8 @@ def main():
     args = parser.parse_args()
     os.makedirs(args.out_dir, exist_ok=True)
 
-    out_tag_val, out_unit = parse_size(args.outer_size)
-    in_tag_val, in_unit = parse_size(args.inner_size)
-
-    if out_unit != in_unit:
-        print("错误: 外层和内层的尺寸单位必须一致 (计算已将其统一为 mm)")
-        return
+    # outer_full_val 即最外侧完整的物理像素总宽度 (10个像素宽)
+    outer_full_val, out_unit = parse_size(args.outer_size)
 
     print(f"缓存目录: {os.path.expanduser(args.cache_dir)}")
 
@@ -302,6 +304,31 @@ def main():
         with Image.open(outer_path, "r") as outer_im, Image.open(
             inner_path, "r"
         ) as inner_im:
+
+            # --- 开始自动计算内外侧标称尺寸 ---
+            out_w, out_h = outer_im.size  # 外层一定是 10
+            in_w, in_h = inner_im.size
+
+            if (
+                "Custom" in args.family
+                or "Standard" in args.family
+                or "Circle" in args.family
+            ):
+                in_measure_px = in_w - 2
+            else:
+                in_measure_px = in_w
+
+            # 1. 根据最外侧大小反算外层 tag 的参数
+            outer_cell_size = outer_full_val / out_w
+            out_tag_val = outer_cell_size * 6.0  # 外层标称大小 (对应第2到第8像素跨度)
+
+            # 2. 根据空心比例推算内层 tag 的参数
+            hollow_size = outer_cell_size * 2.0  # 中心空心部分总物理尺寸 (2个像素)
+            inner_full_size = hollow_size * args.inner_ratio  # 内部tag实际物理大小
+            inner_cell_size = inner_full_size / in_w
+            in_tag_val = inner_cell_size * in_measure_px  # 内层标称大小
+            # -----------------------------------
+
             # 1. 生成基础 SVG 载荷
             payload, outer_full_size = gen_svg_rects_payload(
                 outer_im, inner_im, out_tag_val, in_tag_val, args.family
@@ -335,7 +362,12 @@ def main():
 
                 print(f"  -> 已生成完整 SVG: {svg_out_name}")
                 print(f"  -> 已生成完整 PNG: {png_out_name} (分辨率 DPI: {args.dpi})")
-                print(f"     (含黑边实际物理尺寸: {outer_full_size:.2f}{out_unit})")
+                print(
+                    f"  -> ⭐【飞控配置提示】外层 tagSize 请填写: {out_tag_val:.4f}{out_unit}"
+                )
+                print(
+                    f"  -> ⭐【飞控配置提示】内层 tagSize 请填写: {in_tag_val:.4f}{out_unit}"
+                )
 
             else:
                 # ----------------- 分片模式 -----------------
@@ -388,7 +420,10 @@ def main():
                     f"  -> 分片已完成，共 {rows * cols} 组图 (每组含 SVG + PNG)，存入目录: {split_dir}"
                 )
                 print(
-                    f"  -> 提示：飞控中输入的 tagSize 请写 {args.outer_size}，但拼出的物理尺寸会是 {outer_full_size:.2f}{out_unit}。"
+                    f"  -> ⭐【飞控配置提示】外层 tagSize 请填写: {out_tag_val:.4f}{out_unit}"
+                )
+                print(
+                    f"  -> ⭐【飞控配置提示】内层 tagSize 请填写: {in_tag_val:.4f}{out_unit}"
                 )
 
 

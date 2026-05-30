@@ -48,6 +48,9 @@ class KalmanFilterYaw {
         return x_;
     }
 
+    double get_yaw() const { return x_(0); }
+    double get_yaw_rate() const { return x_(1); }
+
    private:
     Eigen::Vector2d x_;  // [yaw, yaw_rate]
     Eigen::Matrix2d P_;

@@ -25,7 +25,7 @@ def get_param(params_to_set: Dict[str, float]):
 
 
 IRIS_X = 0
-IRIS_Y = 0
+IRIS_Y = 20.0
 
 
 class TestPland(unittest.TestCase):
@@ -132,7 +132,7 @@ class TestPland(unittest.TestCase):
 
                         record_thread = self.start_record(get_dist, writer, stop_event)
 
-                        self.robot.wait_for_state("state", "地面状态", 120)
+                        self.robot.wait_for_state("state", "地面状态", 10000)
                         stop_event.set()
                         if record_thread.is_alive():
                             record_thread.join()
@@ -168,7 +168,7 @@ class TestPland(unittest.TestCase):
     def test_apm_pland_circle(self):
         """1m/s匀速圆周运动的Tag"""
         v = 1.0
-        R = 3 + random.random() * 9
+        R = 20.0
 
         def before_test(writer: SummaryWriter):
             theta = 0

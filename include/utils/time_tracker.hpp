@@ -83,6 +83,12 @@ class TimeTracker {
         return current_now - record_time_;
     }
 
+    double to_double() const { return record_time_; }
+
+#ifdef ENVIRONMENT_HAS_ROS
+    ros::Time to_ros_time() const { return ros::Time(record_time_); }
+#endif
+
     // ==========================================
     // 更新值的方法 (因为有无参构造，通常需要后续赋值)
     // ==========================================

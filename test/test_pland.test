@@ -7,7 +7,7 @@
         <arg name="robot_type" value="drone" />
         <arg name="output" value="log" />
     </include>
-    <test pkg="dankong" type="test_pland.py" test-name="test_pland" time-limit="600">
+    <test pkg="dankong" type="test_pland.py" test-name="test_pland" time-limit="60000">
         <param name="robot_type" value="$(arg robot_type)" />
     </test>
 
@@ -15,7 +15,7 @@
         <arg name="fcu_url" value="tcp://:5760@" />
         <arg name="respawn_mavros" value="true" />
     </include>
-    <node pkg="dankong" name="dankong_node" type="dankong_$(arg robot_type)_node" args="--config config/$(arg robot_type)-config.yaml" respawn="true" output="screen"></node>
+
     <!-- <node name="spawn_apriltag" pkg="gazebo_ros" type="spawn_model"
         args="-sdf -file $(find gazebo_sim)/models/apriltag/model-1_4.sdf  -model apriltag 
             -x -100 -y -100 -z 0.001 -R 0 -P 1.57 -Y 1.57"

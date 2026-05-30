@@ -10,6 +10,19 @@ struct TrackerConfig {
     dk::Param<double> kp_xy = INIT_PARAM("kp_xy", 1.5, "水平位置控制比例系数");
     dk::Param<double> kp_z = INIT_PARAM("kp_z", 1.0, "高度控制比例系数");
     dk::Param<double> kp_yaw = INIT_PARAM("kp_yaw", 2.0, "偏航角控制比例系数");
+
+    dk::Param<double> ki_xy = INIT_PARAM("ki_xy", 0.01, "水平位置控制比例系数");
+    dk::Param<double> ki_z = INIT_PARAM("ki_z", 0.01, "高度控制比例系数");
+    dk::Param<double> ki_yaw = INIT_PARAM("ki_yaw", 0.01, "偏航角控制比例系数");
+
+    dk::Param<double> kd_xy = INIT_PARAM("kd_xy", 0.1, "水平位置控制比例系数");
+    dk::Param<double> kd_z = INIT_PARAM("kd_z", 0.1, "高度控制比例系数");
+    dk::Param<double> kd_yaw = INIT_PARAM("kd_yaw", 0.1, "偏航角控制比例系数");
+
+    dk::Param<double> max_i_xy = INIT_PARAM("max_i_xy", 1.0, "积分抗饱和");
+    dk::Param<double> max_i_z = INIT_PARAM("max_i_z", 1.0, "积分抗饱和");
+    dk::Param<double> max_i_yaw = INIT_PARAM("max_i_yaw", 1.0, "积分抗饱和");
+
     dk::Param<double> command_timeout_sec =
         INIT_PARAM("command_timeout_sec", 0.5, "控制指令失效保护阈值(s)");
     dk::Param<int> loop_rate_hz =
@@ -22,7 +35,7 @@ struct TrackerConfig {
         "yaw_tolerance_rad", 0.05, "判定目标到达的角度偏差阈值(rad)");
 
     dk::Param<double> max_vel_xy =
-        INIT_PARAM("max_vel_xy", 2.0, "XY轴最大允许速度(m/s)");
+        INIT_PARAM("max_vel_xy", 3.0, "XY轴最大允许速度(m/s)");
     dk::Param<double> max_vel_z =
         INIT_PARAM("max_vel_z", 1.0, "Z轴最大允许速度(m/s)");
     dk::Param<double> max_vel_yaw =

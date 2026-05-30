@@ -65,7 +65,8 @@ state:
   
   - key: yaw_diff
     name: "偏航误差"
-    collapse: true
+    collapse: false
+    fixed: 2
   
   - key: yr
     name: "期望角速"

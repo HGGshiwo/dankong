@@ -23,6 +23,18 @@ class ThreadedTracker : public IThreadRunner {
     enum class CtrlMode { NONE, POSITION, VELOCITY };
 
     // ==========================================
+    // PID 状态暂存结构体
+    // ==========================================
+    struct PIDState {
+        double integral = 0.0;
+        double prev_error = 0.0;
+        void reset() {
+            integral = 0.0;
+            prev_error = 0.0;
+        }
+    };
+
+    // ==========================================
     // 指令暂存区结构体
     // ==========================================
     struct PendingCmd {
@@ -37,6 +49,11 @@ class ThreadedTracker : public IThreadRunner {
         std::optional<double> cruise_speed_z = std::nullopt;
         std::optional<double> max_acc_xy = std::nullopt;
         std::optional<double> max_decel_xy = std::nullopt;
+
+        // [新增] 加加速度(Jerk)限制参数
+        std::optional<double> max_jerk_xy = std::nullopt;
+        std::optional<double> max_jerk_z = std::nullopt;
+
         Eigen::Vector3d gamma = {1.0, 1.0, 1.0};
     };
 
@@ -57,6 +74,11 @@ class ThreadedTracker : public IThreadRunner {
     Eigen::Vector4d target_vel_;
     std::optional<double> max_acc_xy_ = std::nullopt;
     std::optional<double> max_decel_xy_ = std::nullopt;
+
+    // [新增] 当前生效的 Jerk 限制
+    std::optional<double> max_jerk_xy_ = std::nullopt;
+    std::optional<double> max_jerk_z_ = std::nullopt;
+
     state_utils::AngleController angle_ctrl_;
 
     double active_max_vel_xy_ = 0.0;
@@ -69,8 +91,15 @@ class ThreadedTracker : public IThreadRunner {
     PendingCmd pending_cmd_;
 
     std::chrono::steady_clock::time_point last_command_time_;
+
     Eigen::Vector4d last_cmd_vel_ = Eigen::Vector4d::Zero();
+    Eigen::Vector3d last_cmd_acc_ =
+        Eigen::Vector3d::Zero();  // [新增] 用于记录上一拍的加速度指令
+
     double last_yaw_ = 0.0;
+
+    // 独立维护 X, Y, Z, Yaw 的 PID 状态
+    PIDState pid_x_, pid_y_, pid_z_, pid_yaw_;
 
    public:
     ThreadedTracker(const TrackerConfig& config, ITrackerRuntime* runtime,
@@ -86,7 +115,9 @@ class ThreadedTracker : public IThreadRunner {
 
     void on_start() override {
         last_cmd_vel_ = Eigen::Vector4d::Zero();
+        last_cmd_acc_ = Eigen::Vector3d::Zero();  // [新增] 初始化加速度记录
         last_yaw_ = yaw_enu_.load();
+        reset_all_pids();
     }
 
     void on_stop() override { send_zero_velocity(); }
@@ -100,6 +131,7 @@ class ThreadedTracker : public IThreadRunner {
     // 接口 1：位置控制 (仅仅写入暂存区)
     // gamma: KP系数衰减
     // =========================================================================
+    // [修改] 增加 max_jerk_xy 和 max_jerk_z 传参
     void send_pos_cmd(const Eigen::Vector3d& pos, std::optional<double> yaw,
                       std::optional<double> ff_yaw_rate,
                       std::optional<Eigen::Vector3d> ff_vel,
@@ -107,7 +139,9 @@ class ThreadedTracker : public IThreadRunner {
                       std::optional<double> cruise_speed_z, CmdFrame frame,
                       Eigen::Vector3d gamma = {1.0, 1.0, 1.0},
                       std::optional<double> max_acc_xy = std::nullopt,
-                      std::optional<double> max_decel_xy = std::nullopt) {
+                      std::optional<double> max_decel_xy = std::nullopt,
+                      std::optional<double> max_jerk_xy = std::nullopt,
+                      std::optional<double> max_jerk_z = std::nullopt) {
         std::lock_guard<std::mutex> lock(data_mutex_);
         pending_cmd_.mode = CtrlMode::POSITION;
         pending_cmd_.frame = frame;
@@ -120,6 +154,9 @@ class ThreadedTracker : public IThreadRunner {
         pending_cmd_.gamma = gamma;
         pending_cmd_.max_acc_xy = max_acc_xy;
         pending_cmd_.max_decel_xy = max_decel_xy;
+        // [新增] 存入暂存区
+        pending_cmd_.max_jerk_xy = max_jerk_xy;
+        pending_cmd_.max_jerk_z = max_jerk_z;
     }
 
     // =========================================================================
@@ -136,6 +173,9 @@ class ThreadedTracker : public IThreadRunner {
     }
 
     void on_step(double dt) override {
+        // ... (防止除0保护)
+        if (dt < 1e-6) return;
+
         {
             std::lock_guard<std::mutex> lock(data_mutex_);
             if (pending_cmd_.mode != CtrlMode::NONE) {
@@ -192,11 +232,9 @@ class ThreadedTracker : public IThreadRunner {
                 return;
             }
 
-            // [修改点 1] 将 active_max_vel_xy_ 传入
-            // compute_pos_control，仅用于限制纠偏反馈
             raw_cmd = compute_pos_control(current_pose, target_pose_enu_,
                                           body_target_vel, ctrl_yaw_, gamma_,
-                                          active_max_vel_xy_);
+                                          active_max_vel_xy_, dt);
 
         } else if (current_mode_ == CtrlMode::VELOCITY) {
             auto now = std::chrono::steady_clock::now();
@@ -212,9 +250,6 @@ class ThreadedTracker : public IThreadRunner {
                                           body_target_vel, ctrl_yaw_);
         }
 
-        // [修改点 2] 前馈已经加到 raw_cmd 里了。这里调用底层运动学约束时，
-        // 必须放开给物理绝对极限
-        // config_.max_vel_xy.get()，确保前馈+反馈不被误砍！
         Eigen::Vector4d safe_cmd = apply_kinematic_constraints(
             raw_cmd, config_.max_vel_xy.get(), active_max_vel_z_,
             current_pose.w(), dt);
@@ -223,15 +258,43 @@ class ThreadedTracker : public IThreadRunner {
     }
 
    private:
+    void reset_all_pids() {
+        pid_x_.reset();
+        pid_y_.reset();
+        pid_z_.reset();
+        pid_yaw_.reset();
+    }
+
+    double calculate_pid(double error, PIDState& state, double kp, double ki,
+                         double kd, double max_i, double dt, bool enable_i) {
+        if (enable_i) {
+            state.integral += error * dt;
+            state.integral = std::clamp(state.integral, -max_i, max_i);
+        }
+
+        double derivative = (dt > 1e-6) ? (error - state.prev_error) / dt : 0.0;
+        state.prev_error = error;
+
+        return kp * error + ki * state.integral + kd * derivative;
+    }
+
     void apply_pending_command() {
+        if (pending_cmd_.mode == CtrlMode::POSITION &&
+            current_mode_ != CtrlMode::POSITION) {
+            reset_all_pids();
+        }
+
         current_mode_ = pending_cmd_.mode;
         ctrl_yaw_ = pending_cmd_.yaw.has_value();
         target_frame_ = pending_cmd_.frame;
         gamma_ = pending_cmd_.gamma;
         last_command_time_ = std::chrono::steady_clock::now();
-        gamma_ = pending_cmd_.gamma;
         max_acc_xy_ = pending_cmd_.max_acc_xy;
         max_decel_xy_ = pending_cmd_.max_decel_xy;
+
+        // [新增] 提取外部传入的 Jerk 限制
+        max_jerk_xy_ = pending_cmd_.max_jerk_xy;
+        max_jerk_z_ = pending_cmd_.max_jerk_z;
 
         if (current_mode_ == CtrlMode::POSITION) {
             pos_cmd_finished_ = false;
@@ -286,12 +349,11 @@ class ThreadedTracker : public IThreadRunner {
         }
     }
 
-    // [修改点 3] 增加 limit_fb_vel_xy 参数
     Eigen::Vector4d compute_pos_control(const Eigen::Vector4d& current_pose,
                                         const Eigen::Vector4d& target_pose,
                                         const Eigen::Vector4d& ff_vel_body,
                                         bool ctrl_yaw, Eigen::Vector3d gamma,
-                                        double limit_fb_vel_xy) {
+                                        double limit_fb_vel_xy, double dt) {
         Eigen::Vector4d cmd = Eigen::Vector4d::Zero();
         double dx = target_pose.x() - current_pose.x();
         double dy = target_pose.y() - current_pose.y();
@@ -301,10 +363,6 @@ class ThreadedTracker : public IThreadRunner {
                                : 0.0;
 
         double current_yaw = current_pose.w();
-        double e_body_x =
-            std::cos(current_yaw) * dx + std::sin(current_yaw) * dy;
-        double e_body_y =
-            -std::sin(current_yaw) * dx + std::cos(current_yaw) * dy;
 
         double speed_scale = 1.0;
         if ((!config_.is_omnidirectional.get() || auto_heading_) &&
@@ -321,67 +379,83 @@ class ThreadedTracker : public IThreadRunner {
         }
 
         double kp_xy_active = config_.kp_xy.get() * gamma.x();
+        double ki_xy = config_.ki_xy.get();
+        double kd_xy = config_.kd_xy.get();
+        double max_i_xy = config_.max_i_xy.get();
+
         double kp_z_active = config_.kp_z.get() * gamma.y();
+        double ki_z = config_.ki_z.get();
+        double kd_z = config_.kd_z.get();
+        double max_i_z = config_.max_i_z.get();
+
         double kp_yaw_active = config_.kp_yaw.get() * gamma.z();
+        double ki_yaw = config_.ki_yaw.get();
+        double kd_yaw = config_.kd_yaw.get();
+        double max_i_yaw = config_.max_i_yaw.get();
 
-        // ==========================================
-        // [核心修改区] 纯反馈速度的计算与限幅
-        // ==========================================
-        double fb_x = kp_xy_active * e_body_x;
-        double fb_y = kp_xy_active * e_body_y;
+        bool enable_xy_i = (speed_scale > 1e-3);
 
-        // 1. 保护 FOV：用下发的 limit_fb_vel_xy
-        // 截断单纯因为位置误差产生的追击速度
+        double pid_enu_x = calculate_pid(dx, pid_x_, kp_xy_active, ki_xy, kd_xy,
+                                         max_i_xy, dt, enable_xy_i);
+        double pid_enu_y = calculate_pid(dy, pid_y_, kp_xy_active, ki_xy, kd_xy,
+                                         max_i_xy, dt, enable_xy_i);
+
+        double fb_x = std::cos(current_yaw) * pid_enu_x +
+                      std::sin(current_yaw) * pid_enu_y;
+        double fb_y = -std::sin(current_yaw) * pid_enu_x +
+                      std::cos(current_yaw) * pid_enu_y;
+
+        double fb_z = calculate_pid(dz, pid_z_, kp_z_active, ki_z, kd_z,
+                                    max_i_z, dt, true);
+        double fb_yaw = calculate_pid(dyaw, pid_yaw_, kp_yaw_active, ki_yaw,
+                                      kd_yaw, max_i_yaw, dt, true);
+
         double fb_speed_xy = std::hypot(fb_x, fb_y);
         if (fb_speed_xy > limit_fb_vel_xy && fb_speed_xy > 1e-4) {
             fb_x = (fb_x / fb_speed_xy) * limit_fb_vel_xy;
             fb_y = (fb_y / fb_speed_xy) * limit_fb_vel_xy;
-            fb_speed_xy = limit_fb_vel_xy;  // 更新一下当前的 feedback speed
+            fb_speed_xy = limit_fb_vel_xy;
         }
 
-        // 2. 相对目标刹车防过冲：刹车减速曲线也必须只针对反馈通道
-        // 如果把刹车算在带有 ff_vel
-        // 的总速度上，到了目标正上方飞机会强行悬停，直接放跑移动目标！
         double dist_xy = std::hypot(dx, dy);
         if (dist_xy > 1e-4) {
-            double max_v_brake_xy =
-                std::sqrt(2.0 * config_.max_decel_xy.get() * dist_xy);
+            double max_v_brake_xy = std::sqrt(
+                2.0 * max_decel_xy_.value_or(config_.max_decel_xy.get()) *
+                dist_xy);
             if (fb_speed_xy > max_v_brake_xy) {
                 fb_x = (fb_x / fb_speed_xy) * max_v_brake_xy;
                 fb_y = (fb_y / fb_speed_xy) * max_v_brake_xy;
             }
         }
 
-        // ==========================================
-        // 前馈融合组装指令
-        // ==========================================
         if (config_.is_omnidirectional.get()) {
-            // 前馈与截断后的反馈相加
             cmd.x() = fb_x + ff_vel_body.x();
             cmd.y() = fb_y + ff_vel_body.y();
-            cmd.z() = kp_z_active * dz + ff_vel_body.z();
-            cmd.w() = kp_yaw_active * dyaw + ff_vel_body.w();
+            cmd.z() = fb_z + ff_vel_body.z();
+            cmd.w() = fb_yaw + ff_vel_body.w();
         } else {
             cmd.y() = 0.0;
-            cmd.z() = kp_z_active * dz + ff_vel_body.z();
+            cmd.z() = fb_z + ff_vel_body.z();
             cmd.x() = ff_vel_body.x() * std::cos(dyaw) + fb_x;
 
             if (ff_vel_body.norm() < 1e-3) {
                 if (dist_xy > config_.pos_tolerance_m.get()) {
                     cmd.x() = fb_x;
-                    cmd.w() = kp_yaw_active * dyaw;
+                    cmd.w() = fb_yaw;
                 } else {
                     cmd.x() = 0.0;
-                    cmd.w() = ctrl_yaw ? kp_yaw_active * dyaw : 0.0;
+                    cmd.w() = ctrl_yaw ? fb_yaw : 0.0;
                 }
             } else {
+                double e_body_y =
+                    -std::sin(current_yaw) * dx + std::cos(current_yaw) * dy;
                 cmd.w() = ff_vel_body.w() +
                           std::abs(cmd.x()) * kp_xy_active * e_body_y;
-                if (ctrl_yaw) cmd.w() += kp_yaw_active * std::sin(dyaw);
+                if (ctrl_yaw)
+                    cmd.w() += fb_yaw * std::sin(dyaw) / kp_yaw_active;
             }
         }
 
-        // Z 轴由于通常是世界系绝对高度，依然保留原来的独立刹车逻辑
         double max_v_brake_z =
             std::sqrt(2.0 * config_.max_decel_z.get() * std::abs(dz));
         cmd.z() = std::clamp(cmd.z(), -max_v_brake_z, max_v_brake_z);
@@ -412,10 +486,14 @@ class ThreadedTracker : public IThreadRunner {
         return cmd;
     }
 
+    // =========================================================================
+    // [修改核心区] 运动学约束（加入了 Jerk 限制和加速度积分逻辑）
+    // =========================================================================
     Eigen::Vector4d apply_kinematic_constraints(Eigen::Vector4d raw_cmd,
                                                 double limit_v_xy,
                                                 double limit_v_z,
                                                 double current_yaw, double dt) {
+        // 1. 速度硬约束 (限速)
         double speed_xy =
             std::sqrt(raw_cmd.x() * raw_cmd.x() + raw_cmd.y() * raw_cmd.y());
         if (speed_xy > limit_v_xy && speed_xy > 1e-4) {
@@ -426,6 +504,8 @@ class ThreadedTracker : public IThreadRunner {
         raw_cmd.w() = std::clamp(raw_cmd.w(), -config_.max_vel_yaw.get(),
                                  config_.max_vel_yaw.get());
 
+        // 2.
+        // 坐标系旋转处理：当机体发生偏航时，上一拍的速度和加速度必须旋转到新机体系下
         double delta_yaw = current_yaw - last_yaw_;
         double cy = std::cos(delta_yaw);
         double sy = std::sin(delta_yaw);
@@ -435,34 +515,83 @@ class ThreadedTracker : public IThreadRunner {
         double rotated_last_vy =
             -last_cmd_vel_.x() * sy + last_cmd_vel_.y() * cy;
 
+        // [新增] 同样旋转上一拍的加速度
+        double rotated_last_ax =
+            last_cmd_acc_.x() * cy + last_cmd_acc_.y() * sy;
+        double rotated_last_ay =
+            -last_cmd_acc_.x() * sy + last_cmd_acc_.y() * cy;
+
         last_cmd_vel_.x() = rotated_last_vx;
         last_cmd_vel_.y() = rotated_last_vy;
+        last_cmd_acc_.x() = rotated_last_ax;
+        last_cmd_acc_.y() = rotated_last_ay;
         last_yaw_ = current_yaw;
 
-        double dvx = raw_cmd.x() - last_cmd_vel_.x();
-        double dvy = raw_cmd.y() - last_cmd_vel_.y();
-        double dv_xy = std::sqrt(dvx * dvx + dvy * dvy);
+        // ---------------------------------------------------------------------
+        // 3. XY轴的加速度与加加速度(Jerk)限制
+        // ---------------------------------------------------------------------
+        // 计算如果不受任何限制，到达 raw_cmd 需要的“期望加速度”
+        double desired_ax = (raw_cmd.x() - last_cmd_vel_.x()) / dt;
+        double desired_ay = (raw_cmd.y() - last_cmd_vel_.y()) / dt;
 
+        // 3.1 限制加速度大小 (Accel Limit)
         double limit_accel = max_acc_xy_.value_or(config_.max_acc_xy.get());
+        // 判断是否为减速状态（点乘小于0且速度较大）
         if (last_cmd_vel_.head<2>().norm() > 0.01 &&
-            (last_cmd_vel_.x() * dvx + last_cmd_vel_.y() * dvy) < 0) {
+            (last_cmd_vel_.x() * desired_ax + last_cmd_vel_.y() * desired_ay) <
+                0) {
             limit_accel = max_decel_xy_.value_or(config_.max_decel_xy.get());
         }
 
-        double max_dv_xy = limit_accel * dt;
-        if (dv_xy > max_dv_xy && dv_xy > 1e-6) {
-            raw_cmd.x() = last_cmd_vel_.x() + (dvx / dv_xy) * max_dv_xy;
-            raw_cmd.y() = last_cmd_vel_.y() + (dvy / dv_xy) * max_dv_xy;
+        double desired_a_mag = std::hypot(desired_ax, desired_ay);
+        if (desired_a_mag > limit_accel && desired_a_mag > 1e-6) {
+            desired_ax = (desired_ax / desired_a_mag) * limit_accel;
+            desired_ay = (desired_ay / desired_a_mag) * limit_accel;
         }
 
+        // 3.2 限制加加速度大小 (Jerk Limit)
+        // [新增] 如果没有传入限制，给定一个极大值(1000.0)相当于不受限制
+        double limit_jerk_xy = max_jerk_xy_.value_or(1000.0);
+
+        double dax = desired_ax - last_cmd_acc_.x();
+        double day = desired_ay - last_cmd_acc_.y();
+        double da_mag = std::hypot(dax, day);
+        double max_da = limit_jerk_xy * dt;  // 本周期内允许的最大加速度变化量
+
+        if (da_mag > max_da && da_mag > 1e-6) {
+            desired_ax = last_cmd_acc_.x() + (dax / da_mag) * max_da;
+            desired_ay = last_cmd_acc_.y() + (day / da_mag) * max_da;
+        }
+
+        // 3.3 更新XY轴加速度和速度记录
+        last_cmd_acc_.x() = desired_ax;
+        last_cmd_acc_.y() = desired_ay;
+        raw_cmd.x() = last_cmd_vel_.x() + desired_ax * dt;
+        raw_cmd.y() = last_cmd_vel_.y() + desired_ay * dt;
+
+        // ---------------------------------------------------------------------
+        // 4. Z轴的加速度与加加速度(Jerk)限制
+        // ---------------------------------------------------------------------
+        double desired_az = (raw_cmd.z() - last_cmd_vel_.z()) / dt;
+        double limit_acc_z = config_.max_acc_z.get();
+        desired_az = std::clamp(desired_az, -limit_acc_z, limit_acc_z);
+
+        double limit_jerk_z = max_jerk_z_.value_or(1000.0);
+        double max_daz = limit_jerk_z * dt;
+        desired_az = std::clamp(desired_az, last_cmd_acc_.z() - max_daz,
+                                last_cmd_acc_.z() + max_daz);
+
+        last_cmd_acc_.z() = desired_az;
+        raw_cmd.z() = last_cmd_vel_.z() + desired_az * dt;
+
+        // ---------------------------------------------------------------------
+        // 5. Yaw轴 保持原有的速率限制 (通常Yaw直接限制角加速度即可)
+        // ---------------------------------------------------------------------
         auto rate_limit = [](double current, double target, double max_acc,
                              double dt) {
             double max_delta = max_acc * dt;
             return std::clamp(target, current - max_delta, current + max_delta);
         };
-
-        raw_cmd.z() = rate_limit(last_cmd_vel_.z(), raw_cmd.z(),
-                                 config_.max_acc_z.get(), dt);
         raw_cmd.w() = rate_limit(last_cmd_vel_.w(), raw_cmd.w(),
                                  config_.max_acc_yaw.get(), dt);
 
@@ -474,6 +603,8 @@ class ThreadedTracker : public IThreadRunner {
         Eigen::Vector4d zero_cmd = Eigen::Vector4d::Zero();
         runtime_->cmd_vel(zero_cmd);
         last_cmd_vel_ = zero_cmd;
+        last_cmd_acc_ = Eigen::Vector3d::Zero();  // [新增]
         last_yaw_ = yaw_enu_.load();
+        reset_all_pids();
     }
 };

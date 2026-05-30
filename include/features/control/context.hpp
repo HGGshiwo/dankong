@@ -1,12 +1,67 @@
 #pragma once
+#include <ros/ros.h>
+
 #include <Eigen/Dense>
 #include <atomic>
 #include <chrono>
+#include <deque>
+#include <mutex>
 
 #include "Eigen/src/Geometry/Quaternion.h"
 #include "utils/dirty_var.hpp"
 #include "utils/fixed_string64.hpp"
 #include "utils/state_registry.hpp"
+
+struct DronePoseRecord {
+    ros::Time stamp;
+    Eigen::Vector3d pos_enu;
+    Eigen::Quaterniond q;
+};
+
+class PoseHistory {
+   private:
+    std::deque<DronePoseRecord> buffer_;
+    std::mutex mtx_;
+    const double MAX_HISTORY_SEC = 2.0;
+
+   public:
+    void push(ros::Time t, const Eigen::Vector3d& p,
+              const Eigen::Quaterniond& q) {
+        std::lock_guard<std::mutex> lk(mtx_);
+        buffer_.push_back({t, p, q});
+
+        // 维持最大时长
+        while (buffer_.size() > 2 &&
+               (t - buffer_.front().stamp).toSec() > MAX_HISTORY_SEC) {
+            buffer_.pop_front();
+        }
+    }
+
+    // 查找特定时间戳的位姿（简单找最近的，工业级可改为线性插值）
+    bool get_pose_at(ros::Time t, Eigen::Vector3d& out_p,
+                     Eigen::Quaterniond& out_q) {
+        std::lock_guard<std::mutex> lk(mtx_);
+        if (buffer_.empty()) return false;
+
+        auto best_it = buffer_.begin();
+        double min_diff = std::abs((best_it->stamp - t).toSec());
+
+        for (auto it = buffer_.begin(); it != buffer_.end(); ++it) {
+            double diff = std::abs((it->stamp - t).toSec());
+            if (diff < min_diff) {
+                min_diff = diff;
+                best_it = it;
+            }
+        }
+
+        // 如果时间差异超过 0.15 秒，说明历史记录丢失或不同步
+        if (min_diff > 0.15) return false;
+
+        out_p = best_it->pos_enu;
+        out_q = best_it->q;
+        return true;
+    }
+};
 
 struct ControlContext {
     // =========================================================================
@@ -23,6 +78,7 @@ struct ControlContext {
 
     DirtyVar<FixedString64> mode{FixedString64("未知飞控模式")};
     DirtyVar<double> dist_to_target{0.0};  // 航点到下一个目标点的距离
+    DirtyVar<double> yaw_diff{0.0};        // 偏航误差
     DirtyVar<int> wp_idx{0};               // 当前执行的航点序号
 
     DirtyVar<Eigen::Vector3d> pos_enu{Eigen::Vector3d::Zero()};
@@ -49,6 +105,8 @@ struct ControlContext {
     DirtyVar<double> roll;
     DirtyVar<double> pitch;
 
+    PoseHistory pose_history;
+
    public:
     // =========================================================================
     // 上报注册 (Telemetry Binding)
@@ -65,6 +123,7 @@ struct ControlContext {
         reg.bind("battery_level", battery_level, 1.0);
         reg.bind("mode", mode, 5.0);
         reg.bind("dist", dist_to_target, 5.0);
+        reg.bind("yaw_diff", yaw_diff, 5.0);
         reg.bind("wp_idx", wp_idx, 5.0);
 
         reg.bind("pos_enu", pos_enu, 0.0);

@@ -310,7 +310,7 @@ class Robot(GazeboObject):
         self.lock = threading.Lock()
         self.ws_open = threading.Event()
         self.ws_event_queue = Queue()
-        self.restart_pub = rospy.Publisher("/mavproxy/restart", String, queue_size=1)
+        self.restart_pub = rospy.Publisher("/restart", String, queue_size=1)
 
         threading.Thread(
             target=asyncio.run, args=(self.connect_websocket(),), daemon=True
@@ -392,11 +392,13 @@ class Robot(GazeboObject):
                 if "msg" not in res:
                     raise RuntimeError(res)
                 msg = res["msg"]
-
-                # rospy.loginfo(f"123, {res}")
-                if msg.get("arm") == False:
-                    rospy.logerr(f"Error: {msg['reason']}")
-                    continue
+                try:
+                    # rospy.loginfo(f"123, {res}")
+                    if msg.get("arm") == False:
+                        rospy.logerr(f"Error: {msg['reason']}")
+                        continue
+                except Exception as e:
+                    rospy.logerr(msg)
 
                 rospy.loginfo(f"起飞检查通过，尝试第{j+1}/10次起飞")
                 if waypoint is None:
