@@ -22,7 +22,7 @@ pland_detect_topic: /pland/detect
 server_port: 8000
 
 # Path Settings
-static_dir: "dk/frontend/dist"
+static_dir: "dist"
 ui_config_path: "config/ui.yaml"
 json_path: "config/config.json"
 

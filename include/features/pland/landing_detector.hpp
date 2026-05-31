@@ -243,7 +243,7 @@ class LandingDetector : public IThreadRunner {
         cv::cvtColor(current_img, gray, cv::COLOR_BGR2GRAY);
         image_u8_t im = {.width = gray.cols,
                          .height = gray.rows,
-                         .stride = gray.step[0],
+                         .stride = static_cast<int32_t>(gray.step[0]),
                          .buf = gray.data};
 
         zarray_t *detections = apriltag_detector_detect(td_, &im);
