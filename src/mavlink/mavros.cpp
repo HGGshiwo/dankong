@@ -10,6 +10,7 @@
 #include "mavros_msgs/CommandBool.h"
 #include "mavros_msgs/CommandLong.h"
 #include "mavros_msgs/CommandTOL.h"
+#include "mavros_msgs/ParamSet.h"
 #include "ros/time.h"
 
 bool MavRos::set_stream_rate(int rate) {
@@ -104,10 +105,19 @@ bool MavRos::set_param(const std::string& name, const ApmParam& value) {
     // Visit the variant to extract the underlying value
     return std::visit(
         [this, &name](auto&& val) {
-            // ros::NodeHandle::setParam has overloads for int, double, string,
-            // bool, etc. The compiler will automatically choose the correct
-            // overload based on 'val'
-            this->nh_.setParam("/mavros/param/" + name, val);
+            using T = std::decay_t<decltype(val)>;
+            mavros_msgs::ParamSet srv;
+            srv.request.param_id = name;
+            mavros_msgs::ParamValue v;
+            if constexpr (std::is_same_v<T, int>) {
+                v.integer = val;
+            } else if constexpr (std::is_same_v<T, double>) {
+                v.real = val;
+            } else {
+                return false;
+            }
+            srv.request.value = v;
+            param_set_client_->call(srv);
             return true;
         },
         value);

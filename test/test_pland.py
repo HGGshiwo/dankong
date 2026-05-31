@@ -25,7 +25,7 @@ def get_param(params_to_set: Dict[str, float]):
 
 
 IRIS_X = 0
-IRIS_Y = 20.0
+IRIS_Y = 3.0
 
 
 class TestPland(unittest.TestCase):
@@ -168,7 +168,7 @@ class TestPland(unittest.TestCase):
     def test_apm_pland_circle(self):
         """1m/s匀速圆周运动的Tag"""
         v = 1.0
-        R = 20.0
+        R = 3.0
 
         def before_test(writer: SummaryWriter):
             theta = 0

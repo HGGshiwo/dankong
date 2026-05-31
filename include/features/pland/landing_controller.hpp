@@ -237,45 +237,25 @@ class PlandController : public IThreadRunner {
             delay_sec = std::clamp(delay_sec, 0.0, 0.5);
         }
 
-        // 总预测时间 = 图像传输计算延迟
-        double lookahead_time = delay_sec;
-
         Eigen::Vector3d predicted_target_enu = obs.target_pos_enu;
         double omega = obs.target_vel_enu.z();
+
         double v_norm = obs.target_vel_enu.template head<2>().norm();
         double yaw = obs.target_yaw_enu;  // EKF 估计的目标航向
         Eigen::Vector2d vel_xy = obs.target_vel_enu.template head<2>();
-
+        if (std::abs(omega) < 0.05) omega = 0;
         // A. 真实当前位置 (仅补偿图像延迟) -> 用于逻辑判断
         Eigen::Vector3d current_target_enu = obs.target_pos_enu;
+        double current_yaw = yaw;
         if (std::abs(omega) < 0.05) {
             current_target_enu.x() += vel_xy.x() * delay_sec;
             current_target_enu.y() += vel_xy.y() * delay_sec;
         } else {
+            current_yaw = yaw + omega * delay_sec;
             current_target_enu.x() +=
-                (v_norm / omega) *
-                (std::sin(yaw + omega * delay_sec) - std::sin(yaw));
+                (v_norm / omega) * (std::sin(current_yaw) - std::sin(yaw));
             current_target_enu.y() +=
-                (v_norm / omega) *
-                (-std::cos(yaw + omega * delay_sec) + std::cos(yaw));
-        }
-
-        // B. 飞控前瞻位置 (补偿 APM 位置环约 0.7 秒的物理滞后) -> 用于喂给兔子
-        double fc_lag_sec = 0.0;  // 抵消 APM 的拖尾滞后
-        Eigen::Vector3d future_target_enu = current_target_enu;
-
-        if (std::abs(omega) < 0.05) {
-            future_target_enu.x() += vel_xy.x() * fc_lag_sec;
-            future_target_enu.y() += vel_xy.y() * fc_lag_sec;
-        } else {
-            double current_yaw = yaw + omega * delay_sec;
-            future_target_enu.x() +=
-                (v_norm / omega) * (std::sin(current_yaw + omega * fc_lag_sec) -
-                                    std::sin(current_yaw));
-            future_target_enu.y() +=
-                (v_norm / omega) *
-                (-std::cos(current_yaw + omega * fc_lag_sec) +
-                 std::cos(current_yaw));
+                (v_norm / omega) * (-std::cos(current_yaw) + std::cos(yaw));
         }
 
         // ---------------------------------------------------------
@@ -284,12 +264,7 @@ class PlandController : public IThreadRunner {
             R_wb.transpose() * (current_target_enu - pos_enu);
         double current_xy_error =
             std::hypot(target_body_relative.x(), target_body_relative.y());
-
-        // 计算补偿后的误差 (用于判断是否处于平稳伴飞状态)
-        Eigen::Vector3d future_body_relative =
-            R_wb.transpose() * (future_target_enu - pos_enu);
-        double compensated_error =
-            std::hypot(future_body_relative.x(), future_body_relative.y());
+        double target_yaw_relative = current_yaw - ctx_.yaw_enu.load();
 
         // 获取参数 (加速度，FOV 保护)
         // 假设你仿真的降落平台（车/船）的物理高度是 1.0 米
@@ -335,15 +310,6 @@ class PlandController : public IThreadRunner {
             GlobalConfig.GetConfig().pland_cruise_speed_xy.get();
         double cruise_speed_xy = max_cruise_speed_xy;
 
-        // if (current_z > 0 && current_z <= limit_start_z) {
-        //     double ratio = current_z / limit_start_z;
-        //     cruise_speed_xy = min_cruise_speed +
-        //                       (max_cruise_speed_xy - min_cruise_speed) *
-        //                       ratio;
-        // } else if (current_z <= 0) {
-        //     cruise_speed_xy = min_cruise_speed;
-        // }
-
         if (!traj_gen_.is_initialized()) {
             traj_gen_.reset(Eigen::Vector2d(pos_enu.x(), pos_enu.y()));
         }
@@ -351,8 +317,8 @@ class PlandController : public IThreadRunner {
         // =======================================================
         // 生成平滑轨迹
         // =======================================================
-        Eigen::Vector2d target_pos_xy(future_target_enu.x(),
-                                      future_target_enu.y());
+        Eigen::Vector2d target_pos_xy(current_target_enu.x(),
+                                      current_target_enu.y());
         auto virtual_state_enu = traj_gen_.step(dt, target_pos_xy, vel_xy,
                                                 cruise_speed_xy, pland_acc_xy);
 
@@ -408,17 +374,19 @@ class PlandController : public IThreadRunner {
         double z_body_target = 0.0;
 
         double terminal_deadzone_radius = 0.25;
-
-        if (current_z < 0.8 && (current_xy_error < 0.4 || is_blind_drop_)) {
+        if (current_z < 0.3) {
+            // 这里视为已经接触了，需要清空xy速度
+            ctx_.tracker->send_vel_cmd({0, 0, -touchdown_vel - 0.2},
+                                       std::nullopt, std::nullopt,
+                                       CmdFrame::BODY);
+            return;
+        } else if (current_z < 0.8 &&
+                   (current_xy_error < 0.4 || is_blind_drop_)) {
             is_blind_drop_ = true;  // 状态上锁！
 
             max_vel_z = touchdown_vel + 0.2;
             z_body_target = -current_z - 0.5;
-
-            // 盲降时，保持向前的速度趋势
-            // virtual_err_body.x() = 0.0;
-            // virtual_err_body.y() = 0.0;
-            // pland_acc_xy = 0.5;  // 防止乱晃
+            pland_gamma_z = 100;
         } else {
             // 【漏斗下滑道逻辑】
             double hold_dist_thresh = 3.5;
@@ -453,8 +421,8 @@ class PlandController : public IThreadRunner {
         }
         ctx_.tracker->send_pos_cmd(
             {virtual_err_body.x(), virtual_err_body.y(), z_body_target},
-            obs.yaw_relative, 0.0, total_ff_vel, cruise_speed_xy, max_vel_z,
-            CmdFrame::BODY, {1.0, pland_gamma_yaw, pland_gamma_z},
+            target_yaw_relative, omega, total_ff_vel, cruise_speed_xy,
+            max_vel_z, CmdFrame::BODY, {1.0, pland_gamma_yaw, pland_gamma_z},
             pland_acc_xy);
         // [Debug 日志]
 
@@ -470,14 +438,16 @@ class PlandController : public IThreadRunner {
 
             // 3. 记录 Leash (牵引绳) 是否处于饱和状态
             bool is_leash_clamped = tracking_err.norm() > max_leash_length;
+            double ff_vel = total_ff_vel.head<2>().norm();
 
             spdlog::info(
-                "Z:{:.1f} | EKF_V:{:.2f}m/s, W:{:.2f}rad/s | Angle:{:.1f}deg "
+                "Z:{:.1f} | EKF_V:{:.2f}m/s, W:{:.2f}rad/s | Angle:{:.1f}deg | "
+                "ff_vel:{:.2f}m/s"
                 "(blind_drop:{}) | "
                 "RawErr:[{:.2f}, {:.2f}] | VirtErr:[{:.2f}, {:.2f}] "
                 "(LeashClamp:{}) | "
                 "AccLim:{:.2f} | Delay:{:.3f}s",
-                current_z, ekf_v, ekf_omega, current_visual_angle_deg,
+                current_z, ekf_v, ekf_omega, current_visual_angle_deg, ff_vel,
                 is_blind_drop_ ? "YES" : "NO", target_body_relative.x(),
                 target_body_relative.y(), virtual_err_body.x(),
                 virtual_err_body.y(), is_leash_clamped ? "YES" : "NO",

@@ -25,7 +25,7 @@ struct PlandConfig {
         INIT_PARAM("velocity_deadzone", 0.1, "如果速度小于0.1则认为没有移动");
 
     dk::Param<double> touchdown_z_thresh = INIT_PARAM(
-        "touchdown_z_thresh", 0.2,
+        "touchdown_z_thresh", 0.3,
         "低于该高度不再使用多项式计算降落速度，直接使用touchdown_velocity");
     dk::Param<double> xy_align_thresh =
         INIT_PARAM("xy_align_thresh", 0.45, "xy误差低于该阈值允许降低高度");

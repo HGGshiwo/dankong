@@ -3,10 +3,17 @@
 #include <mavros_msgs/CommandLong.h>
 #include <mavros_msgs/CommandTOL.h>
 #include <mavros_msgs/Param.h>
+#include <mavros_msgs/ParamPull.h>
+#include <mavros_msgs/ParamSet.h>
+#include <mavros_msgs/PositionTarget.h>
 #include <mavros_msgs/SetMode.h>
 #include <mavros_msgs/StreamRate.h>
 #include <memory.h>
+#include <ros/publisher.h>
 #include <ros/ros.h>
+#include <ros/service_server.h>
+#include <ros/subscriber.h>
+#include <spdlog/spdlog.h>
 
 #include <functional>
 #include <memory>
@@ -14,12 +21,6 @@
 #include "core/global_config.hpp"
 #include "dk/logger.hpp"
 #include "imavlink.hpp"
-#include "mavros_msgs/ParamPull.h"
-#include "mavros_msgs/PositionTarget.h"
-#include "ros/publisher.h"
-#include "ros/service_server.h"
-#include "ros/subscriber.h"
-#include "spdlog/spdlog.h"
 
 template <typename MsgType>
 class ServiceClient {
@@ -63,6 +64,7 @@ class MavRos : public IMavlink {
     std::shared_ptr<ServiceClient<mavros_msgs::CommandTOL>> takeoff_client_;
     std::shared_ptr<ServiceClient<mavros_msgs::CommandBool>> arm_client_;
     std::shared_ptr<ServiceClient<mavros_msgs::ParamPull>> param_pull_client_;
+    std::shared_ptr<ServiceClient<mavros_msgs::ParamSet>> param_set_client_;
 
     std::shared_ptr<ros::Publisher> setpoint_pub_;
     ros::Subscriber param_sub_;
@@ -103,6 +105,12 @@ class MavRos : public IMavlink {
         param_pull_client_ =
             std::make_shared<ServiceClient<mavros_msgs::ParamPull>>(
                 "mavros/param/pull", [](mavros_msgs::ParamPull srv) -> bool {
+                    return srv.response.success;
+                });
+
+        param_set_client_ =
+            std::make_shared<ServiceClient<mavros_msgs::ParamSet>>(
+                "mavros/param/set", [](mavros_msgs::ParamSet srv) -> bool {
                     return srv.response.success;
                 });
 
