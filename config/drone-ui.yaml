@@ -268,6 +268,14 @@ button:
     group: "算法控制"
     target: { config_type: "toast", url: "/stop_record", method: "POST" }
 
+  - key: btn_pland_detect
+    name: "精准降落检测"
+    group: "算法控制"
+    target:
+      config_type: "toast"
+      url: "/start_pland_detect"
+      method: "POST"
+      
   - key: btn_gimbal_ctrl
     name: "云台控制"
     group: "载荷控制"

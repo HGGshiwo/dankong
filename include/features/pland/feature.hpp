@@ -10,12 +10,15 @@
 #include "core/engine.hpp"
 #include "core/global_config.hpp"
 #include "core/tag.hpp"
+#include "event_listener.hpp"
 #include "features/algo/events.hpp"
 #include "features/tracker/tracker.hpp"
 #include "landing_detector.hpp"
 #include "nav_msgs/Odometry.h"
 #include "robot_context.hpp"
+#include "ros/message_traits.h"
 #include "ros/publisher.h"
+#include "ros/time.h"
 #include "spdlog/spdlog.h"
 
 class PlandFeature {
@@ -30,10 +33,13 @@ class PlandFeature {
         ctx.land_detector = std::make_shared<LandingDetector>(
             GlobalConfig.GetConfig(), ctx,
             [&ctx, image_pub_](const DetectorResult& result, cv::Mat& detect) {
-                sensor_msgs::ImagePtr msg =
-                    cv_bridge::CvImage(std_msgs::Header(), "bgr8", detect)
-                        .toImageMsg();
-                image_pub_.publish(msg);
+                if (!detect.empty()) {  // 可能没有被检测更新(比如时间戳相同)
+                    std_msgs::Header header;
+                    header.stamp = ros::Time::now();
+                    sensor_msgs::ImagePtr msg =
+                        cv_bridge::CvImage(header, "bgr8", detect).toImageMsg();
+                    image_pub_.publish(msg);
+                }
 
                 // 只更新观测状态，不执行控制！
                 ctx.land_controller->update_observation(result);
@@ -57,8 +63,14 @@ class PlandFeature {
             });
     }
 
+    template <typename WebAdapter>
+    static void setup(TagWeb, std::shared_ptr<WebAdapter>& web) {
+        web->template register_route<StartPlandDetectEvent, EventResult>(
+            boost::beast::http::verb::post, "/start_pland_detect");
+    }
+
     static void setup(TagListeners, const std::shared_ptr<Engine>& engine) {
-        // start/stop 在 land_state.cpp 中已经处理了 detector，
-        // 这里我们可以根据需要添加更多的监听。
+        auto listener = std::make_shared<PlandEventListener>();
+        engine->add_listener(listener);
     }
 };

@@ -1,18 +1,13 @@
 #pragma once
-#include <chrono>
-
-#include "states/state_utils.hpp"
-extern "C" {
-#include "apriltag.h"
-#include "apriltag_pose.h"
-#include "tagCustom48h12.h"
-}
 #include <ros/ros.h>
 
 #include <Eigen/Dense>
+#include <chrono>
 #include <opencv2/opencv.hpp>
 
 #include "./config.hpp"
+#include "safe_aprialtag.hpp"
+#include "states/state_utils.hpp"
 #include "utils/throttle.hpp"
 // #include "./kalman_filter_2d.hpp"
 #include "./kalman_filter_ctrv.hpp"
@@ -45,8 +40,7 @@ struct DetectorResult {
 class LandingDetector : public IThreadRunner {
    private:
     PlandConfig &config_;
-    apriltag_detector_t *td_;
-    apriltag_family_t *tf_;
+    std::unique_ptr<SafeAprilTagDetector> tag_detector_;
 
     RobotContext &ctx_;
 
@@ -138,14 +132,14 @@ class LandingDetector : public IThreadRunner {
     }
 
     // [重大修改] PnP 法直接返回目标在世界地图上的【绝对ENU坐标】
-    Eigen::Vector3d solve_pose_by_pnp(const apriltag_pose_t *pose,
+    Eigen::Vector3d solve_pose_by_pnp(const SafeTagPose *safe_pose,
                                       const Eigen::Vector3d &hist_drone_pos,
                                       const Eigen::Matrix3d &hist_R_wb,
                                       double &out_relative_yaw,
                                       double &out_abs_yaw) {
         Eigen::Matrix3d R_bc = get_camera_to_body_rotation();
         Eigen::Vector3d t_bc = get_camera_body_offset();
-
+        auto pose = &(safe_pose->pose);
         // 1. 提取 Tag 在相机光学系 (C) 下的位姿
         Eigen::Vector3d t_tag_cam(pose->t->data[0], pose->t->data[1],
                                   pose->t->data[2]);
@@ -215,9 +209,7 @@ class LandingDetector : public IThreadRunner {
         PlandConfig &config, RobotContext &ctx,
         std::function<void(const DetectorResult &, cv::Mat &)> set_target)
         : IThreadRunner(), config_(config), ctx_(ctx), set_target_(set_target) {
-        td_ = apriltag_detector_create();
-        tf_ = tagCustom48h12_create();
-        apriltag_detector_add_family(td_, tf_);
+        tag_detector_ = std::make_unique<SafeAprilTagDetector>();
 
         kf_xy_ = std::make_shared<KalmanFilterIMM>();
         kf_yaw_ = std::make_shared<KalmanFilterYaw>();
@@ -228,10 +220,7 @@ class LandingDetector : public IThreadRunner {
         last_ekf_stamp_ = ros::Time(0);
     }
 
-    ~LandingDetector() {
-        tagCustom48h12_destroy(tf_);
-        apriltag_detector_destroy(td_);
-    }
+    ~LandingDetector() {}
 
     /*
         pos_enu: 用来计算目标的真实位置，判断是否在移动
@@ -280,28 +269,22 @@ class LandingDetector : public IThreadRunner {
         // 用于可视化输出，并用于灰度转换
         cv::Mat current_img = ctx_.pland_image.load();
         if (current_img.empty()) return output;
-        current_img.copyTo(detected);
+        detected = current_img.clone();  // 保障 RTSP 内存安全
 
         cv::Mat gray;
         cv::cvtColor(current_img, gray, cv::COLOR_BGR2GRAY);
-        image_u8_t im = {.width = gray.cols,
-                         .height = gray.rows,
-                         .stride = static_cast<int32_t>(gray.step[0]),
-                         .buf = gray.data};
+        auto detections = tag_detector_->detect(gray);
 
-        zarray_t *detections = apriltag_detector_detect(td_, &im);
-
-        // 【修复潜在Bug】: 必须初始化为 nullptr，否则没检测到时会导致野指针崩溃
         apriltag_detection_t *inner_result = nullptr;
         double inner_dist = -1;
         apriltag_detection_t *outter_result = nullptr;
         double outter_dist = -1;
-        for (int i = 0; i < zarray_size(detections); i++) {
-            apriltag_detection_t *det;
-            zarray_get(detections, i, &det);
 
-            double dx = det->c[0] / ((double)im.width) - 0.5;
-            double dy = det->c[1] / ((double)im.height) - 0.5;
+        for (int i = 0; i < detections.size(); i++) {
+            apriltag_detection_t *det = detections[i];
+
+            double dx = det->c[0] / ((double)gray.cols) - 0.5;
+            double dy = det->c[1] / ((double)gray.rows) - 0.5;
             double dist = std::sqrt(dx * dx + dy * dy);
 
             if (det->id == target_id_ * 2 + 1) {
@@ -330,7 +313,6 @@ class LandingDetector : public IThreadRunner {
 
         double current_z = std::abs(ctx_.pos_enu.load().z());
         if (result != nullptr) {
-            // 【修改点 2】: 绘制检测到的 AprilTag 到 detected 图像上
             // 绘制绿色边框
             for (int i = 0; i < 4; i++) {
                 cv::Point pt1(result->p[i][0], result->p[i][1]);
@@ -349,33 +331,28 @@ class LandingDetector : public IThreadRunner {
                         2);
 
             // 后续姿态解算
-            apriltag_detection_info_t info = {
-                .det = result,
-                .tagsize =
-                    is_inner ? config_.inner_tag_size : config_.outter_tag_size,
-                .fx = camera_inner_matrix_(0, 0),
-                .fy = camera_inner_matrix_(1, 1),
-                .cx = camera_inner_matrix_(0, 2),
-                .cy = camera_inner_matrix_(1, 2)};
+            double tag_size =
+                is_inner ? config_.inner_tag_size : config_.outter_tag_size;
 
-            apriltag_pose_t pose1, pose2;
-            double err1 = 0.0, err2 = 0.0;
+            SafeTagPose pose1, pose2;
 
-            // 提取两个局部极小值的姿态，50 是 LM 优化的迭代次数
-            estimate_tag_pose_orthogonal_iteration(&info, &err1, &pose1, &err2,
-                                                   &pose2, 50);
+            tag_detector_->estimatePose(
+                result, tag_size, camera_inner_matrix_(0, 0),
+                camera_inner_matrix_(1, 1), camera_inner_matrix_(0, 2),
+                camera_inner_matrix_(1, 2), pose1, pose2);
 
-            apriltag_pose_t *best_pose =
+            if (!pose1.isValid()) {
+                output.is_valid = false;
+                return output;
+            }
+
+            SafeTagPose *best_pose =
                 &pose1;  // 默认相信误差较小的那个 (通常是 pose1)
 
             // 如果算法确实产生了歧义(算出了两个解)，且我们的 EKF 已经收敛
-            if (pose1.R != nullptr && pose2.R != nullptr &&
-                has_last_valid_pos_) {
+            if (pose2.isValid() && has_last_valid_pos_) {
                 // 提取姿态 1 的旋转矩阵和 Yaw
-                Eigen::Matrix3d R1;
-                R1 << pose1.R->data[0], pose1.R->data[1], pose1.R->data[2],
-                    pose1.R->data[3], pose1.R->data[4], pose1.R->data[5],
-                    pose1.R->data[6], pose1.R->data[7], pose1.R->data[8];
+                Eigen::Matrix3d R1 = pose1.getRotation();
                 Eigen::Matrix3d R_tag_body1 =
                     get_camera_to_body_rotation() * R1;
                 Eigen::Matrix3d R_tag_world1 = hist_R_wb * R_tag_body1;
@@ -383,10 +360,7 @@ class LandingDetector : public IThreadRunner {
                     std::atan2(R_tag_world1(1, 0), R_tag_world1(0, 0));
 
                 // 提取姿态 2 的旋转矩阵和 Yaw
-                Eigen::Matrix3d R2;
-                R2 << pose2.R->data[0], pose2.R->data[1], pose2.R->data[2],
-                    pose2.R->data[3], pose2.R->data[4], pose2.R->data[5],
-                    pose2.R->data[6], pose2.R->data[7], pose2.R->data[8];
+                Eigen::Matrix3d R2 = pose2.getRotation();
                 Eigen::Matrix3d R_tag_body2 =
                     get_camera_to_body_rotation() * R2;
                 Eigen::Matrix3d R_tag_world2 = hist_R_wb * R_tag_body2;
@@ -440,6 +414,7 @@ class LandingDetector : public IThreadRunner {
                 output.los_pos = raw_target_enu;
             } else if (!los_valid && !pnp_valid) {
                 output.is_valid = false;
+                return output;  // 没有解算出结果，直接丢弃
             } else {
                 output.pnp_pos = pnp_enu;
                 output.los_pos = los_enu;
@@ -547,17 +522,7 @@ class LandingDetector : public IThreadRunner {
                     output.target_vel_enu.z() = yaw_rate;
                 }
             }
-
-            // 记得释放内存
-            matd_destroy(pose1.t);
-            matd_destroy(pose1.R);
-            if (pose2.R != nullptr) {
-                matd_destroy(pose2.t);
-                matd_destroy(pose2.R);
-            }
         }
-
-        apriltag_detections_destroy(detections);
         return output;
     }
 
