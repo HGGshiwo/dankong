@@ -16,7 +16,8 @@ class IMavlink {
     // MAV_CMD_RUN_PREARM_CHECKS
     virtual bool run_prearm_checks() = 0;
     virtual bool reboot_fcu() = 0;
-    virtual bool set_stream_rate(int rate) = 0;
+    virtual bool set_stream_rate(int stream_id, int rate) = 0;
+    virtual bool set_msg_interval(int stream_id, int rate) = 0;
     virtual bool arm() = 0;
     virtual bool disarm() = 0;
     virtual bool takeoff(double alt) = 0;

@@ -3,13 +3,14 @@
 
 #include "./events.hpp"
 #include "core/engine.hpp"
+#include "core/tag.hpp"
 #include "dk/adapters/ros.hpp"
 #include "std_msgs/String.h"
 
 class AlgoFeature {
    public:
     template <typename WebAdapter>
-    static void register_web(std::shared_ptr<WebAdapter>& web) {
+    static void setup(TagWeb, std::shared_ptr<WebAdapter>& web) {
         web->template register_route<StopFollowEvent, EventResult>(
             boost::beast::http::verb::post, "/stop_follow");
 
@@ -55,10 +56,10 @@ class AlgoFeature {
             boost::beast::http::verb::get, "/get_detect");
     }
 
-    static void register_listeners(std::shared_ptr<Engine>& engine);
+    static void setup(TagListeners, const std::shared_ptr<Engine>& engine);
 
-    static void register_ros(
-        std::shared_ptr<dk::RosAdapter<RobotContext, Engine>>& ros) {
+    static void setup(
+        TagRos, std::shared_ptr<dk::RosAdapter<RobotContext, Engine>>& ros) {
         ros->bind_event("/mavproxy/ws",
                         [](std_msgs::String::ConstPtr data) -> ReportEvent {
                             ReportEvent e;
@@ -70,7 +71,8 @@ class AlgoFeature {
 
 #include "./event_listener.hpp"
 
-inline void AlgoFeature::register_listeners(std::shared_ptr<Engine>& engine) {
+inline void AlgoFeature::setup(TagListeners,
+                               const std::shared_ptr<Engine>& engine) {
     auto listener = std::make_shared<AlgoEventListener>();
     engine->add_listener(listener);
 }

@@ -3,6 +3,7 @@
 #include <memory>
 
 #include "./engine.hpp"
+#include "core/tag.hpp"
 #include "dk/adapters/ros.hpp"
 #include "dk/adapters/udp/udp.hpp"
 #include "dk/adapters/web.hpp"
@@ -28,7 +29,7 @@ class CoreNode {
 
    public:
     CoreNode(const std::string config_path) : nh_() {
-        GlobalConfig.load(get_executable_dir() / config_path);
+        GlobalConfig.load(get_config_dir(config_path));
 
         auto& cfg = GlobalConfig.GetConfig();
 
@@ -37,13 +38,13 @@ class CoreNode {
         engine_->get_context().engine = engine_;
 
         boost::filesystem::path config_dir =
-            (get_executable_dir() / config_path).parent_path();
+            get_config_dir(config_path).parent_path();
         // 生成配置文件 (供前端使用)
         auto yaml_cfg =
             YamlHelper::load_with_base(config_dir / cfg.ui_config.get());
         auto json_cfg = YamlHelper::yaml_to_json(yaml_cfg);
 
-        YamlHelper::save(json_cfg, get_executable_dir() / cfg.json_path.get());
+        YamlHelper::save(json_cfg, get_config_dir(cfg.json_path.get()));
 
         // 创建适配器
         web_adapter_ =
@@ -51,28 +52,28 @@ class CoreNode {
         engine_->get_context().ws_manager = web_adapter_->get_manager();
 
         // 2. 调用装配工厂，一键注册全部路由和回调！
-        AssemblerType::setup_web(web_adapter_);
+        AssemblerType::template setup<TagWeb>(web_adapter_);
 
-        if constexpr (AssemblerType::template has_ros<RosAdapterType>) {
+        if constexpr (AssemblerType::template has_feature_for<TagRos>) {
             ros_adapter_ = std::make_shared<RosAdapterType>(engine_, nh_);
-            AssemblerType::setup_ros(ros_adapter_);
+            AssemblerType::template setup<TagRos>(ros_adapter_);
         }
 
-        if constexpr (AssemblerType::template has_udp<UdpAdpterType>) {
+        if constexpr (AssemblerType::template has_feature_for<TagUdp>) {
             udp_adapter_ = std::make_shared<UdpAdpterType>(
                 engine_, cfg.udp_server_port,
                 [](const std::vector<uint8_t>& data) -> CommandType {
                     return UdpPacketView(data).command();
                 });
-            AssemblerType::setup_udp(udp_adapter_);
+            AssemblerType::template setup<TagUdp>(udp_adapter_);
         }
 
-        if constexpr (AssemblerType::template has_init<RobotContext>) {
-            AssemblerType::setup_init(engine_->get_context());
+        if constexpr (AssemblerType::template has_feature_for<TagInit>) {
+            AssemblerType::template setup<TagInit>(engine_->get_context());
         }
 
-        if constexpr (AssemblerType::template has_listeners<Engine>) {
-            AssemblerType::setup_listeners(engine_);
+        if constexpr (AssemblerType::template has_feature_for<TagListeners>) {
+            AssemblerType::template setup<TagListeners>(engine_);
         }
 
         // 3. 启动引擎

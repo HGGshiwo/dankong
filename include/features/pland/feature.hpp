@@ -9,6 +9,7 @@
 #include "./landing_controller.hpp"
 #include "core/engine.hpp"
 #include "core/global_config.hpp"
+#include "core/tag.hpp"
 #include "features/algo/events.hpp"
 #include "features/tracker/tracker.hpp"
 #include "landing_detector.hpp"
@@ -19,7 +20,7 @@
 
 class PlandFeature {
    public:
-    static void init(RobotContext& ctx) {
+    static void setup(TagInit, RobotContext& ctx) {
         ros::NodeHandle nh;
         ros::Publisher image_pub_ = nh.advertise<sensor_msgs::Image>(
             GlobalConfig.GetConfig().pland_detect_topic.get(), 10);
@@ -40,7 +41,7 @@ class PlandFeature {
     }
 
     template <typename RosAdapter>
-    static void register_ros(std::shared_ptr<RosAdapter>& ros) {
+    static void setup(TagRos, std::shared_ptr<RosAdapter>& ros) {
         ros->bind_context(
             GlobalConfig.GetConfig().pland_image_topic,
             [](const sensor_msgs::ImageConstPtr& msg, RobotContext& ctx) {
@@ -56,7 +57,7 @@ class PlandFeature {
             });
     }
 
-    static void register_listeners(std::shared_ptr<Engine>& engine) {
+    static void setup(TagListeners, const std::shared_ptr<Engine>& engine) {
         // start/stop 在 land_state.cpp 中已经处理了 detector，
         // 这里我们可以根据需要添加更多的监听。
     }

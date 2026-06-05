@@ -77,7 +77,13 @@ class IRobot : public ITrackerRuntime {
         return IMavlink::unpack<T>(data);
     }
 
-    bool set_stream_rate(int rate) { return mavlink_->set_stream_rate(rate); }
+    bool set_stream_rate(int stream_id, int rate) {
+        return mavlink_->set_stream_rate(stream_id, rate);
+    }
+
+    bool set_msg_interval(int stream_id, int rate) {
+        return mavlink_->set_msg_interval(stream_id, rate);
+    }
 
     bool arm() { return mavlink_->arm(); }
 

@@ -14,6 +14,9 @@ struct PlandConfig {
         INIT_PARAM("offset_x", 0, "相机相对于机身的x轴偏移");
     dk::Param<double> offset_y =
         INIT_PARAM("offset_y", 0, "相机相对于机身的y轴偏移");
+    dk::Param<double> offset_z =
+        INIT_PARAM("offset_z", 0, "相机相对于机身的z轴偏移");
+
     dk::Param<Eigen::Matrix3d> camera_inner_matrix =
         INIT_HIDDEN_PARAM("camera_inner_matrix", Eigen::Matrix3d::Identity());
     dk::Param<std::string> pland_image_topic =
@@ -21,8 +24,15 @@ struct PlandConfig {
     dk::Param<std::string> pland_detect_topic =
         INIT_HIDDEN_PARAM("pland_detect_topic", "/pland/detect");
 
+    dk::Param<bool> pland_fix_roll =
+        INIT_PARAM("pland_fix_roll", false, "云台固定roll");
+    dk::Param<bool> pland_fix_pitch =
+        INIT_PARAM("pland_fix_pitch", false, "云台固定pitch");
+    dk::Param<bool> pland_fix_yaw =
+        INIT_PARAM("pland_fix_yaw", false, "云台固定yaw");
+
     dk::Param<double> velocity_deadzone =
-        INIT_PARAM("velocity_deadzone", 0.1, "如果速度小于0.1则认为没有移动");
+        INIT_PARAM("velocity_deadzone", 0.2, "如果速度小于0.2则认为没有移动");
 
     dk::Param<double> touchdown_z_thresh = INIT_PARAM(
         "touchdown_z_thresh", 0.3,

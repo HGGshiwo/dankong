@@ -266,7 +266,6 @@ class PlandController : public IThreadRunner {
             std::hypot(target_body_relative.x(), target_body_relative.y());
         double target_yaw_relative = current_yaw - ctx_.yaw_enu.load();
 
-        // 获取参数 (加速度，FOV 保护)
         // 假设你仿真的降落平台（车/船）的物理高度是 1.0 米
         // 如果平台就是地面，这个值就是 0.0
         double TARGET_PLATFORM_HEIGHT = 0.0;
@@ -288,27 +287,40 @@ class PlandController : public IThreadRunner {
         double decay_start_z =
             GlobalConfig.GetConfig().pland_decay_start_z.get();
 
-        double pland_acc_xy = pland_max_acc_xy;
-
         // FOV 保护 (算当前视角的几何偏移)
         double dist_xy =
             std::hypot(target_body_relative.x(), target_body_relative.y());
         double visual_angle_deg = std::atan2(dist_xy, current_z) * 180.0 / M_PI;
 
-        // 2. 设定 FOV 安全边界 (假设半视角是 49度，我们把警戒线设在 30度)
-        double fov_warning_deg = 40.0;
-        double fov_danger_deg = 55.0;
+        double fov_warning_deg = 30.0;  // 建议改小一点，比如 30 度开始警告
+        double fov_danger_deg = 45.0;  // 接近边缘时（假设半视角45度）
 
-        // 3. 计算视野惩罚系数 (1.0 代表全速，0.2 代表极其小心)
         double fov_penalty = 1.0;
+        if (visual_angle_deg > fov_warning_deg) {
+            if (visual_angle_deg >= fov_danger_deg) {
+                fov_penalty = 0.1;  // 极度危险，强行龟速
+            } else {
+                // 线性插值平滑减速
+                fov_penalty = 1.0 - 0.9 * (visual_angle_deg - fov_warning_deg) /
+                                        (fov_danger_deg - fov_warning_deg);
+            }
+        }
 
         // 计算速度限幅
-        double limit_start_z = 5.0;
-        double min_cruise_speed =
-            GlobalConfig.GetConfig().pland_min_cruise_speed.get();
         double max_cruise_speed_xy =
             GlobalConfig.GetConfig().pland_cruise_speed_xy.get();
-        double cruise_speed_xy = max_cruise_speed_xy;
+        double distance_speed_limit = std::max(0.3, current_xy_error * 0.5);
+
+        // 取最小值，然后再乘你的 fov_penalty
+        double active_cruise_speed =
+            std::min(max_cruise_speed_xy, distance_speed_limit);
+
+        double cruise_speed_xy = active_cruise_speed * fov_penalty;
+        double pland_acc_xy = pland_max_acc_xy * fov_penalty;
+
+        // 为了防止惩罚过猛导致完全停滞，可以设一个兜底的最低值
+        cruise_speed_xy = std::max(cruise_speed_xy, 0.5);
+        pland_acc_xy = std::max(pland_acc_xy, 0.5);
 
         if (!traj_gen_.is_initialized()) {
             traj_gen_.reset(Eigen::Vector2d(pos_enu.x(), pos_enu.y()));
@@ -441,17 +453,18 @@ class PlandController : public IThreadRunner {
             double ff_vel = total_ff_vel.head<2>().norm();
 
             spdlog::info(
-                "Z:{:.1f} | EKF_V:{:.2f}m/s, W:{:.2f}rad/s | Angle:{:.1f}deg | "
-                "ff_vel:{:.2f}m/s"
+                "Z:{:.1f} | EKF_V:{:.2f}m/s, W:{:.2f}rad/s | "
+                "Angle:{:.1f}deg | fov_penalty:{:.2f} | "
+                "ff_vel:{:.2f}m/s | "
                 "(blind_drop:{}) | "
                 "RawErr:[{:.2f}, {:.2f}] | VirtErr:[{:.2f}, {:.2f}] "
                 "(LeashClamp:{}) | "
                 "AccLim:{:.2f} | Delay:{:.3f}s",
-                current_z, ekf_v, ekf_omega, current_visual_angle_deg, ff_vel,
-                is_blind_drop_ ? "YES" : "NO", target_body_relative.x(),
-                target_body_relative.y(), virtual_err_body.x(),
-                virtual_err_body.y(), is_leash_clamped ? "YES" : "NO",
-                pland_acc_xy, delay_sec);
+                current_z, ekf_v, ekf_omega, current_visual_angle_deg,
+                fov_penalty, ff_vel, is_blind_drop_ ? "YES" : "NO",
+                target_body_relative.x(), target_body_relative.y(),
+                virtual_err_body.x(), virtual_err_body.y(),
+                is_leash_clamped ? "YES" : "NO", pland_acc_xy, delay_sec);
         }
     }
 };

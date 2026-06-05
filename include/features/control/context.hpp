@@ -2,8 +2,10 @@
 #include <ros/ros.h>
 
 #include <Eigen/Dense>
+#include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <deque>
 #include <mutex>
 
@@ -23,11 +25,21 @@ class PoseHistory {
     std::deque<DronePoseRecord> buffer_;
     std::mutex mtx_;
     const double MAX_HISTORY_SEC = 2.0;
+    const double MAX_TOLERANCE_SEC = 0.15;  // 允许的最大外推/丢失时间差
 
    public:
     void push(ros::Time t, const Eigen::Vector3d& p,
               const Eigen::Quaterniond& q) {
         std::lock_guard<std::mutex> lk(mtx_);
+
+        // 确保时间戳是单调递增的 (防止时间倒流或乱序乱入)
+        if (!buffer_.empty() && t <= buffer_.back().stamp) {
+            ROS_WARN_THROTTLE(
+                1.0,
+                "[PoseHistory] Received non-monotonic timestamp. Ignoring.");
+            return;
+        }
+
         buffer_.push_back({t, p, q});
 
         // 维持最大时长
@@ -37,28 +49,73 @@ class PoseHistory {
         }
     }
 
-    // 查找特定时间戳的位姿（简单找最近的，工业级可改为线性插值）
+    // 工业级插值查找
     bool get_pose_at(ros::Time t, Eigen::Vector3d& out_p,
-                     Eigen::Quaterniond& out_q) {
+                     Eigen::Quaterniond& out_q, double& min_diff) {
         std::lock_guard<std::mutex> lk(mtx_);
         if (buffer_.empty()) return false;
 
-        auto best_it = buffer_.begin();
-        double min_diff = std::abs((best_it->stamp - t).toSec());
-
-        for (auto it = buffer_.begin(); it != buffer_.end(); ++it) {
-            double diff = std::abs((it->stamp - t).toSec());
-            if (diff < min_diff) {
-                min_diff = diff;
-                best_it = it;
-            }
+        // 1. 处理边界情况：请求时间在队列最前面（太老的数据，或者还没来得及存）
+        if (t <= buffer_.front().stamp) {
+            min_diff = (buffer_.front().stamp - t).toSec();
+            if (min_diff > MAX_TOLERANCE_SEC) return false;
+            out_p = buffer_.front().pos_enu;
+            out_q = buffer_.front().q;
+            return true;
         }
 
-        // 如果时间差异超过 0.15 秒，说明历史记录丢失或不同步
-        if (min_diff > 0.15) return false;
+        // 2. 处理边界情况：请求时间在队列最后面（最新数据）
+        if (t >= buffer_.back().stamp) {
+            min_diff = (t - buffer_.back().stamp).toSec();
+            if (min_diff > MAX_TOLERANCE_SEC) return false;
+            out_p = buffer_.back().pos_enu;
+            out_q = buffer_.back().q;
+            return true;
+        }
 
-        out_p = best_it->pos_enu;
-        out_q = best_it->q;
+        // 3. 核心：二分查找找到第一个时间戳大于请求时间 t 的迭代器
+        // 这样 t 就被夹在 (it - 1) 和 it 之间了
+        auto it_after = std::lower_bound(
+            buffer_.begin(), buffer_.end(), t,
+            [](const DronePoseRecord& record, const ros::Time& target_time) {
+                return record.stamp < target_time;
+            });
+
+        // 这在逻辑上不应该发生，因为前面的边界检查已经排除了，但为了安全起见：
+        if (it_after == buffer_.begin() || it_after == buffer_.end()) {
+            return false;
+        }
+
+        auto it_before = it_after - 1;
+
+        // 计算插值比例 (alpha 始终在 0.0 到 1.0 之间)
+        double t_before = it_before->stamp.toSec();
+        double t_after = it_after->stamp.toSec();
+        double t_req = t.toSec();
+
+        double dt = t_after - t_before;
+        if (dt < 1e-6) {  // 防护分母为 0 或时间极小
+            out_p = it_before->pos_enu;
+            out_q = it_before->q;
+            min_diff = 0.0;
+            return true;
+        }
+
+        double alpha = (t_req - t_before) / dt;
+
+        // ---- 极其关键的插值计算 ----
+        // 1. 位置线性插值 (LERP)
+        out_p = it_before->pos_enu +
+                alpha * (it_after->pos_enu - it_before->pos_enu);
+
+        // 2. 姿态球面线性插值 (SLERP)
+        // Eigen 的 slerp 会自动处理四元数的最短路径插值
+        out_q = it_before->q.slerp(alpha, it_after->q);
+
+        // 更新 min_diff 为插值后的理想时间差（这里理论上就是
+        // 0，但为了兼容原接口，我们可以返回插值发生的时间跨度，或者直接返回 0）
+        min_diff = 0.0;
+
         return true;
     }
 };
@@ -90,6 +147,7 @@ struct ControlContext {
     DirtyVar<Eigen::Vector3d> lon_lat_alt{Eigen::Vector3d::Zero()};
     DirtyVar<Eigen::Vector3d> vel_enu{Eigen::Vector3d::Zero()};
     DirtyVar<Eigen::Vector3d> vel_body{Eigen::Vector3d::Zero()};
+    DirtyVar<Eigen::Vector3d> vel_angular_body{Eigen::Vector3d::Zero()};
 
     // 统一替换为你新实现的 DirtyVar (原代码中似乎叫 dirty)
     DirtyVar<std::chrono::steady_clock::time_point> stop_follow_stamp;

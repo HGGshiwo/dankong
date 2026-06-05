@@ -10,16 +10,25 @@
 #include "mavros_msgs/CommandBool.h"
 #include "mavros_msgs/CommandLong.h"
 #include "mavros_msgs/CommandTOL.h"
+#include "mavros_msgs/MessageInterval.h"
 #include "mavros_msgs/ParamSet.h"
 #include "ros/time.h"
 
-bool MavRos::set_stream_rate(int rate) {
+bool MavRos::set_stream_rate(int stream_id, int rate) {
     // 填充请求
     mavros_msgs::StreamRate srv;
-    srv.request.stream_id = 0;
+    srv.request.stream_id = stream_id;
     srv.request.message_rate = rate;
     srv.request.on_off = true;
     return set_rate_client_->call(srv);
+}
+
+bool MavRos::set_msg_interval(int stream_id, int rate) {
+    // 填充请求
+    mavros_msgs::MessageInterval srv;
+    srv.request.message_id = stream_id;
+    srv.request.message_rate = rate;
+    return set_msg_interval_client_->call(srv);
 }
 
 bool MavRos::reboot_fcu() {

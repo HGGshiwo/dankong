@@ -19,6 +19,7 @@
 #include "./context.hpp"
 #include "Eigen/src/Geometry/Quaternion.h"
 #include "core/engine.hpp"
+#include "core/tag.hpp"
 #include "features/control/events.hpp"
 #include "states/state_utils.hpp"
 
@@ -28,7 +29,7 @@ class ControlFeature {
     using Context = ControlContext;
 
     template <typename RosAdapter>
-    static void register_ros(std::shared_ptr<RosAdapter>& ros) {
+    static void setup(TagRos, std::shared_ptr<RosAdapter>& ros) {
         ros->bind_context(
             "/mavros/state",
             [](const mavros_msgs::State::ConstPtr& state_ptr,
@@ -57,6 +58,9 @@ class ControlFeature {
                               ctx.vel_body.store(Eigen::Vector3d{
                                   msg->twist.linear.x, msg->twist.linear.y,
                                   msg->twist.linear.z});
+                              ctx.vel_angular_body.store(Eigen::Vector3d{
+                                  msg->twist.angular.x, msg->twist.angular.y,
+                                  msg->twist.angular.z});
                           });
 
         ros->bind_context("/mavros/local_position/velocity_local",
@@ -160,7 +164,7 @@ class ControlFeature {
                         });
     }
     template <typename WebAdapter>
-    static void register_web(std::shared_ptr<WebAdapter>& web) {
+    static void setup(TagWeb, std::shared_ptr<WebAdapter>& web) {
         web->template register_route<PrearmEvent, EventResult>(
             boost::beast::http::verb::get, "/prearms", 5000);
 
@@ -219,12 +223,12 @@ class ControlFeature {
             boost::beast::http::verb::post, "/set_posvel", 5000);
     }
 
-    static void register_listeners(std::shared_ptr<Engine>& engine);
+    static void setup(TagListeners, const std::shared_ptr<Engine>& engine);
 };
 
 #include "./event_listener.hpp"
-inline void ControlFeature::register_listeners(
-    std::shared_ptr<Engine>& engine) {
+inline void ControlFeature::setup(TagListeners,
+                                  const std::shared_ptr<Engine>& engine) {
     auto listener = std::make_shared<ControlEventListener>();
     engine->add_listener(listener);
 }

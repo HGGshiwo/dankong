@@ -4,19 +4,20 @@
 #include "./context.hpp"
 #include "./event_listener.hpp"
 #include "core/engine.hpp"
+#include "core/tag.hpp"
 
 class TemplateFeature {
    public:
     template <typename RosAdapter>
-    static void register_ros(std::shared_ptr<RosAdapter>& ros) {
+    static void setup(TagRos, std::shared_ptr<RosAdapter>& ros) {
         // ...
     }
     template <typename WebAdapter>
-    static void register_web(std::shared_ptr<WebAdapter>& web) {
+    static void setup(TagWeb, std::shared_ptr<WebAdapter>& web) {
         // ...
     }
 
-    static void register_listeners(std::shared_ptr<Engine>& engine) {
+    static void setup(TagListeners, const std::shared_ptr<Engine>& engine) {
         auto listener = std::make_shared<TemplateEventListener>();
         engine->add_listener(listener);
     }

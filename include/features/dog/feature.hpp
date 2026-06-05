@@ -8,6 +8,7 @@
 #include "./event_listener.hpp"
 #include "core/engine.hpp"
 #include "core/global_config.hpp"
+#include "core/tag.hpp"
 #include "dk/adapters/udp/udp.hpp"
 #include "robot/dog.hpp"
 
@@ -18,7 +19,7 @@ const std::unordered_map<uint8_t, std::string> state_map = {
 
 class DogFeature {
    public:
-    static void init(RobotContext& ctx) {
+    static void setup(TagInit, RobotContext& ctx) {
         auto mavlink = std::make_shared<MavRos>();
         auto& cfg = GlobalConfig.GetConfig();
         ctx.robot =
@@ -26,7 +27,7 @@ class DogFeature {
     }
 
     template <typename UdpAdapter>
-    static void register_udp(std::shared_ptr<UdpAdapter>& udp) {
+    static void setup(TagUdp, std::shared_ptr<UdpAdapter>& udp) {
         udp->bind_context(
             CommandType::BATTERY_LEVEL_REPORT,
             [](const std::vector<uint8_t>& data, RobotContext& ctx) {
@@ -52,7 +53,7 @@ class DogFeature {
             });
     }
 
-    static void register_listeners(std::shared_ptr<Engine>& engine) {
+    static void setup(TagListeners, const std::shared_ptr<Engine>& engine) {
         engine->add_listener(
             std::make_shared<DogListener>(engine->get_context()));
     }

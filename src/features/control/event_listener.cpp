@@ -231,7 +231,9 @@ void ControlEventListener::on_event(const FcuConnectedEvent& event,
             return true;
         });
         ctx.engine->get_context().robot->set_stream_rate(
-            GlobalConfig.GetConfig().fcu_data_rate);
+            0, GlobalConfig.GetConfig().fcu_data_rate);
+        ctx.engine->get_context().robot->set_msg_interval(32, 50);  // position
+        ctx.engine->get_context().robot->set_msg_interval(30, 50);  // attitude
     }
 }
 

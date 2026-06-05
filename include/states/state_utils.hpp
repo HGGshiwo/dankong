@@ -36,6 +36,8 @@ Eigen::Quaterniond euler_to_orientation(double r, double p, double y);
 
 Eigen::Vector3d orientation_to_euler(double x, double y, double z, double w);
 
+Eigen::Vector3d orientation_to_euler(Eigen::Quaterniond q);
+
 double norm_yaw(double yaw);
 
 Eigen::Vector4d body_to_enu(const Eigen::Vector4d& body_target,

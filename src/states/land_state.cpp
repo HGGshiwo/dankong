@@ -27,7 +27,7 @@ void update_land_target(ContextType& ctx, int& land_target_id_) {
         if (land_target_id_ >= 0) {
             do_pland = true;
             ctx.land_detector->set_target_id(land_target_id_);
-            ctx.land_detector->start(50);
+            ctx.land_detector->start(30);
             ctx.land_controller->start(50);
         }
     }
@@ -40,7 +40,13 @@ void update_land_target(ContextType& ctx, int& land_target_id_) {
 void LandState::on_enter(RobotContext& ctx) {
     update_land_target(ctx, land_target_id_);
     SetGimbalEvent e1;
-    e1.mode = "body";
+    auto config = GlobalConfig.GetConfig();
+    if (config.pland_fix_yaw.get() || config.pland_fix_roll.get() ||
+        config.pland_fix_pitch.get()) {
+        e1.mode = "abs";
+    } else {
+        e1.mode = "body";
+    }
     e1.angle = 90.0;
     ctx.engine->dispatch(e1);
 

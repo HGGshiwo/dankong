@@ -1,9 +1,11 @@
 #pragma once
 #include <chrono>
+
+#include "states/state_utils.hpp"
 extern "C" {
-#include "apriltag/apriltag.h"
-#include "apriltag/apriltag_pose.h"
-#include "apriltag/tagCustom48h12.h"
+#include "apriltag.h"
+#include "apriltag_pose.h"
+#include "tagCustom48h12.h"
 }
 #include <ros/ros.h>
 
@@ -11,7 +13,10 @@ extern "C" {
 #include <opencv2/opencv.hpp>
 
 #include "./config.hpp"
-#include "./kalman_filter_2d.hpp"
+#include "utils/throttle.hpp"
+// #include "./kalman_filter_2d.hpp"
+#include "./kalman_filter_ctrv.hpp"
+#include "./kalman_filter_imm.hpp"
 #include "./kalman_filter_yaw.hpp"
 #include "./target_tracker.hpp"
 #include "robot_context.hpp"
@@ -45,7 +50,7 @@ class LandingDetector : public IThreadRunner {
 
     RobotContext &ctx_;
 
-    std::shared_ptr<KalmanFilter2D> kf_xy_;
+    std::shared_ptr<KalmanFilterIMM> kf_xy_;
     std::shared_ptr<KalmanFilterYaw> kf_yaw_;
     std::shared_ptr<KalmanFilterYaw> kf_abs_yaw_;
     std::shared_ptr<TargetTracker> target_tracker_;
@@ -73,13 +78,17 @@ class LandingDetector : public IThreadRunner {
     Eigen::Vector3d get_camera_body_offset() const {
         // config_.offset_z 如果没有，默认为 0.0
         return Eigen::Vector3d(config_.offset_x.get(), config_.offset_y.get(),
-                               0.0);
+                               config_.offset_z.get());
     }
 
-    // [重大修改] 射线法直接返回目标在世界地图上的【绝对ENU坐标】
-    Eigen::Vector3d solve_pose_by_ray(double img_x, double img_y,
-                                      const Eigen::Vector3d &hist_drone_pos,
-                                      const Eigen::Matrix3d &hist_R_wb) {
+    // [重大修改] 射线法直接返回目标在世界地图上的【绝对ENU坐标】带云台掩码补偿
+    Eigen::Vector3d solve_pose_by_ray(
+        double img_x, double img_y, const Eigen::Vector3d &hist_drone_pos,
+        const Eigen::Matrix3d &hist_R_wb,
+        bool stab_roll = false,   // 是否有横滚增稳？
+        bool stab_pitch = false,  // 是否有俯仰增稳？(最常见的单轴)
+        bool stab_yaw = false) {  // 是否有航向增稳？
+
         Eigen::Matrix3d R_bc = get_camera_to_body_rotation();
         Eigen::Vector3d t_bc = get_camera_body_offset();
 
@@ -87,11 +96,34 @@ class LandingDetector : public IThreadRunner {
         Eigen::Vector3d cam_ray =
             camera_inner_matrix_.inverse() * Eigen::Vector3d(img_x, img_y, 1.0);
 
-        // 2. 机体系下的射线方向
-        Eigen::Vector3d body_ray = R_bc * cam_ray;
+        // ==========================================
+        // 2. 姿态解耦：构建云台增稳后的等效旋转矩阵
+        // ==========================================
+        // 从飞机的绝对姿态矩阵中，提取 Z-Y-X (Yaw-Pitch-Roll) 欧拉角
+        double roll = atan2(hist_R_wb(2, 1), hist_R_wb(2, 2));
+        double pitch = asin(-hist_R_wb(2, 0));
+        double yaw = atan2(hist_R_wb(1, 0), hist_R_wb(0, 0));
 
-        // 3. 转到世界系下求地面交点 (使用拍照时刻的历史姿态)
-        Eigen::Vector3d world_ray = hist_R_wb * body_ray;
+        // 云台掩码
+        // (Mask)：如果该轴被云台增稳（始终朝下），则剥离该轴的飞机旋转干扰
+        if (stab_roll) roll = 0.0;
+        if (stab_pitch) pitch = 0.0;
+        if (stab_yaw) yaw = 0.0;  // 普通下视云台通常为 false，让其跟随飞机偏航
+
+        // 重组增稳后的世界系旋转矩阵 R_wb_stabilized
+        Eigen::Matrix3d R_wb_stabilized;
+        R_wb_stabilized = Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ()) *
+                          Eigen::AngleAxisd(pitch, Eigen::Vector3d::UnitY()) *
+                          Eigen::AngleAxisd(roll, Eigen::Vector3d::UnitX());
+
+        // ==========================================
+        // 3. 机体系到世界系的射线转换 (核心区分点)
+        // ==========================================
+        // 射线方向：使用【剥离了特定轴的增稳矩阵】
+        Eigen::Vector3d body_ray = R_bc * cam_ray;
+        Eigen::Vector3d world_ray = R_wb_stabilized * body_ray;
+
+        // 射线起点：必须使用【飞机的全量原始矩阵】，因为云台转动不改变它的物理铰链点位置
         Eigen::Vector3d camera_pos_world = hist_drone_pos + hist_R_wb * t_bc;
 
         // 4. 求与 Z=0 平面的交点
@@ -100,6 +132,7 @@ class LandingDetector : public IThreadRunner {
             return Eigen::Vector3d::Constant(
                 std::numeric_limits<double>::quiet_NaN());
         }
+
         double t = -camera_pos_world.z() / world_ray.z();
         return camera_pos_world + t * world_ray;  // 直接返回 ENU 交点
     }
@@ -144,23 +177,24 @@ class LandingDetector : public IThreadRunner {
         // 3. 基于当前高度计算权重
         // 这里的 alt_ 假设是无人机相对地面的绝对高度 (正数)
         // double current_z = std::abs(ctx_.rangefinder_alt.load());
+        double current_z = ctx_.pos_enu.load().z();
 
         // ---- 【关键配置参数】 ----
-        // double z_high = 3.0;  // 高于 1 米，完全信任 LOS 射线法
-        // double z_low = 1.0;   // 低于 0 米，完全信任 PnP 视觉解算
+        double z_high = 3.0;  // 高于 1 米，完全信任 LOS 射线法
+        double z_low = 1.0;   // 低于 0 米，完全信任 PnP 视觉解算
         // ------------------------
 
         // 4. 计算 PnP 的权重 (w_pnp 从 0.0 平滑过渡到 1.0)
-        // double w_pnp = 0.0;
-        // if (current_z >= z_high) {
-        //     w_pnp = 0.0;  // 高空纯 LOS
-        // } else if (current_z <= z_low) {
-        //     w_pnp = 1.0;  // 低空纯 PnP
-        // } else {
-        //     // 过渡区：线性插值
-        //     w_pnp = (z_high - current_z) / (z_high - z_low);
-        // }
-        // double w_los = 1.0 - w_pnp;
+        double w_pnp = 0.0;
+        if (current_z >= z_high) {
+            w_pnp = 0.0;  // 高空纯 LOS
+        } else if (current_z <= z_low) {
+            w_pnp = 1.0;  // 低空纯 PnP
+        } else {
+            // 过渡区：线性插值
+            w_pnp = (z_high - current_z) / (z_high - z_low);
+        }
+        double w_los = 1.0 - w_pnp;
 
         // 5. 执行融合操作
         Eigen::Vector3d fused_result;
@@ -185,7 +219,7 @@ class LandingDetector : public IThreadRunner {
         tf_ = tagCustom48h12_create();
         apriltag_detector_add_family(td_, tf_);
 
-        kf_xy_ = std::make_shared<KalmanFilter2D>();
+        kf_xy_ = std::make_shared<KalmanFilterIMM>();
         kf_yaw_ = std::make_shared<KalmanFilterYaw>();
         kf_abs_yaw_ = std::make_shared<KalmanFilterYaw>();
         target_tracker_ = std::make_shared<TargetTracker>();
@@ -226,11 +260,20 @@ class LandingDetector : public IThreadRunner {
         // =======================================================
         Eigen::Vector3d hist_drone_pos;
         Eigen::Quaterniond hist_q;
-        if (!ctx_.pose_history.get_pose_at(img_stamp, hist_drone_pos, hist_q)) {
+        double min_diff = -1;
+        if (!ctx_.pose_history.get_pose_at(img_stamp, hist_drone_pos, hist_q,
+                                           min_diff)) {
             // 如果找不到历史状态（比如刚启动），用当前状态凑合
             hist_drone_pos = ctx_.pos_enu.load();
             hist_q = ctx_.orientation.load();
         }
+        auto rpy = state_utils::orientation_to_euler(hist_q);
+        spdlog::info(
+            "min_diff={:.2f} pos_x={:.2f} pos_y={:.2f} r={:.2f} p={:.2f} "
+            "y={:.2f}",
+            min_diff, hist_drone_pos.x(), hist_drone_pos.y(), rpy.x(), rpy.y(),
+            rpy.z());
+
         Eigen::Matrix3d hist_R_wb = hist_q.toRotationMatrix();
 
         // 【修改点 1】: 获取当前帧，保存到 detected
@@ -285,7 +328,7 @@ class LandingDetector : public IThreadRunner {
             is_inner = false;
         }
 
-        double current_z = std::abs(ctx_.rangefinder_alt.load());
+        double current_z = std::abs(ctx_.pos_enu.load().z());
         if (result != nullptr) {
             // 【修改点 2】: 绘制检测到的 AprilTag 到 detected 图像上
             // 绘制绿色边框
@@ -363,7 +406,7 @@ class LandingDetector : public IThreadRunner {
                 // 哪一个更符合物理运动的连续性，我们就强制采用哪一个！
                 if (diff2 < diff1) {
                     best_pose = &pose2;
-                    spdlog::debug(
+                    spdlog::info(
                         "[Pland] Pose Ambiguity Resolved: Chose Pose 2 based "
                         "on EKF prior.");
                 }
@@ -374,11 +417,13 @@ class LandingDetector : public IThreadRunner {
 
             double relative_yaw = 0.0;
             double abs_yaw = 0.0;
+
             // 调用高度融合算法，传入历史位姿解算绝对坐标
             Eigen::Vector3d pnp_enu = solve_pose_by_pnp(
                 best_pose, hist_drone_pos, hist_R_wb, relative_yaw, abs_yaw);
-            Eigen::Vector3d los_enu =
-                solve_pose_by_ray(px, py, hist_drone_pos, hist_R_wb);
+            Eigen::Vector3d los_enu = solve_pose_by_ray(
+                px, py, hist_drone_pos, hist_R_wb, config_.pland_fix_roll.get(),
+                config_.pland_fix_pitch.get(), config_.pland_fix_yaw.get());
 
             bool los_valid = !std::isnan(los_enu.x());
             bool pnp_valid = !std::isnan(pnp_enu.x());
@@ -399,6 +444,18 @@ class LandingDetector : public IThreadRunner {
                 output.pnp_pos = pnp_enu;
                 output.los_pos = los_enu;
                 raw_target_enu = solve_fused_pose(pnp_enu, los_enu);
+            }
+
+            static Throttle throttle{4};
+            auto pos_enu = ctx_.pos_enu.load();
+
+            if (throttle.shouldLog()) {
+                spdlog::info(
+                    "ekf_x={:.2f} ekf_y={:.2f} drone_x={:.2f} drone_y={:.2f} "
+                    "drone_roll={:.2f} drone_pitch={:.2f} drone_yaw={:.2f}",
+                    raw_target_enu.x(), raw_target_enu.y(), pos_enu.x(),
+                    pos_enu.y(), ctx_.roll.load(), ctx_.pitch.load(),
+                    ctx_.yaw_enu.load());
             }
 
             if (output.is_valid) {
@@ -447,8 +504,25 @@ class LandingDetector : public IThreadRunner {
                 TargetState target_state =
                     target_tracker_->update(raw_target_enu.head<2>());
 
+                Eigen::Quaterniond q = ctx_.orientation.load();
+                q.normalize();
+                Eigen::Matrix3d R_wb = q.toRotationMatrix();
+                auto pos_enu = ctx_.pos_enu.load();
+                Eigen::Vector3d target_body_relative =
+                    R_wb.transpose() * (raw_target_enu - pos_enu);
+
+                double dist_xy = std::hypot(target_body_relative.x(),
+                                            target_body_relative.y());
+
+                double current_visual_angle_deg =
+                    std::atan2(dist_xy, current_z) * 180.0 / M_PI;
+
                 // 3. 执行 KF 滤波 (由于已经是 ENU，不需要任何 R_wb 转换)
-                kf_xy_->update(raw_target_enu.x(), raw_target_enu.y(), dt_ekf);
+                double current_angular_rate =
+                    ctx_.vel_angular_body.load().norm();
+                kf_xy_->update(raw_target_enu.x(), raw_target_enu.y(), dt_ekf,
+                               current_z, current_angular_rate,
+                               current_visual_angle_deg);
                 kf_yaw_->update(relative_yaw, dt_ekf);
                 kf_abs_yaw_->update(abs_yaw, dt_ekf);
 
@@ -484,34 +558,6 @@ class LandingDetector : public IThreadRunner {
         }
 
         apriltag_detections_destroy(detections);
-
-        // CTRV prediction to compensate delay
-        if (output.is_valid) {
-            double delay = (ros::Time::now() - output.stamp).toSec();
-            if (delay > 0) {
-                double omega = output.target_vel_enu.z();
-                Eigen::Vector2d vel = output.target_vel_enu.head<2>();
-                double v = vel.norm();
-                double yaw = output.target_yaw_enu;
-
-                if (std::abs(omega) < 0.05) {
-                    // Linear prediction
-                    output.target_pos_enu.x() += vel.x() * delay;
-                    output.target_pos_enu.y() += vel.y() * delay;
-                } else {
-                    // Circular arc prediction
-                    output.target_pos_enu.x() +=
-                        v / omega *
-                        (std::sin(yaw + omega * delay) - std::sin(yaw));
-                    output.target_pos_enu.y() +=
-                        v / omega *
-                        (-std::cos(yaw + omega * delay) + std::cos(yaw));
-                }
-                output.target_yaw_enu =
-                    KalmanFilterYaw::normalize_angle(yaw + omega * delay);
-            }
-        }
-
         return output;
     }
 

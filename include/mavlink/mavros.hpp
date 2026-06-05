@@ -2,6 +2,7 @@
 #include <mavros_msgs/CommandBool.h>
 #include <mavros_msgs/CommandLong.h>
 #include <mavros_msgs/CommandTOL.h>
+#include <mavros_msgs/MessageInterval.h>
 #include <mavros_msgs/Param.h>
 #include <mavros_msgs/ParamPull.h>
 #include <mavros_msgs/ParamSet.h>
@@ -21,6 +22,7 @@
 #include "core/global_config.hpp"
 #include "dk/logger.hpp"
 #include "imavlink.hpp"
+#include "mavros_msgs/MessageInterval.h"
 
 template <typename MsgType>
 class ServiceClient {
@@ -61,6 +63,8 @@ class MavRos : public IMavlink {
     std::shared_ptr<ServiceClient<mavros_msgs::CommandLong>> cmd_client_;
     std::shared_ptr<ServiceClient<mavros_msgs::SetMode>> set_mode_client_;
     std::shared_ptr<ServiceClient<mavros_msgs::StreamRate>> set_rate_client_;
+    std::shared_ptr<ServiceClient<mavros_msgs::MessageInterval>>
+        set_msg_interval_client_;
     std::shared_ptr<ServiceClient<mavros_msgs::CommandTOL>> takeoff_client_;
     std::shared_ptr<ServiceClient<mavros_msgs::CommandBool>> arm_client_;
     std::shared_ptr<ServiceClient<mavros_msgs::ParamPull>> param_pull_client_;
@@ -89,6 +93,11 @@ class MavRos : public IMavlink {
             std::make_shared<ServiceClient<mavros_msgs::StreamRate>>(
                 "/mavros/set_stream_rate",
                 [](mavros_msgs::StreamRate srv) -> bool { return true; });
+
+        set_msg_interval_client_ =
+            std::make_shared<ServiceClient<mavros_msgs::MessageInterval>>(
+                "/mavros/set_message_interval",
+                [](mavros_msgs::MessageInterval srv) -> bool { return true; });
 
         takeoff_client_ =
             std::make_shared<ServiceClient<mavros_msgs::CommandTOL>>(
@@ -136,7 +145,9 @@ class MavRos : public IMavlink {
     // MAV_CMD_RUN_PREARM_CHECKS
     bool run_prearm_checks() override;
 
-    bool set_stream_rate(int rate) override;
+    bool set_stream_rate(int stream_id, int rate) override;
+
+    bool set_msg_interval(int stream_id, int rate) override;
 
     ApmParam get_param(const std::string& name, const ApmParam& value) override;
 

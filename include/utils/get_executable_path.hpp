@@ -38,3 +38,9 @@ inline boost::filesystem::path get_executable_path() {
 inline boost::filesystem::path get_executable_dir() {
     return get_executable_path().parent_path();
 }
+
+inline boost::filesystem::path get_config_dir(std::string path) {
+    auto p = boost::filesystem::path{path};
+    if (p.is_absolute()) return p;
+    return get_executable_dir() / path;
+}

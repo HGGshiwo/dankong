@@ -156,8 +156,7 @@ Eigen::Quaterniond euler_to_orientation(double r, double p, double y) {
     return q;
 }
 
-Eigen::Vector3d orientation_to_euler(double x, double y, double z, double w) {
-    Eigen::Quaterniond q(w, x, y, z);
+Eigen::Vector3d orientation_to_euler(Eigen::Quaterniond q) {
     Eigen::Matrix3d R = q.toRotationMatrix();
     // Extract yaw using atan2 to keep range in [-pi, pi]
     double yaw = std::atan2(R(1, 0), R(0, 0));
@@ -169,6 +168,11 @@ Eigen::Vector3d orientation_to_euler(double x, double y, double z, double w) {
     double roll = std::atan2(R(2, 1), R(2, 2));
     Eigen::Vector3d rpy = {roll, pitch, yaw};
     return rpy;
+}
+
+Eigen::Vector3d orientation_to_euler(double x, double y, double z, double w) {
+    Eigen::Quaterniond q(w, x, y, z);
+    return orientation_to_euler(q);
 }
 
 // 获取经过的时长
