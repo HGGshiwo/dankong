@@ -102,7 +102,8 @@ int main() {
     // 4. 下发目标点 (使用刚刚输入的参数)
     Eigen::Vector3d target_pos(target_x, target_y, 0.0);
     tracker.send_pos_cmd(target_pos, std::nullopt, std::nullopt, std::nullopt,
-                         std::nullopt, std::nullopt, CmdFrame::ENU);
+                         std::nullopt, std::nullopt, std::nullopt,
+                         CmdFrame::ENU);
 
     // 5. 准备记录 CSV 数据
     std::ofstream csv_file("trajectory.csv");

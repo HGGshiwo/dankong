@@ -153,7 +153,7 @@ void WaypointState::ExcuteState::on_enter(RobotContext& ctx) {
     if (!ctx.planner_enable.load()) {
         ctx.tracker->send_pos_cmd(wp_goal_, std::nullopt, std::nullopt,
                                   std::nullopt, parent()->target_vel_,
-                                  std::nullopt, CmdFrame::ENU);
+                                  std::nullopt, std::nullopt, CmdFrame::ENU);
     }
 
     if (parent()->node_event_list_.has_value()) {

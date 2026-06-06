@@ -170,7 +170,7 @@ void PosVelState<ParentState>::MoveState::base_move(RobotContext& ctx) {
         std::nullopt,  // 没有前馈角速度
         p->event_.vel,  // XY 巡航速度限制 (你原代码里的 target_speed_mag)
         std::nullopt,  // Z 巡航速度限制
-        CmdFrame::ENU);
+        std::nullopt, CmdFrame::ENU);
 }
 
 template <typename ParentState>

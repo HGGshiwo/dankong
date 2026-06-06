@@ -116,7 +116,7 @@ class TestPland(unittest.TestCase):
                         check=True,
                     )
 
-                    self.robot.takeoff(alt=10)
+                    self.robot.takeoff(alt=15)
                     self.robot.wait_for_state("state", "悬停状态")
                     if before_test is None:
                         before_test = lambda x: None

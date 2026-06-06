@@ -45,8 +45,9 @@ class ThreadedTracker : public IThreadRunner {
         std::optional<double> yaw_rate =
             std::nullopt;  // Pos时的 ff_yaw_rate，Vel时的 yaw_rate
         std::optional<Eigen::Vector3d> ff_vel = Eigen::Vector3d::Zero();
-        std::optional<double> cruise_speed_xy = std::nullopt;
-        std::optional<double> cruise_speed_z = std::nullopt;
+        std::optional<double> fb_speed_limit_xy = std::nullopt;
+        std::optional<double> fb_speed_limit_z = std::nullopt;
+        std::optional<double> fb_speed_limit_yaw = std::nullopt;
         std::optional<double> max_acc_xy = std::nullopt;
         std::optional<double> max_decel_xy = std::nullopt;
 
@@ -81,8 +82,9 @@ class ThreadedTracker : public IThreadRunner {
 
     state_utils::AngleController angle_ctrl_;
 
-    double active_max_vel_xy_ = 0.0;
-    double active_max_vel_z_ = 0.0;
+    double fb_vel_limit_xy_ = 0.0;
+    double fb_vel_limit_yaw_ = 0.0;
+    double fb_vel_limit_z_ = 0.0;
 
     bool auto_heading_ = false;
     bool pos_cmd_finished_ = true;
@@ -140,8 +142,9 @@ class ThreadedTracker : public IThreadRunner {
     void send_pos_cmd(const Eigen::Vector3d& pos, std::optional<double> yaw,
                       std::optional<double> ff_yaw_rate,
                       std::optional<Eigen::Vector3d> ff_vel,
-                      std::optional<double> cruise_speed_xy,
-                      std::optional<double> cruise_speed_z, CmdFrame frame,
+                      std::optional<double> fb_speed_limit_xy,  // 限制反馈速度
+                      std::optional<double> fb_speed_limit_z,
+                      std::optional<double> fb_speed_limit_yaw, CmdFrame frame,
                       Eigen::Vector3d gamma = {1.0, 1.0, 1.0},
                       std::optional<double> max_acc_xy = std::nullopt,
                       std::optional<double> max_decel_xy = std::nullopt,
@@ -154,8 +157,9 @@ class ThreadedTracker : public IThreadRunner {
         pending_cmd_.yaw = yaw;
         pending_cmd_.yaw_rate = ff_yaw_rate;
         pending_cmd_.ff_vel = ff_vel;
-        pending_cmd_.cruise_speed_xy = cruise_speed_xy;
-        pending_cmd_.cruise_speed_z = cruise_speed_z;
+        pending_cmd_.fb_speed_limit_xy = fb_speed_limit_xy;
+        pending_cmd_.fb_speed_limit_z = fb_speed_limit_z;
+        pending_cmd_.fb_speed_limit_yaw = fb_speed_limit_yaw;
         pending_cmd_.gamma = gamma;
         pending_cmd_.max_acc_xy = max_acc_xy;
         pending_cmd_.max_decel_xy = max_decel_xy;
@@ -239,7 +243,8 @@ class ThreadedTracker : public IThreadRunner {
 
             raw_cmd = compute_pos_control(current_pose, target_pose_enu_,
                                           body_target_vel, ctrl_yaw_, gamma_,
-                                          active_max_vel_xy_, dt);
+                                          fb_vel_limit_xy_, fb_vel_limit_z_,
+                                          fb_vel_limit_yaw_, dt);
 
         } else if (current_mode_ == CtrlMode::VELOCITY) {
             double now = time_provider_->now();
@@ -256,8 +261,8 @@ class ThreadedTracker : public IThreadRunner {
         }
 
         Eigen::Vector4d safe_cmd = apply_kinematic_constraints(
-            raw_cmd, config_.max_vel_xy.get(), active_max_vel_z_,
-            current_pose.w(), dt);
+            raw_cmd, config_.max_vel_xy.get(), config_.max_vel_z.get(),
+            config_.max_vel_yaw.get(), current_pose.w(), dt);
 
         runtime_->cmd_vel(safe_cmd);
     }
@@ -307,12 +312,16 @@ class ThreadedTracker : public IThreadRunner {
                              !pending_cmd_.yaw_rate.has_value()) ||
                             !config_.is_omnidirectional.get();
 
-            active_max_vel_xy_ = std::min(
-                pending_cmd_.cruise_speed_xy.value_or(config_.max_vel_xy.get()),
-                config_.max_vel_xy.get());
-            active_max_vel_z_ = std::min(
-                pending_cmd_.cruise_speed_z.value_or(config_.max_vel_z.get()),
+            fb_vel_limit_xy_ = std::min(pending_cmd_.fb_speed_limit_xy.value_or(
+                                            config_.max_vel_xy.get()),
+                                        config_.max_vel_xy.get());
+            fb_vel_limit_z_ = std::min(
+                pending_cmd_.fb_speed_limit_z.value_or(config_.max_vel_z.get()),
                 config_.max_vel_z.get());
+            fb_vel_limit_yaw_ =
+                std::min(pending_cmd_.fb_speed_limit_yaw.value_or(
+                             config_.max_vel_yaw.get()),
+                         config_.max_vel_yaw.get());
 
             if (target_frame_ == CmdFrame::BODY) {
                 Eigen::Vector4d body_offset = Eigen::Vector4d::Zero();
@@ -337,9 +346,6 @@ class ThreadedTracker : public IThreadRunner {
             pos_cmd_finished_ = true;
             auto_heading_ = false;
 
-            active_max_vel_xy_ = config_.max_vel_xy.get();
-            active_max_vel_z_ = config_.max_vel_z.get();
-
             target_vel_.head<3>() = pending_cmd_.vec3_cmd;
             target_vel_.w() = pending_cmd_.yaw_rate.value_or(0.0);
 
@@ -358,7 +364,9 @@ class ThreadedTracker : public IThreadRunner {
                                         const Eigen::Vector4d& target_pose,
                                         const Eigen::Vector4d& ff_vel_body,
                                         bool ctrl_yaw, Eigen::Vector3d gamma,
-                                        double limit_fb_vel_xy, double dt) {
+                                        double limit_fb_vel_xy,
+                                        double limit_fb_vel_z,
+                                        double limit_fb_vel_yaw, double dt) {
         Eigen::Vector4d cmd = Eigen::Vector4d::Zero();
         double dx = target_pose.x() - current_pose.x();
         double dy = target_pose.y() - current_pose.y();
@@ -421,6 +429,8 @@ class ThreadedTracker : public IThreadRunner {
             fb_y = (fb_y / fb_speed_xy) * limit_fb_vel_xy;
             fb_speed_xy = limit_fb_vel_xy;
         }
+        fb_yaw = std::clamp(fb_yaw, -limit_fb_vel_yaw, limit_fb_vel_yaw);
+        fb_z = std::clamp(fb_z, -limit_fb_vel_z, limit_fb_vel_z);
 
         double dist_xy = std::hypot(dx, dy);
         if (dist_xy > 1e-4) {
@@ -497,6 +507,7 @@ class ThreadedTracker : public IThreadRunner {
     Eigen::Vector4d apply_kinematic_constraints(Eigen::Vector4d raw_cmd,
                                                 double limit_v_xy,
                                                 double limit_v_z,
+                                                double limit_v_yaw,
                                                 double current_yaw, double dt) {
         // 1. 速度硬约束 (限速)
         double speed_xy =
@@ -506,8 +517,7 @@ class ThreadedTracker : public IThreadRunner {
             raw_cmd.y() = (raw_cmd.y() / speed_xy) * limit_v_xy;
         }
         raw_cmd.z() = std::clamp(raw_cmd.z(), -limit_v_z, limit_v_z);
-        raw_cmd.w() = std::clamp(raw_cmd.w(), -config_.max_vel_yaw.get(),
-                                 config_.max_vel_yaw.get());
+        raw_cmd.w() = std::clamp(raw_cmd.w(), -limit_v_yaw, limit_v_yaw);
 
         // 2.
         // 坐标系旋转处理：当机体发生偏航时，上一拍的速度和加速度必须旋转到新机体系下

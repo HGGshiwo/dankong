@@ -220,7 +220,7 @@ class PlandController : public IThreadRunner {
                     {pos_enu.x(), pos_enu.y(),
                      GlobalConfig.GetConfig().lost_target_alt},
                     std::nullopt, std::nullopt, std::nullopt, std::nullopt, 0.5,
-                    CmdFrame::ENU);
+                    std::nullopt, CmdFrame::ENU);
                 return;
             }
         }
@@ -264,7 +264,15 @@ class PlandController : public IThreadRunner {
             R_wb.transpose() * (current_target_enu - pos_enu);
         double current_xy_error =
             std::hypot(target_body_relative.x(), target_body_relative.y());
+
+        // [修改] 规范化 Yaw 误差到 [-pi, pi]，避免 359度 被算作大误差
         double target_yaw_relative = current_yaw - ctx_.yaw_enu.load();
+        target_yaw_relative = std::fmod(target_yaw_relative + M_PI, 2.0 * M_PI);
+        if (target_yaw_relative < 0) target_yaw_relative += 2.0 * M_PI;
+        target_yaw_relative -= M_PI;
+
+        // [新增] 计算绝对度数，方便后续逻辑判断
+        double abs_yaw_err_deg = std::abs(target_yaw_relative) * 180.0 / M_PI;
 
         // 假设你仿真的降落平台（车/船）的物理高度是 1.0 米
         // 如果平台就是地面，这个值就是 0.0
@@ -306,6 +314,23 @@ class PlandController : public IThreadRunner {
             }
         }
 
+        // ==========================================
+        // [新增] Yaw 航向保护：误差大时优先原地转头，限制平飞
+        // ==========================================
+        double yaw_penalty = 1.0;
+        double yaw_warning_deg = 20.0;  // 超过20度开始限制速度
+        double yaw_danger_deg = 60.0;  // 超过60度极度限制速度，优先转头
+        double min_yaw_penalty = 0.01;
+        if (!is_blind_drop_ && abs_yaw_err_deg > yaw_warning_deg) {
+            if (abs_yaw_err_deg >= yaw_danger_deg) {
+                yaw_penalty = min_yaw_penalty;  // 强行龟速，等机头转过来
+            } else {
+                yaw_penalty = 1.0 - (1.0 - min_yaw_penalty) *
+                                        (abs_yaw_err_deg - yaw_warning_deg) /
+                                        (yaw_danger_deg - yaw_warning_deg);
+            }
+        }
+
         // 计算速度限幅
         double max_cruise_speed_xy =
             GlobalConfig.GetConfig().pland_cruise_speed_xy.get();
@@ -315,8 +340,10 @@ class PlandController : public IThreadRunner {
         double active_cruise_speed =
             std::min(max_cruise_speed_xy, distance_speed_limit + v_norm);
 
-        double cruise_speed_xy = active_cruise_speed;  //* fov_penalty;
-        double pland_acc_xy = pland_max_acc_xy * fov_penalty;
+        // [修改] 综合选取最严苛的惩罚（取 FOV 和 Yaw 惩罚中的较小值）
+        double combined_penalty = std::min(fov_penalty, yaw_penalty);
+        double cruise_speed_xy = active_cruise_speed * combined_penalty;
+        double pland_acc_xy = pland_max_acc_xy * combined_penalty;
 
         // 为了防止惩罚过猛导致完全停滞，可以设一个兜底的最低值
         cruise_speed_xy = std::max(cruise_speed_xy, 0.5);
@@ -404,15 +431,19 @@ class PlandController : public IThreadRunner {
         } else {
             // 【漏斗下滑道逻辑】
             double hold_dist_thresh = 3.5;
+            // [新增] 允许下降的 Yaw 对准门限 (例如必须在 15 度以内才准下降)
+            double yaw_descent_thresh_deg = 15.0;
 
             // ★ 动态对准阈值：高度越高允许的误差越大，高度越低要求越苛刻
             // 例如：Z=3m时允许 1.2m 的误差；Z=0.5m时必须进入 0.2m
             // 的误差内才准下砸！
             double align_dist_thresh = std::max(0.2, current_z * 0.4);
 
-            if (current_xy_error > hold_dist_thresh) {
+            // [修改] 如果距离没进入范围，或者 Yaw 还没对准，就在当前高度等待！
+            if (current_xy_error > hold_dist_thresh ||
+                abs_yaw_err_deg > yaw_descent_thresh_deg) {
                 max_vel_z = 0.0;
-                z_body_target = 0.0;
+                z_body_target = 0.0;  // 0 表示不产生额外的相对下探目标
             } else {
                 double descent_factor = 1.0;
                 if (current_xy_error > align_dist_thresh) {
@@ -433,11 +464,12 @@ class PlandController : public IThreadRunner {
                 z_body_target = -current_z - 0.5;
             }
         }
+        double cruise_speed_yaw = 0.6;
         ctx_.tracker->send_pos_cmd(
             {virtual_err_body.x(), virtual_err_body.y(), z_body_target},
             target_yaw_relative, omega, total_ff_vel, cruise_speed_xy,
-            max_vel_z, CmdFrame::BODY, {1.0, pland_gamma_yaw, pland_gamma_z},
-            pland_acc_xy);
+            max_vel_z, cruise_speed_yaw, CmdFrame::BODY,
+            {1.0, pland_gamma_yaw, pland_gamma_z}, pland_acc_xy);
         // [Debug 日志]
 
         log_idx_ += 1;
