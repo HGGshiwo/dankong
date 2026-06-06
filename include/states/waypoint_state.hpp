@@ -55,7 +55,7 @@ class WaypointState : public dk::BaseState<RobotContext, WaypointState, void> {
 
 class WaypointState::LiftingState
     : public dk::BaseState<RobotContext, LiftingState, WaypointState> {
-    std::chrono::time_point<std::chrono::steady_clock> start_time_;
+    double start_time_;
     double target_alt_;
     double last_alt_;
     double last_yaw_;

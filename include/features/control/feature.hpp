@@ -90,9 +90,10 @@ class ControlFeature {
                                        orientation.y, orientation.z));
                 ctx.yaw_ned.store(state_utils::yaw_enu_to_ned(rpy.z()));
 
-                // [新增] 将当前位姿存入历史记录
+                // 将当前位姿存入历史记录
                 ctx.pose_history.push(
-                    odom->header.stamp, Eigen::Vector3d(pos.x, pos.y, pos.z),
+                    odom->header.stamp.toSec(),
+                    Eigen::Vector3d(pos.x, pos.y, pos.z),
                     Eigen::Quaterniond(orientation.w, orientation.x,
                                        orientation.y, orientation.z));
             });

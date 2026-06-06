@@ -49,8 +49,8 @@ class Debug(unittest.TestCase):
                 self.board = Apriltag("apriltag")
                 self.board.spawn()
                 self.board.set_state(
-                    x=5,
-                    y=5,
+                    x=2.5,
+                    y=2.5,
                     z=0.015,
                 )
 

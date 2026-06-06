@@ -10,23 +10,23 @@
 #include "states/state_utils.hpp"
 
 TakeoffState::TakeoffState(TakeoffEvent e)
-    : event_(e),
-      start_time_(std::chrono::steady_clock::now()),
-      alt_(e.alt),
-      step_waypoint_(false) {}
+    : event_(e), alt_(e.alt), step_waypoint_(false) {}
 
 TakeoffState::TakeoffState(SetWaypointEvent e)
-    : event_(e),
-      start_time_(std::chrono::steady_clock::now()),
-      step_waypoint_(true) {
+    : event_(e), step_waypoint_(true) {
     alt_ = e.waypoint.at(0).z();
+}
+
+void TakeoffState::on_enter(RobotContext& ctx) {
+    start_time_ = ctx.engine->get_time_provider()->now();
 }
 
 StateAction TakeoffState::on_event(const dk::TickEvent& e, RobotContext& ctx) {
     bool is_settled =
         std::visit([](const auto& obj) { return obj.is_settled(); }, event_);
 
-    if (!is_settled && state_utils::get_time_span(start_time_) >
+    double now = ctx.engine->get_time_provider()->now();
+    if (!is_settled && state_utils::get_time_span(start_time_, now) >
                            GlobalConfig.GetConfig().prearm_timeout) {
         // 超时了，直接拒绝
         std::visit(
@@ -94,10 +94,11 @@ StateAction TakeoffState::ArmState::on_event(const StatusTextEvent& event,
 
 void TakeoffState::TakingoffState::on_enter(RobotContext& ctx) {
     auto& cfg = GlobalConfig.GetConfig();
-    start_time_ = std::chrono::steady_clock::now();
+    double now = ctx.engine->get_time_provider()->now();
+    start_time_ = now;
 
     checker_ = std::make_shared<state_utils::StallChecker<1>>(
-        std::array<double, 1>{1.0}, cfg.takeoff_timeout);
+        std::array<double, 1>{1.0}, cfg.takeoff_timeout, now);
 
     if (ctx.robot->takeoff(parent()->alt_)) {
         // 记录下起飞时候的经纬高
@@ -120,7 +121,8 @@ StateAction TakeoffState::TakingoffState::on_event(const dk::TickEvent& e,
                                                    RobotContext& ctx) {
     auto& cfg = GlobalConfig.GetConfig();
     double alt = ctx.pos_enu.load().z();
-    bool is_stall = checker_->is_stall({alt});
+    double now = ctx.engine->get_time_provider()->now();
+    bool is_stall = checker_->is_stall({alt}, now);
     if (is_stall) {
         if (!ctx.robot->check_hover(ctx)) {
             return step<GroundState>();

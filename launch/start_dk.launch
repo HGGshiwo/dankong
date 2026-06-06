@@ -1,7 +1,0 @@
-<launch>
-    <arg name="robot_type" />
-    <arg name="config" default="config/$(arg robot_type)-config.yaml"/>
-    <node pkg="dankong" type="dankong_$(arg robot_type)_node" args="--config $(arg config)" output="screen">
-        
-    </node>
-</launch>

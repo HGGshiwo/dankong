@@ -25,6 +25,24 @@ class SimRuntime : public ITrackerRuntime {
     }
 };
 
+#include "dk/ITimeProvider.hpp"
+
+// 模拟时间提供者，支持手动推进
+class SimTimeProvider : public dk::ITimeProvider {
+   public:
+    double current_time = 0.0;
+    double now() override { return current_time; }
+    void sleep_for(double seconds) override { current_time += seconds; }
+    std::function<void()> set_timeout(double seconds,
+                                      std::function<void()> callback) override {
+        return []() {};
+    }
+    std::function<void()> start_ticker(
+        double interval, std::function<void()> callback) override {
+        return []() {};
+    }
+};
+
 int main() {
     std::cout << "========================================" << std::endl;
     std::cout << "  Starting C++ Tracker Simulation...    " << std::endl;
@@ -70,13 +88,15 @@ int main() {
 
     // 2. 初始化环境与状态变量
     SimRuntime sim_runtime;
+    auto time_provider = std::make_shared<SimTimeProvider>();
     DirtyVar<Eigen::Vector3d> pos_var{
         Eigen::Vector3d::Zero(),
     };
     std::atomic<double> yaw_var{0.0};
 
     // 3. 实例化你的控制器并启动线程
-    ThreadedTracker tracker(config, &sim_runtime, pos_var, yaw_var, false);
+    ThreadedTracker tracker(config, &sim_runtime, pos_var, yaw_var,
+                            time_provider, false);
     tracker.start(50);
 
     // 4. 下发目标点 (使用刚刚输入的参数)
@@ -134,6 +154,7 @@ int main() {
         }
 
         t += dt;
+        time_provider->current_time = t;
 
         tracker.on_step(dt);
 

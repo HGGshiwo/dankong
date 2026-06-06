@@ -10,13 +10,11 @@
 
 class RateLimiter {
    public:
-    explicit RateLimiter(double hz)
-        : last_time_(std::chrono::steady_clock::now()), hz_(hz) {
-        if (hz > 0) std::chrono::duration<double>(1.0 / hz);
+    explicit RateLimiter(double hz) : last_time_(0), hz_(hz) {
+        if (hz > 0) interval_ = 1.0 / hz;
     }
 
-    bool check_and_update() {
-        auto now = std::chrono::steady_clock::now();
+    bool check_and_update(double now) {
         if (hz_ <= 0) return false;
         if (now - last_time_ >= interval_) {
             last_time_ = now;
@@ -27,8 +25,8 @@ class RateLimiter {
 
    private:
     double hz_;
-    std::chrono::duration<double> interval_;
-    std::chrono::steady_clock::time_point last_time_;
+    double interval_;
+    double last_time_;
 };
 
 // StateRegistry 独立管理上报逻辑
@@ -37,7 +35,7 @@ class StateRegistry {
     // 内部抽象接口，对外不可见
     struct IReportable {
         virtual ~IReportable() = default;
-        virtual void try_report(::nlohmann::json& j) = 0;
+        virtual void try_report(::nlohmann::json& j, double now) = 0;
         virtual void append_full_state(::nlohmann::json& j) = 0;
         virtual void mark_dirty() = 0;
     };
@@ -60,12 +58,12 @@ class StateRegistry {
               rate_(hz),
               custom_serializer_(std::move(serializer)) {}
 
-        void try_report(::nlohmann::json& j) override {
+        void try_report(::nlohmann::json& j, double now) override {
             // 1. 如果变量没有被修改，直接跳过，不用检查限频
             if (!var_.is_dirty()) return;
 
             // 2. 检查限频
-            if (!rate_.check_and_update()) return;
+            if (!rate_.check_and_update(now)) return;
 
             // 3. 消费脏数据并填入 JSON
             T val;
@@ -107,9 +105,9 @@ class StateRegistry {
             var, "", hz, std::move(serializer)));
     }
 
-    void report_all(::nlohmann::json& j) {
+    void report_all(::nlohmann::json& j, double now) {
         for (auto& reporter : reportables_) {
-            reporter->try_report(j);
+            reporter->try_report(j, now);
         }
     }
 

@@ -7,7 +7,6 @@
 #include "dk/report.hpp"
 #include "mavlink/mavros.hpp"
 #include "utils/state_registry.hpp"
-#include "utils/time_tracker.hpp"
 
 class PlandController;
 class LandingDetector;
@@ -16,7 +15,7 @@ struct PlandContext {
    public:
     DirtyVar<cv::Mat> pland_image;
     DirtyVar<int> land_target_id{-1};
-    DirtyVar<TimeTracker> pland_image_stamp;
+    DirtyVar<double> pland_image_stamp{-1.0};
     std::shared_ptr<LandingDetector> land_detector;
     std::shared_ptr<PlandController> land_controller;
 

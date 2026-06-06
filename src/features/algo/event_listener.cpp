@@ -161,7 +161,7 @@ void AlgoEventListener::on_event(const SetExposureEvent& event,
 
 void AlgoEventListener::on_event(const DetectEvent& event, RobotContext& ctx) {
     double FOLLOW_COOL_TIME = 100.0;  // 100秒内不响应
-    if (state_utils::get_time_span(ctx.stop_follow_stamp.load()) <
+    if (ctx.engine->get_time_provider()->now() - ctx.stop_follow_stamp.load() <
         FOLLOW_COOL_TIME) {
         return;
     }
@@ -188,7 +188,7 @@ void AlgoEventListener::on_event(const StopFollowEvent& event,
         return;
     }
     event.resolve({"success", "OK"});
-    ctx.stop_follow_stamp.store(std::chrono::steady_clock::now());
+    ctx.stop_follow_stamp.store(ctx.engine->get_time_provider()->now());
     if (ctx.engine->is_active_state<HoverState>()) {
         ctx.engine->step<HoverState>();
     } else if (ctx.engine->is_active_state<WaypointState>()) {

@@ -87,12 +87,15 @@ double ALT_TOLERANCE = 2.0;
 double STALL_TIMEOUT = 3.0;
 
 WaypointState::LiftingState::LiftingState()
-    : start_time_(std::chrono::steady_clock::now()),
-      checker_(std::make_shared<state_utils::StallChecker<2>>(
-          std::array<double, 2>{YAW_STALL_THRESH, ALT_STALL_THRESH},
-          STALL_TIMEOUT)) {};
+    : start_time_(0.0), checker_(nullptr) {};
 
 void WaypointState::LiftingState::on_enter(RobotContext& ctx) {
+    double now = ctx.engine->get_time_provider()->now();
+    start_time_ = now;
+    checker_ = std::make_shared<state_utils::StallChecker<2>>(
+        std::array<double, 2>{YAW_STALL_THRESH, ALT_STALL_THRESH},
+        STALL_TIMEOUT, now);
+
     auto cur_wp = parent()->get_cur_wp();
     auto diff = state_utils::get_relevant_enu(ctx.lon_lat_alt.load(), cur_wp);
     target_alt_ = cur_wp.z();
@@ -114,7 +117,8 @@ StateAction WaypointState::LiftingState::on_event(const dk::TickEvent& e,
         return step<WaypointState::ExcuteState>();
     }
 
-    if (checker_->is_stall({ctx.yaw_enu, ctx.lon_lat_alt.load().z()})) {
+    double now = ctx.engine->get_time_provider()->now();
+    if (checker_->is_stall({ctx.yaw_enu, ctx.lon_lat_alt.load().z()}, now)) {
         return step<WaypointState::ExcuteState>();
     }
 

@@ -1,30 +1,22 @@
-# 真机
-# camera_inner_matrix: [400.04710170381657, 0.0 , 327.83160957781286, 0.0, 532.8574261138922, 287.1242943185214, 0.0 , 0.0 , 1.0]
-# pland_image_topic: /UAV0/sensor/video11_camera/image_raw
-# pland_detect_topic: /pland_camera/result
-
 ui_config: drone-ui.yaml
 # Drone Settings
-throttle_thresh: 0.1
+throttle_thresh: -1000
 
 max_decel_xy: 1.0
 max_acc_xy: 1.0
 
-offset_x: 0.0
-offset_y: -0.1
-offset_z: 0.085
 
 # pland_max_decel_xy: 0.3
 # pland_max_acc_xy: 0.3
 # lost_target_alt: 8.0
 
 # Pland Settings
-inner_tag_size: 0.9
-outter_tag_size: 0.192
+inner_tag_size: 0.547
+outter_tag_size: 0.088
 
-camera_inner_matrix: [554.3827128226441, 0.0, 320.5, 0.0, 554.3827128226441, 240.5, 0.0, 0.0, 1.0]
-pland_image_topic: /roscam/cam/image_raw
-pland_detect_topic: /pland/detect 
+camera_inner_matrix: [400.04710170381657, 0.0 , 327.83160957781286, 0.0, 532.8574261138922, 287.1242943185214, 0.0 , 0.0 , 1.0]
+pland_image_topic: /UAV0/sensor/video11_camera/image_raw
+pland_detect_topic: /pland_camera/result
 
 # System Settings (Hidden from UI)
 server_port: 8000

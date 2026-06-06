@@ -90,7 +90,7 @@ class ThreadedTracker : public IThreadRunner {
     // 用来暂存外部下发的新指令
     PendingCmd pending_cmd_;
 
-    std::chrono::steady_clock::time_point last_command_time_;
+    double last_command_time_;
 
     Eigen::Vector4d last_cmd_vel_ = Eigen::Vector4d::Zero();
     Eigen::Vector3d last_cmd_acc_ =
@@ -101,15 +101,20 @@ class ThreadedTracker : public IThreadRunner {
     // 独立维护 X, Y, Z, Yaw 的 PID 状态
     PIDState pid_x_, pid_y_, pid_z_, pid_yaw_;
 
+    std::shared_ptr<dk::ITimeProvider> time_provider_;
+
    public:
     ThreadedTracker(const TrackerConfig& config, ITrackerRuntime* runtime,
                     DirtyVar<Eigen::Vector3d>& pos_enu,
-                    std::atomic<double>& yaw_enu, bool use_thread = true)
-        : IThreadRunner(use_thread),
+                    std::atomic<double>& yaw_enu,
+                    std::shared_ptr<dk::ITimeProvider> time_provider,
+                    bool use_thread = true)
+        : IThreadRunner(time_provider, use_thread),
           config_(config),
           runtime_(runtime),
           pos_enu_(pos_enu),
-          yaw_enu_(yaw_enu) {}
+          yaw_enu_(yaw_enu),
+          time_provider_(time_provider) {}
 
     ~ThreadedTracker() { stop(); }
 
@@ -237,10 +242,10 @@ class ThreadedTracker : public IThreadRunner {
                                           active_max_vel_xy_, dt);
 
         } else if (current_mode_ == CtrlMode::VELOCITY) {
-            auto now = std::chrono::steady_clock::now();
-            std::chrono::duration<double> elapsed = now - last_command_time_;
+            double now = time_provider_->now();
+            double elapsed = now - last_command_time_;
 
-            if (elapsed.count() > config_.command_timeout_sec.get()) {
+            if (elapsed > config_.command_timeout_sec.get()) {
                 current_mode_ = CtrlMode::NONE;
                 send_zero_velocity();
                 return;
@@ -288,7 +293,7 @@ class ThreadedTracker : public IThreadRunner {
         ctrl_yaw_ = pending_cmd_.yaw.has_value();
         target_frame_ = pending_cmd_.frame;
         gamma_ = pending_cmd_.gamma;
-        last_command_time_ = std::chrono::steady_clock::now();
+        last_command_time_ = time_provider_->now();
         max_acc_xy_ = pending_cmd_.max_acc_xy;
         max_decel_xy_ = pending_cmd_.max_decel_xy;
 

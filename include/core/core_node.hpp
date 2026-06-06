@@ -1,40 +1,61 @@
 #include <boost/filesystem/operations.hpp>
 #include <cstdint>
 #include <memory>
+#include <thread>
 
 #include "./engine.hpp"
 #include "core/tag.hpp"
-#include "dk/adapters/ros.hpp"
+#include "dk/AsioTimeProvider.hpp"
+#include "dk/ITimeProvider.hpp"
 #include "dk/adapters/udp/udp.hpp"
 #include "dk/adapters/web.hpp"
 #include "dk/adapters/web/adapter.hpp"
 #include "features/dog/command.hpp"
-#include "ros/node_handle.h"
 #include "states/init_state.hpp"
 #include "utils/get_executable_path.hpp"
 #include "utils/yaml_helper.hpp"
 
+#ifdef USE_ROS
+#include "dk/RosTimeProvider.hpp"
+#include "dk/adapters/ros.hpp"
+#include "ros/node_handle.h"
+#endif
+
 template <typename AssemblerType, typename ContextType>
 class CoreNode {
+#ifdef USE_ROS
     using RosAdapterType = dk::RosAdapter<ContextType, Engine>;
+#endif
     using WebAdapterType = dk::WebAdapter<ContextType, Engine>;
     using UdpAdpterType = dk::UdpAdapter<ContextType, Engine, CommandType>;
 
    private:
+    boost::asio::io_context global_io_;
+    std::shared_ptr<dk::ITimeProvider> time_provider_;
     std::shared_ptr<Engine> engine_;
+
+#ifdef USE_ROS
+    ros::NodeHandle nh_;
     std::shared_ptr<RosAdapterType> ros_adapter_;
+    std::thread asio_thread_;
+#endif
     std::shared_ptr<WebAdapterType> web_adapter_;
     std::shared_ptr<UdpAdpterType> udp_adapter_;
-    ros::NodeHandle nh_;
 
    public:
-    CoreNode(const std::string config_path) : nh_() {
+    CoreNode(const std::string config_path) {
+#ifdef USE_ROS
+        time_provider_ = std::make_shared<dk::RosTimeProvider>(nh_, global_io_);
+#else
+        time_provider_ = std::make_shared<dk::AsioTimeProvider>(global_io_);
+#endif
+
         GlobalConfig.load(get_config_dir(config_path));
 
         auto& cfg = GlobalConfig.GetConfig();
 
         // 1. 初始化基础引擎
-        engine_ = std::make_shared<Engine>();
+        engine_ = std::make_shared<Engine>(global_io_, time_provider_);
         engine_->get_context().engine = engine_;
 
         boost::filesystem::path config_dir =
@@ -54,10 +75,12 @@ class CoreNode {
         // 2. 调用装配工厂，一键注册全部路由和回调！
         AssemblerType::template setup<TagWeb>(web_adapter_);
 
+#ifdef USE_ROS
         if constexpr (AssemblerType::template has_feature_for<TagRos>) {
             ros_adapter_ = std::make_shared<RosAdapterType>(engine_, nh_);
             AssemblerType::template setup<TagRos>(ros_adapter_);
         }
+#endif
 
         if constexpr (AssemblerType::template has_feature_for<TagUdp>) {
             udp_adapter_ = std::make_shared<UdpAdpterType>(
@@ -78,5 +101,23 @@ class CoreNode {
 
         // 3. 启动引擎
         engine_->start<InitState>(std::chrono::milliseconds(50));
+
+#ifdef USE_ROS
+        asio_thread_ = std::thread([this]() {
+            auto work_guard = boost::asio::make_work_guard(global_io_);
+            global_io_.run();
+        });
+#else
+        global_io_.run();
+#endif
+    }
+
+    ~CoreNode() {
+#ifdef USE_ROS
+        global_io_.stop();
+        if (asio_thread_.joinable()) {
+            asio_thread_.join();
+        }
+#endif
     }
 };

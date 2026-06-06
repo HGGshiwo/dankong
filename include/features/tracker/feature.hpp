@@ -13,7 +13,8 @@ class TrackerFeature {
     static void setup(TagInit, RobotContext& ctx) {
         auto& config = GlobalConfig.GetConfig();
         ctx.tracker = std::make_shared<ThreadedTracker>(
-            config, ctx.robot.get(), ctx.pos_enu, ctx.yaw_enu);
+            config, ctx.robot.get(), ctx.pos_enu, ctx.yaw_enu,
+            ctx.engine->get_time_provider());
         ctx.tracker->start(config.loop_rate_hz.get());
     }
 };

@@ -36,6 +36,17 @@ class KalmanFilter2D {
         P_ *= 10.0;  // 初始协方差大一点，让它在刚发现目标时能光速收敛
     }
 
+    void force_set_state(double x, double y) {
+        // 将状态向量直接重置
+        x_ << x, y, 0.0, 0.0;
+
+        // 【重要】重置协方差矩阵 P
+        // 因为状态已经被强制设定为极高置信度了，
+        // 我们需要把协方差调小，告诉滤波器：“我现在对这个新位置非常确信”
+        P_.setIdentity();
+        P_ *= 0.01;  // 赋予一个很小的初始不确定度
+    }
+
     // [重磅修改] 引入当前相对高度 current_z 和无人机自身角速度 angular_rate
     Eigen::Vector2d update(double& epsilon, double meas_x, double meas_y,
                            double dt, double current_z,

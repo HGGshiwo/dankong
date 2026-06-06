@@ -1,6 +1,4 @@
 #pragma once
-#include <ros/ros.h>
-
 #include <Eigen/Dense>
 #include <algorithm>
 #include <atomic>
@@ -15,7 +13,7 @@
 #include "utils/state_registry.hpp"
 
 struct DronePoseRecord {
-    ros::Time stamp;
+    double stamp;
     Eigen::Vector3d pos_enu;
     Eigen::Quaterniond q;
 };
@@ -28,15 +26,11 @@ class PoseHistory {
     const double MAX_TOLERANCE_SEC = 0.15;  // 允许的最大外推/丢失时间差
 
    public:
-    void push(ros::Time t, const Eigen::Vector3d& p,
-              const Eigen::Quaterniond& q) {
+    void push(double t, const Eigen::Vector3d& p, const Eigen::Quaterniond& q) {
         std::lock_guard<std::mutex> lk(mtx_);
 
         // 确保时间戳是单调递增的 (防止时间倒流或乱序乱入)
         if (!buffer_.empty() && t <= buffer_.back().stamp) {
-            ROS_WARN_THROTTLE(
-                1.0,
-                "[PoseHistory] Received non-monotonic timestamp. Ignoring.");
             return;
         }
 
@@ -44,20 +38,20 @@ class PoseHistory {
 
         // 维持最大时长
         while (buffer_.size() > 2 &&
-               (t - buffer_.front().stamp).toSec() > MAX_HISTORY_SEC) {
+               (t - buffer_.front().stamp) > MAX_HISTORY_SEC) {
             buffer_.pop_front();
         }
     }
 
     // 工业级插值查找
-    bool get_pose_at(ros::Time t, Eigen::Vector3d& out_p,
+    bool get_pose_at(double t, Eigen::Vector3d& out_p,
                      Eigen::Quaterniond& out_q, double& min_diff) {
         std::lock_guard<std::mutex> lk(mtx_);
         if (buffer_.empty()) return false;
 
         // 1. 处理边界情况：请求时间在队列最前面（太老的数据，或者还没来得及存）
         if (t <= buffer_.front().stamp) {
-            min_diff = (buffer_.front().stamp - t).toSec();
+            min_diff = (buffer_.front().stamp - t);
             if (min_diff > MAX_TOLERANCE_SEC) return false;
             out_p = buffer_.front().pos_enu;
             out_q = buffer_.front().q;
@@ -66,7 +60,7 @@ class PoseHistory {
 
         // 2. 处理边界情况：请求时间在队列最后面（最新数据）
         if (t >= buffer_.back().stamp) {
-            min_diff = (t - buffer_.back().stamp).toSec();
+            min_diff = (t - buffer_.back().stamp);
             if (min_diff > MAX_TOLERANCE_SEC) return false;
             out_p = buffer_.back().pos_enu;
             out_q = buffer_.back().q;
@@ -77,7 +71,7 @@ class PoseHistory {
         // 这样 t 就被夹在 (it - 1) 和 it 之间了
         auto it_after = std::lower_bound(
             buffer_.begin(), buffer_.end(), t,
-            [](const DronePoseRecord& record, const ros::Time& target_time) {
+            [](const DronePoseRecord& record, double target_time) {
                 return record.stamp < target_time;
             });
 
@@ -89,9 +83,9 @@ class PoseHistory {
         auto it_before = it_after - 1;
 
         // 计算插值比例 (alpha 始终在 0.0 到 1.0 之间)
-        double t_before = it_before->stamp.toSec();
-        double t_after = it_after->stamp.toSec();
-        double t_req = t.toSec();
+        double t_before = it_before->stamp;
+        double t_after = it_after->stamp;
+        double t_req = t;
 
         double dt = t_after - t_before;
         if (dt < 1e-6) {  // 防护分母为 0 或时间极小
@@ -112,9 +106,8 @@ class PoseHistory {
         // Eigen 的 slerp 会自动处理四元数的最短路径插值
         out_q = it_before->q.slerp(alpha, it_after->q);
 
-        // 更新 min_diff 为插值后的理想时间差（这里理论上就是
-        // 0，但为了兼容原接口，我们可以返回插值发生的时间跨度，或者直接返回 0）
-        min_diff = 0.0;
+        // 更新 min_diff 为插值后的理想时间差
+        min_diff = std::min(t_after - t, t - t_before);
 
         return true;
     }
@@ -149,8 +142,7 @@ struct ControlContext {
     DirtyVar<Eigen::Vector3d> vel_body{Eigen::Vector3d::Zero()};
     DirtyVar<Eigen::Vector3d> vel_angular_body{Eigen::Vector3d::Zero()};
 
-    // 统一替换为你新实现的 DirtyVar (原代码中似乎叫 dirty)
-    DirtyVar<std::chrono::steady_clock::time_point> stop_follow_stamp;
+    DirtyVar<double> stop_follow_stamp;
 
     DirtyVar<Eigen::Quaterniond> orientation;
 

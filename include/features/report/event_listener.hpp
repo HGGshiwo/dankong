@@ -34,7 +34,8 @@ class ReportEventListener
 
     void on_event(const dk::TickEvent& event, RobotContext& ctx) {
         nlohmann::json j;
-        ctx.state_registry.report_all(j);
+        double now = ctx.engine->get_time_provider()->now();
+        ctx.state_registry.report_all(j, now);
         // 如果没有任何数据改变或达到频率条件，j 将是空的，直接 return
         if (j.empty()) {
             return;

@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.14) # 建议最低 3.14，对 FetchContent 支持更好
 project(dankong)
 
+add_compile_definitions(USE_ROS)
+
 # 将 FetchContent 的下载目录移到当前工作空间根目录下的 .deps 文件夹中
 set(FETCHCONTENT_BASE_DIR ${CMAKE_SOURCE_DIR}/../.deps CACHE PATH "Directory fo
 r fetched content")

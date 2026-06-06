@@ -1,4 +1,7 @@
 #pragma once
+#include <spdlog/spdlog.h>
+
+#include <cmath>
 #include <memory>
 
 #include "kalman_filter_2d.hpp"    // 原有的 CV 模型
@@ -14,6 +17,17 @@ class KalmanFilterIMM {
 
         prob_cv_ = 0.8;
         prob_ctrv_ = 0.2;
+
+        v_cv_ = Eigen::Vector2d::Zero();
+        v_ctrv_ = Eigen::Vector2d::Zero();
+    }
+
+    void force_set_state(double x, double y) {
+        model_cv_->force_set_state(x, y);
+        model_ctrv_->force_set_state(x, y);
+
+        prob_cv_ = 0.5;
+        prob_ctrv_ = 0.5;
     }
 
     // 接口保持不变，完美替换
@@ -34,6 +48,19 @@ class KalmanFilterIMM {
 
         // 3. 概率切换 (贝叶斯更新)
         double total = (L_cv * prob_cv_) + (L_ctrv * prob_ctrv_);
+
+        if (total < 1e-6) {
+            // 此时不要更新概率，保留旧的概率，并输出一个 warning
+            spdlog::warn(
+                "[IMM] Both models rejected measurement! eps_cv:{:.1f} "
+                "eps_ctrv:{:.1f}",
+                eps_cv, eps_ctrv);
+            return (prob_cv_ * v_cv_) + (prob_ctrv_ * v_ctrv_);
+        }
+
+        v_cv_ = v_cv;
+        v_ctrv_ = v_ctrv;
+
         prob_cv_ = (L_cv * prob_cv_) / total;
         prob_ctrv_ = (L_ctrv * prob_ctrv_) / total;
 
@@ -61,4 +88,5 @@ class KalmanFilterIMM {
     std::shared_ptr<KalmanFilter2D> model_cv_;
     std::shared_ptr<KalmanFilterCTRV> model_ctrv_;
     double prob_cv_, prob_ctrv_;
+    Eigen::Vector2d v_cv_, v_ctrv_;
 };

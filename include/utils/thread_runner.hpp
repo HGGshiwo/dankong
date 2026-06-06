@@ -5,6 +5,8 @@
 #include <mutex>
 #include <thread>
 
+#include "dk/ITimeProvider.hpp"
+
 class IThreadRunner {
     std::thread control_thread_;
     std::atomic<bool> is_running_{false};
@@ -15,10 +17,13 @@ class IThreadRunner {
 
     bool use_thread_;
     std::atomic<int> hz_{0};  // 保存运行频率
+    std::shared_ptr<dk::ITimeProvider> time_provider_;
 
    public:
     // 将 use_thread 提取到构造函数
-    IThreadRunner(bool use_thread = true) : use_thread_(use_thread) {
+    IThreadRunner(std::shared_ptr<dk::ITimeProvider> time_provider,
+                  bool use_thread = true)
+        : use_thread_(use_thread), time_provider_(std::move(time_provider)) {
         if (use_thread_) {
             // 在构造时即启动线程，进入休眠等待状态
             control_thread_ = std::thread(&IThreadRunner::control_loop, this);
@@ -73,11 +78,15 @@ class IThreadRunner {
             lock.unlock();  // 进入循环前解锁
 
             // 2. 运行阶段
-            const auto period = std::chrono::milliseconds(1000 / hz_.load());
+            const double period_s = 1.0 / static_cast<double>(hz_.load());
             while (is_running_) {
-                auto start_time = std::chrono::steady_clock::now();
-                on_step(period.count() / 1000.0);
-                std::this_thread::sleep_until(start_time + period);
+                double step_start = time_provider_->now();
+                on_step(period_s);
+                double step_end = time_provider_->now();
+                double elapsed = step_end - step_start;
+                if (elapsed < period_s) {
+                    time_provider_->sleep_for(period_s - elapsed);
+                }
             }
             // 当 stop() 被调用，is_running_ 变为 false，退出内层循环
             // 随后重新进入外层循环，继续在 cv_.wait 处挂起 sleep

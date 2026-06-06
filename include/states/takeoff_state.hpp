@@ -7,6 +7,7 @@
 #include "features/control/events.hpp"
 #include "ground_state.hpp"
 #include "hover_state.hpp"
+#include "robot_context.hpp"
 #include "state_common.hpp"
 #include "state_utils.hpp"
 #include "waypoint_state.hpp"
@@ -15,7 +16,7 @@ class TakeoffState : public dk::BaseState<RobotContext, TakeoffState, void> {
    public:
     using AllowedEvents = std::tuple<dk::TickEvent>;
     using TriggerEvent = std::variant<SetWaypointEvent, TakeoffEvent>;
-    std::chrono::steady_clock::time_point start_time_;
+    double start_time_;
     TriggerEvent event_;
     double alt_;
 
@@ -28,6 +29,7 @@ class TakeoffState : public dk::BaseState<RobotContext, TakeoffState, void> {
     class TakingoffState;
 
     TakeoffState(TakeoffEvent e);
+    void on_enter(RobotContext& ctx);
 
     TakeoffState(SetWaypointEvent e);
 
@@ -76,7 +78,7 @@ class TakeoffState::TakingoffState
 
     std::shared_ptr<state_utils::StallChecker<1>> checker_;
 
-    std::chrono::steady_clock::time_point start_time_;
+    double start_time_;
 
     void on_enter(RobotContext& ctx) override;
 

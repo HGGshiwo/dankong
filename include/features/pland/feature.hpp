@@ -56,7 +56,7 @@ class PlandFeature {
                         msg, sensor_msgs::image_encodings::BGR8);
 
                     ctx.pland_image.store(cv_ptr->image);
-                    ctx.pland_image_stamp.emplace(msg->header.stamp);
+                    ctx.pland_image_stamp.store(msg->header.stamp.toSec());
                 } catch (cv_bridge::Exception& e) {
                     spdlog::error("[Pland] convert image error: {}", e.what());
                 }

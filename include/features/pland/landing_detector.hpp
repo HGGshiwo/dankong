@@ -1,5 +1,4 @@
 #pragma once
-#include <ros/ros.h>
 
 #include <Eigen/Dense>
 #include <chrono>
@@ -17,11 +16,10 @@
 #include "robot_context.hpp"
 #include "utils/dirty_var.hpp"
 #include "utils/thread_runner.hpp"
-#include "utils/time_tracker.hpp"
 
 struct DetectorResult {
     bool is_valid = false;
-    ros::Time stamp;  // 图像拍摄的真实时间
+    double stamp;  // 图像拍摄的真实时间
 
     // ENU 导航系下的绝对目标位置和速度 (EKF 融合后)
     Eigen::Vector3d target_pos_enu = Eigen::Vector3d::Zero();
@@ -54,7 +52,7 @@ class LandingDetector : public IThreadRunner {
     int target_id_ = -1;
 
     Eigen::Matrix3d camera_inner_matrix_;
-    ros::Time last_ekf_stamp_;
+    double last_ekf_stamp_;
 
     Eigen::Vector3d last_valid_enu_pos_;  // 记录上一次有效位置
     bool has_last_valid_pos_ = false;
@@ -208,7 +206,10 @@ class LandingDetector : public IThreadRunner {
     LandingDetector(
         PlandConfig &config, RobotContext &ctx,
         std::function<void(const DetectorResult &, cv::Mat &)> set_target)
-        : IThreadRunner(), config_(config), ctx_(ctx), set_target_(set_target) {
+        : IThreadRunner(ctx.engine->get_time_provider()),
+          config_(config),
+          ctx_(ctx),
+          set_target_(set_target) {
         tag_detector_ = std::make_unique<SafeAprilTagDetector>();
 
         kf_xy_ = std::make_shared<KalmanFilterIMM>();
@@ -217,7 +218,7 @@ class LandingDetector : public IThreadRunner {
         target_tracker_ = std::make_shared<TargetTracker>();
 
         camera_inner_matrix_ = config_.camera_inner_matrix.get();
-        last_ekf_stamp_ = ros::Time(0);
+        last_ekf_stamp_ = 0.0;
     }
 
     ~LandingDetector() {}
@@ -231,14 +232,17 @@ class LandingDetector : public IThreadRunner {
 
         // 1. 获取图片真实时间戳
         auto stamp_tracker = ctx_.pland_image_stamp.load();
-        ros::Time img_stamp = stamp_tracker.to_ros_time();
+        if (stamp_tracker <= 0) {
+            return output;  // 没有获取到图片
+        }
 
         // 如果图像时间戳没有更新，直接返回（防止重复处理同一帧）
-        if (img_stamp == last_ekf_stamp_) return output;
+        if (std::abs(stamp_tracker - last_ekf_stamp_) < 1e-6) return output;
 
-        output.stamp = img_stamp;
+        output.stamp = stamp_tracker;
 
-        double elapsed = stamp_tracker.elapsed_seconds();
+        double elapsed =
+            ctx_.engine->get_time_provider()->now() - stamp_tracker;
         if (elapsed > 0.15) {
             spdlog::warn("[Pland] image stamp too late {:.3f}s", elapsed);
             return output;
@@ -250,18 +254,18 @@ class LandingDetector : public IThreadRunner {
         Eigen::Vector3d hist_drone_pos;
         Eigen::Quaterniond hist_q;
         double min_diff = -1;
-        if (!ctx_.pose_history.get_pose_at(img_stamp, hist_drone_pos, hist_q,
-                                           min_diff)) {
+        if (!ctx_.pose_history.get_pose_at(stamp_tracker, hist_drone_pos,
+                                           hist_q, min_diff)) {
             // 如果找不到历史状态（比如刚启动），用当前状态凑合
             hist_drone_pos = ctx_.pos_enu.load();
             hist_q = ctx_.orientation.load();
         }
         auto rpy = state_utils::orientation_to_euler(hist_q);
-        spdlog::info(
-            "min_diff={:.2f} pos_x={:.2f} pos_y={:.2f} r={:.2f} p={:.2f} "
-            "y={:.2f}",
-            min_diff, hist_drone_pos.x(), hist_drone_pos.y(), rpy.x(), rpy.y(),
-            rpy.z());
+        // spdlog::info(
+        //     "min_diff={:.2f} pos_x={:.2f} pos_y={:.2f} r={:.2f} p={:.2f} "
+        //     "y={:.2f}",
+        //     min_diff, hist_drone_pos.x(), hist_drone_pos.y(), rpy.x(),
+        //     rpy.y(), rpy.z());
 
         Eigen::Matrix3d hist_R_wb = hist_q.toRotationMatrix();
 
@@ -350,7 +354,10 @@ class LandingDetector : public IThreadRunner {
                 &pose1;  // 默认相信误差较小的那个 (通常是 pose1)
 
             // 如果算法确实产生了歧义(算出了两个解)，且我们的 EKF 已经收敛
-            if (pose2.isValid() && has_last_valid_pos_) {
+            double time_since_last_valid = stamp_tracker - last_ekf_stamp_;
+            bool is_prior_reliable =
+                has_last_valid_pos_ && (time_since_last_valid < 0.5);
+            if (pose2.isValid() && is_prior_reliable) {
                 // 提取姿态 1 的旋转矩阵和 Yaw
                 Eigen::Matrix3d R1 = pose1.getRotation();
                 Eigen::Matrix3d R_tag_body1 =
@@ -438,8 +445,8 @@ class LandingDetector : public IThreadRunner {
 
                 // 计算 EKF 时间间隔 (使用真实照片时间戳)
                 double dt_ekf = 0.033;
-                if (!last_ekf_stamp_.isZero()) {
-                    dt_ekf = (img_stamp - last_ekf_stamp_).toSec();
+                if (last_ekf_stamp_ > 0) {
+                    dt_ekf = (stamp_tracker - last_ekf_stamp_);
                 }
 
                 if (has_last_valid_pos_) {
@@ -464,13 +471,13 @@ class LandingDetector : public IThreadRunner {
                     }
                 }
 
-                last_ekf_stamp_ = img_stamp;
                 if (dt_ekf <= 1e-4 || dt_ekf > 1.0) {
                     reset_estimator();
                     dt_ekf = 0.033;
+                    kf_xy_->force_set_state(raw_target_enu.x(),
+                                            raw_target_enu.y());
                 }
-
-                last_ekf_stamp_ = img_stamp;
+                last_ekf_stamp_ = stamp_tracker;
 
                 // 数据合法，更新记录并放行进入 EKF
                 last_valid_enu_pos_ = raw_target_enu;
@@ -541,7 +548,7 @@ class LandingDetector : public IThreadRunner {
         kf_yaw_->reset();
         kf_abs_yaw_->reset();
         target_tracker_->reset();
-        last_ekf_stamp_ = ros::Time(0);
+        last_ekf_stamp_ = 0.0;
         has_last_valid_pos_ = false;
         last_valid_enu_pos_ = Eigen::Vector3d::Zero();
     }

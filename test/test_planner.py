@@ -47,7 +47,7 @@ class TestPlanner(unittest.TestCase):
         self.robot.set_state(x=IRIS_X, y=IRIS_Y, z=1.0)
         with sitl_env():
             self.robot.init()
-            self.robot.takeoff()
+            self.robot.takeoff(alt=15)
             http_post("/stop_pland")
             http_post("/stop_planner")
 

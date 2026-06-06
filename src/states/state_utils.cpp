@@ -176,9 +176,8 @@ Eigen::Vector3d orientation_to_euler(double x, double y, double z, double w) {
 }
 
 // 获取经过的时长
-double get_time_span(std::chrono::steady_clock::time_point start) {
-    auto diff = std::chrono::steady_clock::now() - start;
-    return std::chrono::duration<double>(diff).count();
+double get_time_span(double start_time, double current_now) {
+    return current_now - start_time;
 }
 
 }  // namespace state_utils

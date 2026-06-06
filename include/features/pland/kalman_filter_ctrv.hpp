@@ -38,6 +38,17 @@ class KalmanFilterCTRV {
         return angle;
     }
 
+    void force_set_state(double x, double y) {
+        // 将状态向量直接重置
+        x_ << x, y, 0.0, 0.0, 0.0;
+
+        // 【重要】重置协方差矩阵 P
+        // 因为状态已经被强制设定为极高置信度了，
+        // 我们需要把协方差调小，告诉滤波器：“我现在对这个新位置非常确信”
+        P_.setIdentity();
+        P_ *= 0.01;  // 赋予一个很小的初始不确定度
+    }
+
     // [重磅升级] 外部传入最大线加速度(max_acc)和最大角加速度(max_yaw_acc)
     Eigen::Vector2d update(double& epsilon, double meas_x, double meas_y,
                            double dt, double current_z, double angular_rate,
@@ -127,7 +138,7 @@ class KalmanFilterCTRV {
         Matrix5d P_pred = F_j * P_ * F_j.transpose() + Q;
 
         // --- 4. 动态观测噪声 R ---
-        double height_factor = std::max(1.0, current_z / 2.0);
+        double height_factor = std::clamp(current_z / 2.0, 0.8, 5.0);
         double rotation_factor = 1.0 + angular_rate * 5.0;
         double angle_factor = 1.0 + std::pow(visual_angle_deg / 10.0, 2.0);
 

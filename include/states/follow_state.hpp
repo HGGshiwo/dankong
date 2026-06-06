@@ -13,11 +13,12 @@ template <typename ParentState>
 class FollowState : public dk::BaseState<RobotContext, FollowState<ParentState>,
                                          ParentState> {
    public:
-    std::chrono::steady_clock::time_point last_time_;
+    double last_time_;
 
     using AllowedEvents = std::tuple<DetectEvent, dk::TickEvent>;
 
     FollowState(const DetectEvent& event, RobotContext& ctx) {
+        last_time_ = ctx.engine->get_time_provider()->now();
         on_event(event, ctx);
     }
 
@@ -31,7 +32,7 @@ class FollowState : public dk::BaseState<RobotContext, FollowState<ParentState>,
 template <typename ParentState>
 StateAction FollowState<ParentState>::on_event(const DetectEvent& event,
                                                RobotContext& ctx) {
-    last_time_ = std::chrono::steady_clock::now();
+    last_time_ = ctx.engine->get_time_provider()->now();
     Eigen::Vector3d cmd_vel =
         event.score >= 0 ? event.cmd_vel : Eigen::Vector3d::Zero();
 
@@ -51,7 +52,8 @@ StateAction FollowState<ParentState>::on_event(const DetectEvent& event,
 template <typename ParentState>
 StateAction FollowState<ParentState>::on_event(const dk::TickEvent& event,
                                                RobotContext& ctx) {
-    if (state_utils::get_time_span(last_time_) >
+    double now = ctx.engine->get_time_provider()->now();
+    if (state_utils::get_time_span(last_time_, now) >
         GlobalConfig.GetConfig().follow_timeout) {
         spdlog::error("[FollowState] follow timeout!");
         if constexpr (std::is_same_v<ParentState, HoverState>)

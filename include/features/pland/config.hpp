@@ -44,7 +44,7 @@ struct PlandConfig {
     dk::Param<double> touchdown_velocity = INIT_PARAM(
         "touchdown_velocity", 0.4, "低于touchdown_z_thresh时使用固定降落速度");
     dk::Param<double> lost_target_alt =
-        INIT_PARAM("lost_target_alt", 8.0, "丢失目标后的悬停高度(m)");
+        INIT_PARAM("lost_target_alt", 15.0, "丢失目标后的悬停高度(m)");
 
     dk::Param<double> pland_max_acc_xy =
         INIT_PARAM("pland_max_acc_xy", 2.0, "精准降落使用的加速度");

@@ -47,7 +47,7 @@ double get_heading(double enu_x, double enu_y);
 
 double get_yaw_diff(double a, double b);
 
-double get_time_span(std::chrono::steady_clock::time_point start);
+double get_time_span(double start_time, double current_now);
 
 bool should_do_prearm_check(std::shared_ptr<IRobot> robot);
 
@@ -58,7 +58,7 @@ bool is_prearm_msg(const std::string& text);
 // 对double数组进行检查，是否所有值都被卡住
 template <int N>
 class StallChecker {
-    std::chrono::steady_clock::time_point start_time_;
+    double start_time_;
     double check_time_s_;
 
     // 强烈建议使用 std::array，它支持直接赋值 (=) 和拷贝
@@ -67,28 +67,28 @@ class StallChecker {
     bool is_initialized_ = false;  //
    public:
     // 构造函数：直接接收 std::array 作为阈值，保证元素个数绝对等于 N
-    StallChecker(std::array<double, N> threshold, double check_time_s)
+    StallChecker(std::array<double, N> threshold, double check_time_s,
+                 double now)
         : threshold_(threshold),
           check_time_s_(check_time_s),
-          start_time_(std::chrono::steady_clock::now()) {}
+          start_time_(now) {}
 
     // 参数也改为接收 std::array 或者 double 数组指针
-    bool is_stall(std::array<double, N> data) {
+    bool is_stall(std::array<double, N> data, double now) {
         if (!is_initialized_) {
             // 第一次初始化
             for (int i = 0; i < N; ++i) {
                 last_data_[i] = data[i];
             }
             is_initialized_ = true;
-            start_time_ = std::chrono::steady_clock::now();  // 初始化时重置时间
+            start_time_ = now;  // 初始化时重置时间
             return false;
         }
         bool res = false;  // 默认没有卡住 (或者根据你的业务逻辑改为 true)
-        // 计算时间差
-        auto now = std::chrono::steady_clock::now();
-        std::chrono::duration<double> diff = now - start_time_;
+
+        double diff = now - start_time_;
         // 到达检测频率，进行检测
-        if (diff.count() > check_time_s_) {
+        if (diff > check_time_s_) {
             res = true;
             for (int i = 0; i < N; ++i) {
                 // 注意这里比较的是 threshold_[i] 而不是 threshold_

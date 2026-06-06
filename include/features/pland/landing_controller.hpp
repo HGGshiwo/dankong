@@ -117,7 +117,7 @@ class PlandController : public IThreadRunner {
     ros::Publisher fused_pub_;
     ros::Publisher vel_pub_;
     int log_idx_ = 0;
-    ros::Time last_step_time_;
+    double last_step_time_;
 
     // [新增] 实例化的轨迹生成器
     KinematicTrajectoryGenerator2D traj_gen_;
@@ -131,14 +131,15 @@ class PlandController : public IThreadRunner {
     bool is_blind_drop_ = false;  // 新增：盲降状态锁
 
    public:
-    PlandController(RobotContext& ctx) : IThreadRunner(true), ctx_(ctx) {
+    PlandController(RobotContext& ctx)
+        : IThreadRunner(ctx.engine->get_time_provider(), true), ctx_(ctx) {
         ros::NodeHandle nh;
         pnp_pub_ = nh.advertise<nav_msgs::Odometry>("/pland/pnp", 10);
         los_pub_ = nh.advertise<nav_msgs::Odometry>("/pland/los", 10);
         fused_pub_ = nh.advertise<nav_msgs::Odometry>("/pland/fused", 10);
         vel_pub_ = nh.advertise<geometry_msgs::TwistStamped>("/pland/vel", 10);
         log_idx_ = 0;
-        last_step_time_ = ros::Time(0);
+        last_step_time_ = 0.0;
     }
 
     void publish_debug_data(RobotContext& ctx, DetectorResult result) {
@@ -185,7 +186,7 @@ class PlandController : public IThreadRunner {
     }
 
     void on_step(double dt) override {
-        ros::Time now = ros::Time::now();
+        double now = ctx_.engine->get_time_provider()->now();
 
         // 1. 安全读取最新观测状态
         DetectorResult obs;
@@ -195,7 +196,7 @@ class PlandController : public IThreadRunner {
         }
 
         // ★ 新增：如果从来没收到过有效图像（时间戳为0），直接待命，不要瞎飞！
-        if (obs.stamp.isZero()) {
+        if (obs.stamp == 0.0) {
             return;
         }
 
@@ -205,8 +206,7 @@ class PlandController : public IThreadRunner {
         Eigen::Matrix3d R_wb = q.toRotationMatrix();
 
         // 2. 丢失保护判断 (如果 1 秒没收到新图，或者数据 is_valid=false)
-        bool is_timeout =
-            obs.stamp.isZero() ? true : (now - obs.stamp).toSec() > 1.0;
+        bool is_timeout = (obs.stamp == 0.0) ? true : (now - obs.stamp) > 1.0;
         if (!obs.is_valid || is_timeout) {
             invalid_time_ += 1;
         } else {
@@ -228,7 +228,7 @@ class PlandController : public IThreadRunner {
         // =======================================================
         // ★ 预测补偿魔法：把 100ms 前的目标坐标“快进”到现在 ★
         // =======================================================
-        double delay_sec = (now - obs.stamp).toSec();
+        double delay_sec = (now - obs.stamp);
         if (is_blind_drop_) {
             // 如果已经在盲降中丢帧，允许兔子利用最后的速度惯性，最多盲跑 2.0
             // 秒！ 这足够支撑无人机完成最后 0.8 米的下砸
@@ -296,7 +296,7 @@ class PlandController : public IThreadRunner {
         double fov_danger_deg = 45.0;  // 接近边缘时（假设半视角45度）
 
         double fov_penalty = 1.0;
-        if (visual_angle_deg > fov_warning_deg) {
+        if (!is_blind_drop_ && visual_angle_deg > fov_warning_deg) {
             if (visual_angle_deg >= fov_danger_deg) {
                 fov_penalty = 0.1;  // 极度危险，强行龟速
             } else {
@@ -313,13 +313,14 @@ class PlandController : public IThreadRunner {
 
         // 取最小值，然后再乘你的 fov_penalty
         double active_cruise_speed =
-            std::min(max_cruise_speed_xy, distance_speed_limit);
+            std::min(max_cruise_speed_xy, distance_speed_limit + v_norm);
 
-        double cruise_speed_xy = active_cruise_speed * fov_penalty;
+        double cruise_speed_xy = active_cruise_speed;  //* fov_penalty;
         double pland_acc_xy = pland_max_acc_xy * fov_penalty;
 
         // 为了防止惩罚过猛导致完全停滞，可以设一个兜底的最低值
         cruise_speed_xy = std::max(cruise_speed_xy, 0.5);
+
         pland_acc_xy = std::max(pland_acc_xy, 0.5);
 
         if (!traj_gen_.is_initialized()) {
@@ -387,10 +388,11 @@ class PlandController : public IThreadRunner {
 
         double terminal_deadzone_radius = 0.25;
         if (current_z < 0.3) {
-            // 这里视为已经接触了，需要清空xy速度
-            ctx_.tracker->send_vel_cmd({0, 0, -touchdown_vel - 0.2},
-                                       std::nullopt, std::nullopt,
-                                       CmdFrame::BODY);
+            // 这里视为已经接触了，需要清空xy速度，直接切降落
+            // ctx_.tracker->send_vel_cmd({0, 0, -touchdown_vel - 0.2},
+            //                            std::nullopt, std::nullopt,
+            //                            CmdFrame::BODY);
+            ctx_.robot->land();
             return;
         } else if (current_z < 0.8 &&
                    (current_xy_error < 0.4 || is_blind_drop_)) {

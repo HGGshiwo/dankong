@@ -29,7 +29,7 @@ class PosVelState : public dk::BaseState<RobotContext, PosVelState<ParentState>,
 
     // [修改点 1]：增加父状态的 on_enter，作为控制开始时的初始化
     void on_enter(RobotContext& ctx) override {
-        start_time_ = std::chrono::steady_clock::now();
+        start_time_ = ctx.engine->get_time_provider()->now();
         last_tick_time_ = start_time_;
         current_vel_xy_ = Eigen::Vector2d::Zero();
         current_z_speed_ = 0.0;
@@ -45,10 +45,10 @@ class PosVelState : public dk::BaseState<RobotContext, PosVelState<ParentState>,
 
     SetPosVelEvent event_;
 
-    std::chrono::time_point<std::chrono::steady_clock> start_time_;
+    double start_time_;
 
     // [修改点 2]：将控制相关的持续性状态变量移到父状态中
-    std::chrono::time_point<std::chrono::steady_clock> last_tick_time_{};
+    double last_tick_time_;
     Eigen::Vector2d current_vel_xy_ = Eigen::Vector2d::Zero();
     double current_z_speed_ = 0.0;  // 新增：用于 Z 轴的平滑加减速
     bool is_first_tick_ = true;
@@ -99,7 +99,7 @@ class PosVelState<ParentState>::LaterTurnState
 
 template <typename ParentState>
 PosVelState<ParentState>::PosVelState(SetPosVelEvent e)
-    : event_(e), start_time_(std::chrono::steady_clock::now()) {
+    : event_(e), start_time_(0.0) {
     event_.yaw = state_utils::yaw_ned_to_enu(event_.yaw);
 }
 
@@ -107,7 +107,6 @@ PosVelState<ParentState>::PosVelState(SetPosVelEvent e)
 template <typename ParentState>
 void PosVelState<ParentState>::set_target(const SetPosVelEvent& e) {
     event_ = e;
-    start_time_ = std::chrono::steady_clock::now();
     event_.yaw = state_utils::yaw_ned_to_enu(event_.yaw);
 
     // 由于目标更新，重置首次 tick 标志，使得下一次重新计算 dt
@@ -120,6 +119,7 @@ template <typename ParentState>
 StateAction PosVelState<ParentState>::on_event(const SetPosVelEvent& e,
                                                RobotContext& ctx) {
     set_target(e);
+    start_time_ = ctx.engine->get_time_provider()->now();
     if (!ctx.engine->is_active_state<PosVelState<ParentState>::MoveState>()) {
         return this->template step<PosVelState<ParentState>::MoveState>(
             std::tuple<>(), std::tuple<>());
@@ -141,7 +141,8 @@ StateAction PosVelState<ParentState>::get_next_state() {
 template <typename ParentState>
 StateAction PosVelState<ParentState>::on_event(const dk::TickEvent& e,
                                                RobotContext& ctx) {
-    if (state_utils::get_time_span(start_time_) >
+    double now = ctx.engine->get_time_provider()->now();
+    if (state_utils::get_time_span(start_time_, now) >
         GlobalConfig.GetConfig().posvel_timeout) {
         spdlog::error("[PosvelState] set_posvel timeout!");
         return get_next_state();
