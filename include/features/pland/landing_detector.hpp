@@ -5,17 +5,18 @@
 #include <opencv2/opencv.hpp>
 
 #include "./config.hpp"
-#include "safe_aprialtag.hpp"
-#include "states/state_utils.hpp"
-#include "utils/throttle.hpp"
-// #include "./kalman_filter_2d.hpp"
+// #include "./kalman_filter_imm_ukf.hpp"
+// #include "./kalman_filter_imm.hpp"
+// #include "./kalman_filter_ctrv_ukf.hpp"
 #include "./kalman_filter_ctrv.hpp"
-#include "./kalman_filter_imm.hpp"
 #include "./kalman_filter_yaw.hpp"
 #include "./target_tracker.hpp"
 #include "robot_context.hpp"
+#include "safe_aprialtag.hpp"
+#include "states/state_utils.hpp"
 #include "utils/dirty_var.hpp"
 #include "utils/thread_runner.hpp"
+#include "utils/throttle.hpp"
 
 struct DetectorResult {
     bool is_valid = false;
@@ -42,7 +43,7 @@ class LandingDetector : public IThreadRunner {
 
     RobotContext &ctx_;
 
-    std::shared_ptr<KalmanFilterIMM> kf_xy_;
+    std::shared_ptr<KalmanFilterCTRV> kf_xy_;
     std::shared_ptr<KalmanFilterYaw> kf_yaw_;
     std::shared_ptr<KalmanFilterYaw> kf_abs_yaw_;
     std::shared_ptr<TargetTracker> target_tracker_;
@@ -212,7 +213,7 @@ class LandingDetector : public IThreadRunner {
           set_target_(set_target) {
         tag_detector_ = std::make_unique<SafeAprilTagDetector>();
 
-        kf_xy_ = std::make_shared<KalmanFilterIMM>();
+        kf_xy_ = std::make_shared<KalmanFilterCTRV>();
         kf_yaw_ = std::make_shared<KalmanFilterYaw>();
         kf_abs_yaw_ = std::make_shared<KalmanFilterYaw>();
         target_tracker_ = std::make_shared<TargetTracker>();
@@ -431,15 +432,6 @@ class LandingDetector : public IThreadRunner {
             static Throttle throttle{4};
             auto pos_enu = ctx_.pos_enu.load();
 
-            if (throttle.shouldLog()) {
-                spdlog::info(
-                    "ekf_x={:.2f} ekf_y={:.2f} drone_x={:.2f} drone_y={:.2f} "
-                    "drone_roll={:.2f} drone_pitch={:.2f} drone_yaw={:.2f}",
-                    raw_target_enu.x(), raw_target_enu.y(), pos_enu.x(),
-                    pos_enu.y(), ctx_.roll.load(), ctx_.pitch.load(),
-                    ctx_.yaw_enu.load());
-            }
-
             if (output.is_valid) {
                 output.fused_pos = raw_target_enu;
 
@@ -502,8 +494,9 @@ class LandingDetector : public IThreadRunner {
                 // 3. 执行 KF 滤波 (由于已经是 ENU，不需要任何 R_wb 转换)
                 double current_angular_rate =
                     ctx_.vel_angular_body.load().norm();
-                kf_xy_->update(raw_target_enu.x(), raw_target_enu.y(), dt_ekf,
-                               current_z, current_angular_rate,
+                double epsilon = 0;
+                kf_xy_->update(epsilon, raw_target_enu.x(), raw_target_enu.y(),
+                               dt_ekf, current_z, current_angular_rate,
                                current_visual_angle_deg);
                 kf_yaw_->update(relative_yaw, dt_ekf);
                 kf_abs_yaw_->update(abs_yaw, dt_ekf);
@@ -527,6 +520,17 @@ class LandingDetector : public IThreadRunner {
                 } else {
                     output.target_vel_enu.setZero();
                     output.target_vel_enu.z() = yaw_rate;
+                }
+                // auto prob = kf_xy_->get_prob();
+                if (throttle.shouldLog()) {
+                    spdlog::info(
+                        "ekf_x={:.2f} ekf_y={:.2f} drone_x={:.2f} "
+                        "drone_y={:.2f} "
+                        "drone_roll={:.2f} drone_pitch={:.2f} "
+                        "drone_yaw={:.2f} epsilon={:.2f}",
+                        raw_target_enu.x(), raw_target_enu.y(), pos_enu.x(),
+                        pos_enu.y(), ctx_.roll.load(), ctx_.pitch.load(),
+                        ctx_.yaw_enu.load(), epsilon);
                 }
             }
         }

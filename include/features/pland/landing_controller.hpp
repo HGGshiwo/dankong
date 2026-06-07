@@ -464,7 +464,8 @@ class PlandController : public IThreadRunner {
                 z_body_target = -current_z - 0.5;
             }
         }
-        double cruise_speed_yaw = 0.6;
+
+        double cruise_speed_yaw = 0.4;  // 限制反馈速度,如果转的太快会导致倾斜
         ctx_.tracker->send_pos_cmd(
             {virtual_err_body.x(), virtual_err_body.y(), z_body_target},
             target_yaw_relative, omega, total_ff_vel, cruise_speed_xy,
