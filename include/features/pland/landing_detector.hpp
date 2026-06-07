@@ -463,11 +463,13 @@ class LandingDetector : public IThreadRunner {
                     }
                 }
 
-                if (dt_ekf <= 1e-4 || dt_ekf > 1.0) {
+                if (!has_last_valid_pos_ || dt_ekf <= 1e-4 || dt_ekf > 1.0) {
                     reset_estimator();
                     dt_ekf = 0.033;
                     kf_xy_->force_set_state(raw_target_enu.x(),
                                             raw_target_enu.y());
+                    kf_yaw_->force_set_state(relative_yaw);
+                    kf_abs_yaw_->force_set_state(abs_yaw);
                 }
                 last_ekf_stamp_ = stamp_tracker;
 

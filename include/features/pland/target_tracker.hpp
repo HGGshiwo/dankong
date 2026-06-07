@@ -1,3 +1,4 @@
+#pragma once
 #include <Eigen/Dense>
 #include <algorithm>
 #include <cmath>
@@ -11,79 +12,99 @@ class TargetTracker {
    public:
     /**
      * @brief 构造函数
-     * @param window_size 观测窗口的帧数，例如 30 帧 (1秒@30Hz)
+     * @param window_size 历史记录的最大帧数
      * @param base_threshold 判定运动的基础距离阈值，例如 0.2 米
      */
     TargetTracker(int window_size = 30, double base_threshold = 0.2)
         : window_size_(window_size),
           threshold_(base_threshold),
-          state_(TargetState::STATIONARY) {}
+          state_(TargetState::STATIONARY),
+          move_counter_(0) {}
 
-    /**
-     * @brief 重置接口：在开始追踪、或者丢失目标重新找回时调用
-     */
     void reset() {
         history_.clear();
         state_ = TargetState::STATIONARY;
+        move_counter_ = 0;
     }
 
-    /**
-     * @brief 核心更新接口：每次视觉出新位置时调用
-     * @param pos 当前目标在物理世界（或 Odom）下的 2D 坐标 (X, Y)
-     * @return 当前目标的运动状态
-     */
     TargetState update(const Eigen::Vector2d& pos) {
-        // 1. 更新滑动窗口
         history_.push_back(pos);
         if (history_.size() > window_size_) {
             history_.pop_front();
         }
 
-        // 数据太少时，不足以做判断，默认保持原状态（通常是静止）
-        // 至少需要窗口填满一半才开始计算
-        if (history_.size() < window_size_ / 2) {
+        // 基础数据量保护：至少攒够 5 帧（约0.16秒）再做任何高级判定
+        if (history_.size() < 5) {
             return state_;
         }
 
-        // 2. 计算滑动窗口内的包围盒 (Bounding Box)
-        double min_x = history_[0].x(), max_x = history_[0].x();
-        double min_y = history_[0].y(), max_y = history_[0].y();
-
-        for (const auto& p : history_) {
-            min_x = std::min(min_x, p.x());
-            max_x = std::max(max_x, p.x());
-            min_y = std::min(min_y, p.y());
-            max_y = std::max(max_y, p.y());
-        }
-
-        // 3. 计算对角线分布距离，代表这段时间内的活动范围
-        double spread_dist =
-            std::sqrt(std::pow(max_x - min_x, 2) + std::pow(max_y - min_y, 2));
-
-        // 4. 带迟滞的状态转移逻辑 (防止在阈值边缘反复横跳)
         if (state_ == TargetState::STATIONARY) {
-            // 静止 -> 运动：要求更严格，必须超过阈值的 1.2 倍
-            if (spread_dist > threshold_ * 1.2) {
-                state_ = TargetState::MOVING;
+            // ==========================================
+            // [抗噪起步逻辑]：质心偏离 + 连续帧防抖
+            // ==========================================
+            Eigen::Vector2d centroid(0, 0);
+            int count = history_.size() - 1;
+
+            // 计算前 N-1
+            // 帧的历史质心（故意不把最新这一帧算进去，防止它就是个巨大噪点）
+            for (int i = 0; i < count; ++i) {
+                centroid += history_[i];
             }
-        } else {
-            // 运动 -> 静止：要求必须真正停下来，活动范围小于阈值的 0.8 倍
+            centroid /= count;
+
+            // 检查当前最新点偏离历史“安乐窝”的距离
+            double dist_to_centroid = (pos - centroid).norm();
+
+            if (dist_to_centroid > threshold_ * 1.2) {
+                // 确实偏离了！防抖计数器 +1
+                move_counter_++;
+
+                // 设定防抖门限：必须连续 3 帧（约 0.1 秒）都偏离，才确认起步
+                if (move_counter_ >= 3) {
+                    state_ = TargetState::MOVING;
+                    move_counter_ = 0;  // 重置状态
+                }
+            } else {
+                // 只要有一帧乖乖缩回质心附近，证明刚才那个偏离点只是噪点，立刻清零！
+                move_counter_ = 0;
+            }
+
+        } else {  // state_ == TargetState::MOVING
+            // ==========================================
+            // [严谨刹车逻辑]：近期活动包围盒
+            // ==========================================
+            // 刹车不能急，看最近的 15 帧（约 0.5 秒）是否真的安静下来了
+            int check_len = std::min(15, (int)history_.size());
+
+            double min_x = history_.back().x(), max_x = history_.back().x();
+            double min_y = history_.back().y(), max_y = history_.back().y();
+
+            for (int i = history_.size() - check_len; i < history_.size();
+                 ++i) {
+                min_x = std::min(min_x, history_[i].x());
+                max_x = std::max(max_x, history_[i].x());
+                min_y = std::min(min_y, history_[i].y());
+                max_y = std::max(max_y, history_[i].y());
+            }
+
+            double spread_dist = std::hypot(max_x - min_x, max_y - min_y);
+
+            // 如果近 0.5 秒内的最大活动范围已经小于阈值的 0.8，确认停稳
             if (spread_dist < threshold_ * 0.8) {
                 state_ = TargetState::STATIONARY;
+                move_counter_ = 0;
             }
         }
 
         return state_;
     }
 
-    /**
-     * @brief 便捷查询接口
-     */
     bool isMoving() const { return state_ == TargetState::MOVING; }
 
    private:
     int window_size_;
     double threshold_;
     TargetState state_;
-    std::deque<Eigen::Vector2d> history_;  // 双端队列作为滑动窗口
+    std::deque<Eigen::Vector2d> history_;
+    int move_counter_;  // [新增] 防抖计数器
 };

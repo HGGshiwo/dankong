@@ -6,7 +6,7 @@
 class KalmanFilterCTRV {
    public:
     // 基础观测噪声方差 (理想状态下的像素投影误差)
-    double base_r_noise_ = 1.0;
+    double base_r_noise_ = 0.3;
     // AKF 马氏距离阈值 (超过此值判定为目标机动)
     double adaptive_threshold_ = 5.0;
     double max_q_scale_ = 10.0;
@@ -138,7 +138,7 @@ class KalmanFilterCTRV {
         Matrix5d P_pred = F_j * P_ * F_j.transpose() + Q;
 
         // --- 4. 动态观测噪声 R ---
-        double height_factor = std::clamp(current_z / 2.0, 0.8, 5.0);
+        double height_factor = std::clamp(current_z / 2.0, 0.8, 3.0);
         double rotation_factor = 1.0 + angular_rate * 5.0;
         double angle_factor = 1.0 + std::pow(visual_angle_deg / 10.0, 2.0);
 
@@ -159,11 +159,8 @@ class KalmanFilterCTRV {
         double dynamic_threshold = adaptive_threshold_;
 
         if (current_z > 3.0) {
-            // 超过 3 米的高空，每高 1 米，阈值增加 10.0
-            // 例如：在 9 米高空，阈值会变成 5.0 + (9 - 3) * 10.0 = 65.0
-            // 这种极高的阈值会让 AKF 在高空变成“聋子”，死死锁住 0
-            // 速度，彻底过滤假速度
-            dynamic_threshold += (current_z - 3.0) * 2.0;
+            // 超过 3 米的高空，每高 1 米，阈值增加 2.0
+            dynamic_threshold += std::min(10.0, (current_z - 3.0) * 2.0);
         }
 
         if (epsilon > dynamic_threshold) {
@@ -190,7 +187,7 @@ class KalmanFilterCTRV {
 
     // CTRV 模型的速度分解
     Eigen::Vector2d get_vel() const {
-        if (update_count_ < 15) {
+        if (update_count_ < 5) {
             return Eigen::Vector2d(0.0, 0.0);
         }
         double v = x_(2);

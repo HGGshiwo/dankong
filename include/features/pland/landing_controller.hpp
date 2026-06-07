@@ -20,7 +20,7 @@
 #include "utils/thread_runner.hpp"
 
 // ==========================================
-// [新增] 二阶运动学轨迹生成器 (虚拟兔子)
+// 二阶运动学轨迹生成器 (虚拟兔子)
 // ==========================================
 class KinematicTrajectoryGenerator2D {
    private:
@@ -28,9 +28,8 @@ class KinematicTrajectoryGenerator2D {
     Eigen::Vector2d virtual_vel_;
     bool initialized_ = false;
 
-    // 调参经验值：P 决定追踪紧密度，V 决定速度响应
-    const double Kp_ = 2.5;
-    const double Kv_ = 3.5;
+    const double Kp_ = 0.5;
+    const double Kv_ = 1.5;
 
    public:
     struct State {
@@ -52,46 +51,28 @@ class KinematicTrajectoryGenerator2D {
 
     bool is_initialized() const { return initialized_; }
 
-    // [修改] 增加 target_vel 参数
     State step(double dt, const Eigen::Vector2d& target_pos,
                const Eigen::Vector2d& target_vel, double max_vel,
                double max_acc) {
         if (!initialized_) return {target_pos, target_vel};
 
-        // 1. 位置 P 环计算基础期望速度
         Eigen::Vector2d pos_err = target_pos - virtual_pos_;
-        // 2. 基础 P 环计算期望相对速度
         Eigen::Vector2d rel_vel = pos_err * Kp_;
         if (rel_vel.norm() > max_vel) {
             rel_vel = rel_vel.normalized() * max_vel;
         }
 
-        // ==========================================
-        // ★ 核心魔法：Square-Root 刹车防过冲曲线 ★
-        // ==========================================
         double distance = pos_err.norm();
         if (distance > 0.01) {
-            // 预留 20% 的加速度给目标自身转向，用 80% 的加速度来做刹车规划
             double safe_brake_acc = max_acc * 0.8;
-
-            // 根据物理学 v = sqrt(2ax)
-            // 算出当前距离下，理论上能刹住的最大安全速度
             double max_kinematic_vel =
                 std::sqrt(2.0 * safe_brake_acc * distance);
-
-            // 强行限幅：如果 P 环给的速度太快会刹不住，就压平到安全速度
             if (rel_vel.norm() > max_kinematic_vel) {
                 rel_vel = rel_vel.normalized() * max_kinematic_vel;
             }
         }
 
-        // ==========================================
-        // ★ 核心物理魔法：目标速度前馈 ★
-        // 兔子的期望速度 = 消除位置误差的速度 + 目标平台本身的移动速度
-        // ==========================================
         Eigen::Vector2d desired_vel = rel_vel + target_vel;
-
-        // 2. 速度 P 环计算期望加速度
         Eigen::Vector2d vel_err = desired_vel - virtual_vel_;
         Eigen::Vector2d desired_acc = vel_err * Kv_;
 
@@ -99,7 +80,6 @@ class KinematicTrajectoryGenerator2D {
             desired_acc = desired_acc.normalized() * max_acc;
         }
 
-        // 3. 运动学积分
         virtual_pos_ += virtual_vel_ * dt + 0.5 * desired_acc * dt * dt;
         virtual_vel_ += desired_acc * dt;
 
@@ -119,16 +99,10 @@ class PlandController : public IThreadRunner {
     int log_idx_ = 0;
     double last_step_time_;
 
-    // [新增] 实例化的轨迹生成器
     KinematicTrajectoryGenerator2D traj_gen_;
-
-    // ==========================================
-    // [新增] 共享观测状态与互斥锁 (用于异步解耦)
-    // ==========================================
     std::mutex state_mtx_;
     DetectorResult latest_obs_;
-
-    bool is_blind_drop_ = false;  // 新增：盲降状态锁
+    bool is_blind_drop_ = false;
 
    public:
     PlandController(RobotContext& ctx)
@@ -168,12 +142,8 @@ class PlandController : public IThreadRunner {
         }
     }
 
-    // [新增] 仅供视觉回调更新状态 (耗时极短)
     void update_observation(const DetectorResult& result) {
         std::lock_guard<std::mutex> lk(state_mtx_);
-        // ★ 核心防火墙：只有视觉解算成功且有效的数据，才有资格更新状态！
-        // 这样即使视觉掉帧，latest_obs_ 里保存的依然是上一帧完美的 EKF
-        // 速度和位置
         if (result.is_valid) {
             latest_obs_ = result;
             publish_debug_data(ctx_, result);
@@ -188,24 +158,21 @@ class PlandController : public IThreadRunner {
     void on_step(double dt) override {
         double now = ctx_.engine->get_time_provider()->now();
 
-        // 1. 安全读取最新观测状态
         DetectorResult obs;
         {
             std::lock_guard<std::mutex> lk(state_mtx_);
             obs = latest_obs_;
         }
 
-        // ★ 新增：如果从来没收到过有效图像（时间戳为0），直接待命，不要瞎飞！
-        if (obs.stamp == 0.0) {
-            return;
-        }
+        if (obs.stamp == 0.0) return;
 
         auto pos_enu = ctx_.pos_enu.load();
         Eigen::Quaterniond q = ctx_.orientation.load();
         q.normalize();
         Eigen::Matrix3d R_wb = q.toRotationMatrix();
 
-        // 2. 丢失保护判断 (如果 1 秒没收到新图，或者数据 is_valid=false)
+        double current_drone_yaw = ctx_.yaw_enu.load();
+
         bool is_timeout = (obs.stamp == 0.0) ? true : (now - obs.stamp) > 1.0;
         if (!obs.is_valid || is_timeout) {
             invalid_time_ += 1;
@@ -213,8 +180,8 @@ class PlandController : public IThreadRunner {
             invalid_time_ = 0;
         }
 
-        if (invalid_time_ > 20) {  // 大约丢失 0.4 秒后执行悬停或盲降
-            if (!is_blind_drop_) {  // ★ 只有在非盲降状态下才允许放弃任务
+        if (invalid_time_ > 20) {
+            if (!is_blind_drop_) {
                 traj_gen_.reset(Eigen::Vector2d(pos_enu.x(), pos_enu.y()));
                 ctx_.tracker->send_pos_cmd(
                     {pos_enu.x(), pos_enu.y(),
@@ -225,172 +192,144 @@ class PlandController : public IThreadRunner {
             }
         }
 
-        // =======================================================
-        // ★ 预测补偿魔法：把 100ms 前的目标坐标“快进”到现在 ★
-        // =======================================================
         double delay_sec = (now - obs.stamp);
-        if (is_blind_drop_) {
-            // 如果已经在盲降中丢帧，允许兔子利用最后的速度惯性，最多盲跑 2.0
-            // 秒！ 这足够支撑无人机完成最后 0.8 米的下砸
+        if (is_blind_drop_)
             delay_sec = std::clamp(delay_sec, 0.0, 2.0);
-        } else {
+        else
             delay_sec = std::clamp(delay_sec, 0.0, 0.5);
-        }
 
-        Eigen::Vector3d predicted_target_enu = obs.target_pos_enu;
-        double omega = obs.target_vel_enu.z();
-
-        double v_norm = obs.target_vel_enu.template head<2>().norm();
-        double yaw = obs.target_yaw_enu;  // EKF 估计的目标航向
-        Eigen::Vector2d vel_xy = obs.target_vel_enu.template head<2>();
-        if (std::abs(omega) < 0.05) omega = 0;
-        // A. 真实当前位置 (仅补偿图像延迟) -> 用于逻辑判断
         Eigen::Vector3d current_target_enu = obs.target_pos_enu;
-        double current_yaw = yaw;
-        if (std::abs(omega) < 0.05) {
-            current_target_enu.x() += vel_xy.x() * delay_sec;
-            current_target_enu.y() += vel_xy.y() * delay_sec;
-        } else {
-            current_yaw = yaw + omega * delay_sec;
-            current_target_enu.x() +=
-                (v_norm / omega) * (std::sin(current_yaw) - std::sin(yaw));
-            current_target_enu.y() +=
-                (v_norm / omega) * (-std::cos(current_yaw) + std::cos(yaw));
-        }
+        double yaw = obs.target_yaw_enu;
+        double omega = obs.target_vel_enu.z();
+        Eigen::Vector2d vel_xy = obs.target_vel_enu.template head<2>();
 
-        // ---------------------------------------------------------
-        // 计算真实物理误差 (用于判断盲降)
-        Eigen::Vector3d target_body_relative =
-            R_wb.transpose() * (current_target_enu - pos_enu);
+        // =======================================================
+        // [修复 1] 剔除不稳定的除以 omega 的圆周模型，改为极度稳定的线性预测
+        // =======================================================
+        current_target_enu.x() += vel_xy.x() * delay_sec;
+        current_target_enu.y() += vel_xy.y() * delay_sec;
+        double current_target_yaw = yaw + omega * delay_sec;
+
+        // 确保目标偏航角在 [-pi, pi]
+        current_target_yaw = std::fmod(current_target_yaw + M_PI, 2.0 * M_PI);
+        if (current_target_yaw < 0) current_target_yaw += 2.0 * M_PI;
+        current_target_yaw -= M_PI;
+
         double current_xy_error =
-            std::hypot(target_body_relative.x(), target_body_relative.y());
+            std::hypot(current_target_enu.x() - pos_enu.x(),
+                       current_target_enu.y() - pos_enu.y());
 
-        // [修改] 规范化 Yaw 误差到 [-pi, pi]，避免 359度 被算作大误差
-        double target_yaw_relative = current_yaw - ctx_.yaw_enu.load();
-        target_yaw_relative = std::fmod(target_yaw_relative + M_PI, 2.0 * M_PI);
-        if (target_yaw_relative < 0) target_yaw_relative += 2.0 * M_PI;
-        target_yaw_relative -= M_PI;
+        // 计算当前偏航误差 (最短路径)
+        double yaw_diff = current_target_yaw - current_drone_yaw;
+        yaw_diff = std::fmod(yaw_diff + M_PI, 2.0 * M_PI);
+        if (yaw_diff < 0) yaw_diff += 2.0 * M_PI;
+        yaw_diff -= M_PI;
+        double abs_yaw_err_deg = std::abs(yaw_diff) * 180.0 / M_PI;
 
-        // [新增] 计算绝对度数，方便后续逻辑判断
-        double abs_yaw_err_deg = std::abs(target_yaw_relative) * 180.0 / M_PI;
+        // =======================================================
+        // [修复 2] 平滑过渡的 Yaw 对齐逻辑，代替原本的阶跃 if/else
+        // =======================================================
+        double desired_yaw_enu = current_drone_yaw;
+        double desired_omega = 0.0;
+        double yaw_enable_min = 1.0;  // 1米以内完全跟随目标机头
+        double yaw_enable_max = 2.5;  // 2.5米以外完全不转头（保持当前航向）
 
-        // 假设你仿真的降落平台（车/船）的物理高度是 1.0 米
-        // 如果平台就是地面，这个值就是 0.0
-        double TARGET_PLATFORM_HEIGHT = 0.0;
-
-        // 真实的无人机 ENU Z 轴高度
-        double drone_enu_z = ctx_.pos_enu.load().z();
-
-        // 计算真正用于降落逻辑的“相对高度”
-        double current_z = drone_enu_z - TARGET_PLATFORM_HEIGHT;
-        if (current_z > 1.0) {
-            is_blind_drop_ = false;
+        if (current_xy_error > yaw_enable_max) {
+            desired_yaw_enu = current_drone_yaw;
+            desired_omega = 0.0;
+        } else if (current_xy_error < yaw_enable_min) {
+            desired_yaw_enu = current_target_yaw;
+            desired_omega = omega;
+        } else {
+            // 在 1.0m 到 2.5m 之间做线性插值，防止指令突变导致机身剧烈晃动
+            double ratio = (yaw_enable_max - current_xy_error) /
+                           (yaw_enable_max - yaw_enable_min);
+            desired_yaw_enu = current_drone_yaw + yaw_diff * ratio;
+            desired_omega = omega * ratio;
         }
 
-        // 防止气压计漂移导致出现负数影响后续的数学计算
-        current_z = std::max(0.0, current_z);
+        double TARGET_PLATFORM_HEIGHT = 0.0;
+        double drone_enu_z = pos_enu.z();
+        double current_z = std::max(0.0, drone_enu_z - TARGET_PLATFORM_HEIGHT);
+
+        if (current_z > 1.0) is_blind_drop_ = false;
+
         double pland_max_acc_xy =
             GlobalConfig.GetConfig().pland_max_acc_xy.get();
-        double pland_min_acc_xy = 2.0;
         double decay_start_z =
             GlobalConfig.GetConfig().pland_decay_start_z.get();
 
-        // FOV 保护 (算当前视角的几何偏移)
+        // 相机 FOV 计算
+        Eigen::Vector3d target_body_relative =
+            R_wb.transpose() * (current_target_enu - pos_enu);
         double dist_xy =
             std::hypot(target_body_relative.x(), target_body_relative.y());
         double visual_angle_deg = std::atan2(dist_xy, current_z) * 180.0 / M_PI;
 
-        double fov_warning_deg = 30.0;  // 建议改小一点，比如 30 度开始警告
-        double fov_danger_deg = 45.0;  // 接近边缘时（假设半视角45度）
-
         double fov_penalty = 1.0;
-        if (!is_blind_drop_ && visual_angle_deg > fov_warning_deg) {
-            if (visual_angle_deg >= fov_danger_deg) {
-                fov_penalty = 0.1;  // 极度危险，强行龟速
-            } else {
-                // 线性插值平滑减速
-                fov_penalty = 1.0 - 0.9 * (visual_angle_deg - fov_warning_deg) /
-                                        (fov_danger_deg - fov_warning_deg);
-            }
+        if (!is_blind_drop_ && visual_angle_deg > 30.0) {
+            fov_penalty =
+                std::max(0.1, 1.0 - 0.9 * (visual_angle_deg - 30.0) / 15.0);
         }
 
-        // ==========================================
-        // [新增] Yaw 航向保护：误差大时优先原地转头，限制平飞
-        // ==========================================
         double yaw_penalty = 1.0;
-        double yaw_warning_deg = 20.0;  // 超过20度开始限制速度
-        double yaw_danger_deg = 60.0;  // 超过60度极度限制速度，优先转头
-        double min_yaw_penalty = 0.01;
-        if (!is_blind_drop_ && abs_yaw_err_deg > yaw_warning_deg) {
-            if (abs_yaw_err_deg >= yaw_danger_deg) {
-                yaw_penalty = min_yaw_penalty;  // 强行龟速，等机头转过来
-            } else {
-                yaw_penalty = 1.0 - (1.0 - min_yaw_penalty) *
-                                        (abs_yaw_err_deg - yaw_warning_deg) /
-                                        (yaw_danger_deg - yaw_warning_deg);
-            }
+        if (!is_blind_drop_ && abs_yaw_err_deg > 20.0) {
+            yaw_penalty =
+                std::max(0.1, 1.0 - 0.9 * (abs_yaw_err_deg - 20.0) / 40.0);
         }
 
-        // 计算速度限幅
+        double combined_penalty = std::min(fov_penalty, yaw_penalty);
         double max_cruise_speed_xy =
             GlobalConfig.GetConfig().pland_cruise_speed_xy.get();
         double distance_speed_limit = std::max(0.3, current_xy_error * 0.5);
-
-        // 取最小值，然后再乘你的 fov_penalty
         double active_cruise_speed =
-            std::min(max_cruise_speed_xy, distance_speed_limit + v_norm);
+            std::min(max_cruise_speed_xy, distance_speed_limit + vel_xy.norm());
 
-        // [修改] 综合选取最严苛的惩罚（取 FOV 和 Yaw 惩罚中的较小值）
-        double combined_penalty = std::min(fov_penalty, yaw_penalty);
-        double cruise_speed_xy = active_cruise_speed * combined_penalty;
-        double pland_acc_xy = pland_max_acc_xy * combined_penalty;
-
-        // 为了防止惩罚过猛导致完全停滞，可以设一个兜底的最低值
-        cruise_speed_xy = std::max(cruise_speed_xy, 0.5);
-
-        pland_acc_xy = std::max(pland_acc_xy, 0.5);
+        // 为了防止龟速导致追不上目标，限制最低巡航速度和加速度
+        double cruise_speed_xy =
+            std::max(active_cruise_speed * combined_penalty, 0.5);
+        double pland_acc_xy =
+            std::max(pland_max_acc_xy * combined_penalty, 0.8);
 
         if (!traj_gen_.is_initialized()) {
             traj_gen_.reset(Eigen::Vector2d(pos_enu.x(), pos_enu.y()));
         }
 
-        // =======================================================
-        // 生成平滑轨迹
-        // =======================================================
         Eigen::Vector2d target_pos_xy(current_target_enu.x(),
                                       current_target_enu.y());
         auto virtual_state_enu = traj_gen_.step(dt, target_pos_xy, vel_xy,
                                                 cruise_speed_xy, pland_acc_xy);
 
-        // [牵引绳 Leash 逻辑]
+        // =======================================================
+        // [修复 3] 牵引绳(Leash)保护：只限制位置，坚决不再将速度 *= 0.5
+        // =======================================================
         Eigen::Vector2d current_pos_enu_xy(pos_enu.x(), pos_enu.y());
         Eigen::Vector2d tracking_err =
             virtual_state_enu.pos - current_pos_enu_xy;
-
-        double max_leash_length = std::max(2.0, 0.5 + 0.5 * (current_z / 3.0));
+        double max_leash_length = std::max(2.0, 1.0 + 0.5 * (current_z / 3.0));
 
         if (tracking_err.norm() > max_leash_length) {
             virtual_state_enu.pos =
                 current_pos_enu_xy +
                 tracking_err.normalized() * max_leash_length;
-            virtual_state_enu.vel *= 0.5;
+            // 保持原速度或限幅，不粗暴折半，消除 "冲刺-顿挫-冲刺" 的震荡
+            if (virtual_state_enu.vel.norm() > cruise_speed_xy) {
+                virtual_state_enu.vel =
+                    virtual_state_enu.vel.normalized() * cruise_speed_xy;
+            }
             traj_gen_.force_set_state(virtual_state_enu.pos,
                                       virtual_state_enu.vel);
         }
 
-        // 转换回机体系
-        Eigen::Vector3d virtual_err_enu(virtual_state_enu.pos.x() - pos_enu.x(),
-                                        virtual_state_enu.pos.y() - pos_enu.y(),
-                                        0.0);
-        Eigen::Vector3d virtual_err_body = R_wb.transpose() * virtual_err_enu;
-
-        Eigen::Vector3d virtual_vel_enu(virtual_state_enu.vel.x(),
-                                        virtual_state_enu.vel.y(), 0.0);
-        Eigen::Vector3d virtual_vel_body = R_wb.transpose() * virtual_vel_enu;
-
-        // 纯净的前馈速度 (内部已经包含了目标移动速度)
-        Eigen::Vector3d total_ff_vel(virtual_vel_body.x(), virtual_vel_body.y(),
-                                     0.0);
+        // =======================================================
+        // [修复 4] 全面废除 Body 坐标系，改用全局 ENU
+        // 下发绝对指令，消除画圈效应
+        // =======================================================
+        Eigen::Vector3d pos_cmd_enu(virtual_state_enu.pos.x(),
+                                    virtual_state_enu.pos.y(),
+                                    0.0);  // Z轴下面单独计算
+        Eigen::Vector3d ff_vel_enu(virtual_state_enu.vel.x(),
+                                   virtual_state_enu.vel.y(), 0.0);
 
         // ---------------- 降落阶段 Z 轴与下发逻辑 ----------------
         double touchdown_vel = GlobalConfig.GetConfig().touchdown_velocity;
@@ -407,99 +346,99 @@ class PlandController : public IThreadRunner {
             gamma = min_gamma;
         }
 
-        double current_visual_angle_deg =
-            std::atan2(dist_xy, current_z) * 180.0 / M_PI;
-
         double max_vel_z = 0.0;
-        double z_body_target = 0.0;
+        double z_enu_target = drone_enu_z;  // 默认维持当前高度悬停
 
-        double terminal_deadzone_radius = 0.25;
         if (current_z < 0.3) {
-            // 这里视为已经接触了，需要清空xy速度，直接切降落
-            // ctx_.tracker->send_vel_cmd({0, 0, -touchdown_vel - 0.2},
-            //                            std::nullopt, std::nullopt,
-            //                            CmdFrame::BODY);
             ctx_.robot->land();
             return;
         } else if (current_z < 0.8 &&
                    (current_xy_error < 0.4 || is_blind_drop_)) {
-            is_blind_drop_ = true;  // 状态上锁！
-
+            is_blind_drop_ = true;
             max_vel_z = touchdown_vel + 0.2;
-            z_body_target = -current_z - 0.5;
-            pland_gamma_z = 100;
+            z_enu_target = TARGET_PLATFORM_HEIGHT - 0.5;  // 直接往下按
+            pland_gamma_z = 100.0;
         } else {
-            // 【漏斗下滑道逻辑】
-            double hold_dist_thresh = 3.5;
-            // [新增] 允许下降的 Yaw 对准门限 (例如必须在 15 度以内才准下降)
-            double yaw_descent_thresh_deg = 15.0;
-
-            // ★ 动态对准阈值：高度越高允许的误差越大，高度越低要求越苛刻
-            // 例如：Z=3m时允许 1.2m 的误差；Z=0.5m时必须进入 0.2m
-            // 的误差内才准下砸！
+            // =======================================================
+            // [修复 5] 消除 Z 轴的 if/else 阶跃跳变，使用线性漏斗系数
+            // =======================================================
             double align_dist_thresh = std::max(0.2, current_z * 0.4);
+            double hold_dist_thresh = 3.5;
 
-            // [修改] 如果距离没进入范围，或者 Yaw 还没对准，就在当前高度等待！
-            if (current_xy_error > hold_dist_thresh ||
-                abs_yaw_err_deg > yaw_descent_thresh_deg) {
-                max_vel_z = 0.0;
-                z_body_target = 0.0;  // 0 表示不产生额外的相对下探目标
-            } else {
-                double descent_factor = 1.0;
-                if (current_xy_error > align_dist_thresh) {
-                    // 如果没进入漏斗中心，按比例疯狂减速，在空中等待超前补偿把机身拉过来
-                    descent_factor =
-                        1.0 - (current_xy_error - align_dist_thresh) /
-                                  (hold_dist_thresh - align_dist_thresh);
-                    // 给一个极小的下降速度，几乎悬停等待
-                    descent_factor = std::max(0.1, descent_factor);
-                }
+            double xy_descent_factor = 1.0;
+            if (current_xy_error > hold_dist_thresh) {
+                xy_descent_factor = 0.0;  // 在漏斗外，完全不下降
+            } else if (current_xy_error > align_dist_thresh) {
+                xy_descent_factor =
+                    1.0 - (current_xy_error - align_dist_thresh) /
+                              (hold_dist_thresh - align_dist_thresh);
+            }
 
+            double yaw_descent_min_deg = 15.0;
+            double yaw_descent_max_deg = 35.0;
+            double yaw_descent_factor = 1.0;
+            if (abs_yaw_err_deg > yaw_descent_max_deg) {
+                yaw_descent_factor = 0.0;
+            } else if (abs_yaw_err_deg > yaw_descent_min_deg) {
+                yaw_descent_factor =
+                    1.0 - (abs_yaw_err_deg - yaw_descent_min_deg) /
+                              (yaw_descent_max_deg - yaw_descent_min_deg);
+            }
+
+            // 综合下降意愿因子
+            double descent_factor = xy_descent_factor * yaw_descent_factor;
+
+            if (descent_factor > 0.05) {
                 double takeoff_alt = ctx_.takeoff_lon_lat_alt.load().z();
-                double alt_ratio =
-                    std::min(1.0, std::abs(current_z / takeoff_alt));
+                double alt_ratio = std::min(
+                    1.0, std::abs(current_z / std::max(takeoff_alt, 1.0)));
                 double base_descent_vel = 0.2 + alt_ratio * 0.8;
 
                 max_vel_z = base_descent_vel * descent_factor;
-                z_body_target = -current_z - 0.5;
+                z_enu_target = TARGET_PLATFORM_HEIGHT -
+                               0.5;  // 目标给在下方，依靠 max_vel_z 平滑限速
+            } else {
+                max_vel_z = 0.0;
+                z_enu_target = drone_enu_z;  // 完全没对准时，严格保持当前高度
             }
         }
 
-        double cruise_speed_yaw = 0.4;  // 限制反馈速度,如果转的太快会导致倾斜
-        ctx_.tracker->send_pos_cmd(
-            {virtual_err_body.x(), virtual_err_body.y(), z_body_target},
-            target_yaw_relative, omega, total_ff_vel, cruise_speed_xy,
-            max_vel_z, cruise_speed_yaw, CmdFrame::BODY,
-            {1.0, pland_gamma_yaw, pland_gamma_z}, pland_acc_xy);
-        // [Debug 日志]
+        // 把 Z 坐标赋给目标 ENU 点
+        pos_cmd_enu.z() = z_enu_target;
+        double cruise_speed_yaw = 0.4;
 
+        // =======================================================
+        // [修复 6] 修正 P 增益，并发送 ENU 绝对指令
+        // 原本写死的 1.0 被替换成了算好的 gamma
+        // CmdFrame::BODY 替换成了 CmdFrame::ENU
+        // =======================================================
+        ctx_.tracker->send_pos_cmd(
+            pos_cmd_enu,      // ENU绝对目标位置
+            desired_yaw_enu,  // ENU绝对目标偏航角
+            desired_omega,    // 目标偏航角速度
+            ff_vel_enu,       // ENU前馈绝对速度
+            cruise_speed_xy, max_vel_z, cruise_speed_yaw,
+            CmdFrame::ENU,  // ★ 切断与姿态解算的耦合，交由底层飞控闭环
+            {gamma, pland_gamma_yaw, pland_gamma_z},  // ★ 恢复正确的 XY 增益
+            pland_acc_xy);
+
+        // [Debug 日志]
         log_idx_ += 1;
         if (log_idx_ % 10 == 0) {
-            // 1. 记录 EKF 估算的目标速度和角速度（这是前馈追踪的核心）
-            double ekf_v = obs.target_vel_enu.template head<2>().norm();
-            double ekf_omega = obs.target_vel_enu.z();
-
-            // 2. 记录当前真实视角，看看是否真的超出了相机物理 FOV
-            double current_visual_angle_deg =
-                std::atan2(dist_xy, current_z) * 180.0 / M_PI;
-
-            // 3. 记录 Leash (牵引绳) 是否处于饱和状态
+            double ekf_v = vel_xy.norm();
+            double ff_vel = ff_vel_enu.norm();
             bool is_leash_clamped = tracking_err.norm() > max_leash_length;
-            double ff_vel = total_ff_vel.head<2>().norm();
 
             spdlog::info(
-                "Z:{:.1f} | EKF_V:{:.2f}m/s, W:{:.2f}rad/s | "
-                "Angle:{:.1f}deg | fov_penalty:{:.2f} | "
-                "ff_vel:{:.2f}m/s | "
+                "Z:{:.1f} | EKF_V:{:.2f}m/s | "
+                "Angle:{:.1f}deg | ErrXY:{:.2f}m | "
+                "ff_vel:{:.2f}m/s | max_z_v:{:.2f} | "
                 "(blind_drop:{}) | "
-                "RawErr:[{:.2f}, {:.2f}] | VirtErr:[{:.2f}, {:.2f}] "
                 "(LeashClamp:{}) | "
-                "AccLim:{:.2f} | Delay:{:.3f}s",
-                current_z, ekf_v, ekf_omega, current_visual_angle_deg,
-                fov_penalty, ff_vel, is_blind_drop_ ? "YES" : "NO",
-                target_body_relative.x(), target_body_relative.y(),
-                virtual_err_body.x(), virtual_err_body.y(),
-                is_leash_clamped ? "YES" : "NO", pland_acc_xy, delay_sec);
+                "Gamma:{:.2f} | AccLim:{:.2f}",
+                current_z, ekf_v, visual_angle_deg, current_xy_error, ff_vel,
+                max_vel_z, is_blind_drop_ ? "YES" : "NO",
+                is_leash_clamped ? "YES" : "NO", gamma, pland_acc_xy);
         }
     }
 };

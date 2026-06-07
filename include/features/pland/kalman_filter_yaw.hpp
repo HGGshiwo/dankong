@@ -23,6 +23,18 @@ class KalmanFilterYaw {
         // 利用 atan2(sin, cos) 是最稳妥的规范化方法
         return std::atan2(std::sin(angle), std::cos(angle));
     }
+
+    void force_set_state(double yaw) {
+        // 将状态向量直接重置
+        x_ << yaw, 0.0;
+
+        // 【重要】重置协方差矩阵 P
+        // 因为状态已经被强制设定为极高置信度了，
+        // 我们需要把协方差调小，告诉滤波器：“我现在对这个新位置非常确信”
+        P_.setIdentity();
+        P_ *= 0.01;  // 赋予一个很小的初始不确定度
+    }
+
     // 输入测量到的 Yaw (弧度制) 和 dt，返回滤波后的 [yaw, yaw_rate]
     Eigen::Vector2d update(double meas_yaw, double dt) {
         if (dt <= 0) return x_;

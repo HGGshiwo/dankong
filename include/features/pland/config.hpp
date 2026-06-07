@@ -47,9 +47,9 @@ struct PlandConfig {
         INIT_PARAM("lost_target_alt", 15.0, "丢失目标后的悬停高度(m)");
 
     dk::Param<double> pland_max_acc_xy =
-        INIT_PARAM("pland_max_acc_xy", 2.0, "精准降落使用的加速度");
+        INIT_PARAM("pland_max_acc_xy", 1.0, "精准降落使用的加速度");
     dk::Param<double> pland_max_devel_xy =
-        INIT_PARAM("pland_max_devel_xy", 2.0, "精准降落使用的减加速度");
+        INIT_PARAM("pland_max_devel_xy", 1.0, "精准降落使用的减加速度");
 
     dk::Param<double> pland_limit_start_z =
         INIT_PARAM("pland_limit_start_z", 3.0, "该高度以下开始收紧反馈速度");
