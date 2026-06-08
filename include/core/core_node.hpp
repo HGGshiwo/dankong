@@ -13,6 +13,7 @@
 #include "features/dog/command.hpp"
 #include "states/init_state.hpp"
 #include "utils/get_executable_path.hpp"
+#include "utils/logger.hpp"
 #include "utils/yaml_helper.hpp"
 
 #ifdef USE_ROS
@@ -53,6 +54,7 @@ class CoreNode {
         GlobalConfig.load(get_config_dir(config_path));
 
         auto& cfg = GlobalConfig.GetConfig();
+        init_logger();
 
         // 1. 初始化基础引擎
         engine_ = std::make_shared<Engine>(global_io_, time_provider_);

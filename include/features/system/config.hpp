@@ -14,4 +14,6 @@ struct SystemConfig {
 
     dk::Param<int> server_port = INIT_HIDDEN_PARAM("server_port", 8000);
     dk::Param<int> udp_server_port = INIT_HIDDEN_PARAM("udp_server_port", 9111);
+    dk::Param<std::string> log_dir =
+        INIT_HIDDEN_PARAM("log_dir", "logs/my_log.txt");
 };

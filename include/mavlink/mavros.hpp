@@ -20,7 +20,6 @@
 #include <memory>
 
 #include "core/global_config.hpp"
-#include "dk/logger.hpp"
 #include "imavlink.hpp"
 #include "mavros_msgs/MessageInterval.h"
 

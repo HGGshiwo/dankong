@@ -1,56 +1,80 @@
-# 真机
-# camera_inner_matrix: [400.04710170381657, 0.0 , 327.83160957781286, 0.0, 532.8574261138922, 287.1242943185214, 0.0 , 0.0 , 1.0]
-# pland_image_topic: /UAV0/sensor/video11_camera/image_raw
-# pland_detect_topic: /pland_camera/result
-
-ui_config: drone-ui.yaml
-# Drone Settings
-throttle_thresh: 0.1
-
-max_decel_xy: 1.0
-max_acc_xy: 1.0
-
-offset_x: 0.0
-offset_y: -0.1
-offset_z: 0.085
-
-# pland_max_decel_xy: 0.3
-# pland_max_acc_xy: 0.3
-# lost_target_alt: 8.0
-
-# Pland Settings
-inner_tag_size: 0.9
-outter_tag_size: 0.192
-
-camera_inner_matrix: [554.3827128226441, 0.0, 320.5, 0.0, 554.3827128226441, 240.5, 0.0, 0.0, 1.0]
-pland_image_topic: /roscam/cam/image_raw
-pland_detect_topic: /pland/detect 
-
-# System Settings (Hidden from UI)
-server_port: 8000
-
-# Path Settings
-static_dir: "dist"
-ui_config_path: "config/ui.yaml"
-json_path: "config/config.json"
-
-# Control Settings
+auto_heading_enable_dist_m: 1
+camera_inner_matrix:
+  - 554.38271282264407
+  - 0
+  - 320.5
+  - 0
+  - 554.38271282264407
+  - 240.5
+  - 0
+  - 0
+  - 1
+command_timeout_sec: 0.5
 fcu_data_rate: 10
-pdef_path: "config/apm.pdef.xml"
-follow_timeout: 1.0
-prearm_timeout: 3.0
-takeoff_timeout: 100.0
-posvel_timeout: 3.0
-pos_tolerance: 1.0
-yaw_tolerance: 0.08
-z_tolerance: 1.0
-fix_yaw_dist: 1.0
-
-# Algo Settings
-detect_map:
-  nohardhat: "/UAV0/perception/yolo_detection/enable_detection"
-  smoke: "/UAV0/perception/yolo_detection_smoke/enable_detection"
-
-# Report Settings
-report_hz: 10.0
-report_mission_hz: 1.0
+fix_yaw_dist: 1
+follow_timeout: 1
+inner_tag_size: 0.90000000000000002
+is_omnidirectional: true
+json_path: config/config.json
+kd_xy: 0.10000000000000001
+kd_yaw: 0.10000000000000001
+kd_z: 0.10000000000000001
+ki_xy: 0.01
+ki_yaw: 0.01
+ki_z: 0.01
+kp_xy: 1.5
+kp_yaw: 2
+kp_z: 1
+loop_rate_hz: 50
+lost_target_alt: 15
+max_acc_xy: 1
+max_acc_yaw: 2
+max_acc_z: 0.80000000000000004
+max_decel_xy: 1
+max_decel_z: 0.80000000000000004
+max_i_xy: 1
+max_i_yaw: 1
+max_i_z: 1
+max_vel_xy: 3
+max_vel_yaw: 1.5
+max_vel_z: 1
+offset_x: 0
+offset_y: -0.10000000000000001
+offset_z: 0.085000000000000006
+outter_tag_size: 0.192
+pdef_path: config/apm.pdef.xml
+pland_cruise_speed_xy: 3
+pland_decay_start_z: 3
+pland_detect_topic: /pland/detect
+pland_fix_pitch: false
+pland_fix_roll: false
+pland_fix_yaw: false
+pland_gamma: 0.25
+pland_gamma_yaw: 0.20000000000000001
+pland_gamma_z: 0.5
+pland_image_topic: /roscam/cam/image_raw
+pland_limit_start_z: 3
+pland_max_acc_xy: 1
+pland_max_devel_xy: 1
+pland_min_cruise_speed: 0.40000000000000002
+pland_min_gamma: 0.10000000000000001
+pos_tolerance: 1
+pos_tolerance_m: 0.050000000000000003
+posvel_timeout: 3
+prearm_timeout: 3
+server_port: 8000
+static_dir: dist
+takeoff_timeout: 100
+throttle_thresh: 0.10000000000000001
+touchdown_velocity: 0.40000000000000002
+touchdown_z_thresh: 0.29999999999999999
+udp_server_port: 9111
+ui_config: drone-ui.yaml
+velocity_deadzone: 0.20000000000000001
+xy_align_thresh: 0.45000000000000001
+yaw_align_thresh: 0.20000000000000001
+yaw_full_speed_tol: 0.17000000000000001
+yaw_tolerance: 0.080000000000000002
+yaw_tolerance_rad: 0.050000000000000003
+yaw_zero_speed_tol: 0.78000000000000003
+z_tolerance: 1

@@ -4,7 +4,6 @@
 
 #include "core/core_node.hpp"
 #include "core/global_config.hpp"
-#include "dk/logger.hpp"
 #include "robot_assemble.hpp"
 #include "robot_context.hpp"
 #include "utils/get_executable_path.hpp"
@@ -19,8 +18,6 @@ int main(int argc, char** argv) {
     CLI11_PARSE(app, argc, argv);
 
     ros::init(argc, argv, "dk_node");
-    dk::init_logger();
-
     CoreNode<RobotAssembler, RobotContext> node{config_path};
 
     // 启动 ROS 异步线程池 (处理网络 IO)

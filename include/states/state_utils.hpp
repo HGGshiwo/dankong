@@ -9,7 +9,6 @@
 #include <vector>
 
 #include "dk/future.hpp"
-#include "dk/logger.hpp"
 #include "features/control/events.hpp"
 #include "robot/irobot.hpp"
 #include "spdlog/spdlog.h"
