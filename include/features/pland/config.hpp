@@ -69,4 +69,8 @@ struct PlandConfig {
         INIT_PARAM("pland_min_gamma", 0.1, "位置反馈系数线性衰减最终值");
     dk::Param<double> pland_gamma_z =
         INIT_PARAM("pland_gamma_z", 0.5, "位置反馈系数线性衰减开始值");
+    dk::Param<double> pland_blind_drop_alt =
+        INIT_PARAM("pland_blind_drop_alt", 0.3, "切降落的高度");
+    dk::Param<double> platform_height =
+        INIT_PARAM("platform_height", 0.0, "降落平台的高度");
 };

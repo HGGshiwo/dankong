@@ -74,11 +74,12 @@ class LandingDetector : public IThreadRunner {
                                config_.offset_z.get());
     }
 
-    // [重大修改] 射线法直接返回目标在世界地图上的【绝对ENU坐标】带云台掩码补偿
+    // [射线法直接返回目标在世界地图上的绝对ENU坐标，带云台掩码补偿
     Eigen::Vector3d solve_pose_by_ray(
         double img_x, double img_y, const Eigen::Vector3d &hist_drone_pos,
         const Eigen::Matrix3d &hist_R_wb,
-        bool stab_roll = false,   // 是否有横滚增稳？
+        double platform_height = 0.0,  // 平台的高度
+        bool stab_roll = false,        // 是否有横滚增稳？
         bool stab_pitch = false,  // 是否有俯仰增稳？(最常见的单轴)
         bool stab_yaw = false) {  // 是否有航向增稳？
 
@@ -119,15 +120,26 @@ class LandingDetector : public IThreadRunner {
         // 射线起点：必须使用【飞机的全量原始矩阵】，因为云台转动不改变它的物理铰链点位置
         Eigen::Vector3d camera_pos_world = hist_drone_pos + hist_R_wb * t_bc;
 
-        // 4. 求与 Z=0 平面的交点
-        if (world_ray.z() > -1e-6) {
-            // 射线没指向地面，返回 NaN 代表无效
+        // ==========================================
+        // 4. 求与 Z = platform_height 平面的交点 (已修改)
+        // ==========================================
+
+        // 如果射线与水平面几乎平行，则认为无交点
+        if (std::abs(world_ray.z()) < 1e-6) {
             return Eigen::Vector3d::Constant(
                 std::numeric_limits<double>::quiet_NaN());
         }
 
-        double t = -camera_pos_world.z() / world_ray.z();
-        return camera_pos_world + t * world_ray;  // 直接返回 ENU 交点
+        // 计算射线步长 t: t = (目标平面Z - 起点Z) / 射线方向Z
+        double t = (platform_height - camera_pos_world.z()) / world_ray.z();
+
+        // t < 0 表示射线背离了目标平面（例如飞机在平台上方，但相机朝天上看）
+        if (t < 0) {
+            return Eigen::Vector3d::Constant(
+                std::numeric_limits<double>::quiet_NaN());
+        }
+
+        return camera_pos_world + t * world_ray;  // 直接返回带高度的 ENU 交点
     }
 
     // [重大修改] PnP 法直接返回目标在世界地图上的【绝对ENU坐标】
@@ -404,7 +416,8 @@ class LandingDetector : public IThreadRunner {
             Eigen::Vector3d pnp_enu = solve_pose_by_pnp(
                 best_pose, hist_drone_pos, hist_R_wb, relative_yaw, abs_yaw);
             Eigen::Vector3d los_enu = solve_pose_by_ray(
-                px, py, hist_drone_pos, hist_R_wb, config_.pland_fix_roll.get(),
+                px, py, hist_drone_pos, hist_R_wb,
+                config_.platform_height.get(), config_.pland_fix_roll.get(),
                 config_.pland_fix_pitch.get(), config_.pland_fix_yaw.get());
 
             bool los_valid = !std::isnan(los_enu.x());

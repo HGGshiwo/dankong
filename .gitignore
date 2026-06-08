@@ -2,3 +2,4 @@
 __pycache__/
 config.json
 test_log/**
+config/drone-real-config.yaml

@@ -102,7 +102,7 @@ class PlandController : public IThreadRunner {
     KinematicTrajectoryGenerator2D traj_gen_;
     std::mutex state_mtx_;
     DetectorResult latest_obs_;
-    bool is_blind_drop_ = false;
+    bool is_blind_drop_ = false;  // 是否已经进入降落状态
 
    public:
     PlandController(RobotContext& ctx)
@@ -248,7 +248,8 @@ class PlandController : public IThreadRunner {
             desired_omega = omega * ratio;
         }
 
-        double TARGET_PLATFORM_HEIGHT = 0.0;
+        double TARGET_PLATFORM_HEIGHT =
+            GlobalConfig.GetConfig().platform_height.get();
         double drone_enu_z = pos_enu.z();
         double current_z = std::max(0.0, drone_enu_z - TARGET_PLATFORM_HEIGHT);
 
@@ -273,7 +274,8 @@ class PlandController : public IThreadRunner {
         }
 
         double yaw_penalty = 1.0;
-        if (!is_blind_drop_ && abs_yaw_err_deg > 20.0) {
+        if (!is_blind_drop_ && abs_yaw_err_deg > 20.0 &&
+            current_xy_error <= yaw_enable_max) {
             yaw_penalty =
                 std::max(0.1, 1.0 - 0.9 * (abs_yaw_err_deg - 20.0) / 40.0);
         }
@@ -348,16 +350,18 @@ class PlandController : public IThreadRunner {
 
         double max_vel_z = 0.0;
         double z_enu_target = drone_enu_z;  // 默认维持当前高度悬停
-
-        if (current_z < 0.3) {
+        double land_height =
+            std::max(GlobalConfig.GetConfig().pland_blind_drop_alt.get(),
+                     TARGET_PLATFORM_HEIGHT);
+        if (current_z < land_height) {
             ctx_.robot->land();
             return;
-        } else if (current_z < 0.8 &&
-                   (current_xy_error < 0.4 || is_blind_drop_)) {
-            is_blind_drop_ = true;
-            max_vel_z = touchdown_vel + 0.2;
-            z_enu_target = TARGET_PLATFORM_HEIGHT - 0.5;  // 直接往下按
-            pland_gamma_z = 100.0;
+            // } else if (current_z < 0.3 &&
+            //            (current_xy_error < 0.4 || is_blind_drop_)) {
+            //     is_blind_drop_ = true;
+            //     max_vel_z = touchdown_vel + 0.2;
+            //     z_enu_target = TARGET_PLATFORM_HEIGHT - 0.5;  // 直接往下按
+            //     pland_gamma_z = 100.0;
         } else {
             // =======================================================
             // [修复 5] 消除 Z 轴的 if/else 阶跃跳变，使用线性漏斗系数
