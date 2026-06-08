@@ -11,6 +11,7 @@
 #include "./kalman_filter_ctrv.hpp"
 #include "./kalman_filter_yaw.hpp"
 #include "./target_tracker.hpp"
+#include "./utils.hpp"
 #include "robot_context.hpp"
 #include "safe_aprialtag.hpp"
 #include "states/state_utils.hpp"
@@ -181,8 +182,8 @@ class LandingDetector : public IThreadRunner {
                                      Eigen::Vector3d los_result) {
         // 3. 基于当前高度计算权重
         // 这里的 alt_ 假设是无人机相对地面的绝对高度 (正数)
-        // double current_z = std::abs(ctx_.rangefinder_alt.load());
-        double current_z = ctx_.pos_enu.load().z();
+
+        double current_z = get_current_z(ctx_);
 
         // ---- 【关键配置参数】 ----
         double z_high = 3.0;  // 高于 1 米，完全信任 LOS 射线法
@@ -328,7 +329,7 @@ class LandingDetector : public IThreadRunner {
             is_inner = false;
         }
 
-        double current_z = std::abs(ctx_.pos_enu.load().z());
+        double current_z = get_current_z(ctx_);
         if (result != nullptr) {
             // 绘制绿色边框
             for (int i = 0; i < 4; i++) {

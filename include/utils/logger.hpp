@@ -41,6 +41,7 @@ void init_logger() {
         spdlog::set_default_logger(logger);
         spdlog::set_level(spdlog::level::trace);  // 全局最低级别
         spdlog::flush_on(spdlog::level::err);  // 遇到 error 时立即刷新到磁盘
+        spdlog::flush_every(std::chrono::seconds(1));
     } catch (const spdlog::spdlog_ex& ex) {
         std::cout << "Log initialization failed: " << ex.what() << std::endl;
     }

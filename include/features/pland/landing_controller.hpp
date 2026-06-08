@@ -8,6 +8,7 @@
 #include <mutex>
 #include <optional>
 
+#include "./utils.hpp"
 #include "core/base_tracker.hpp"
 #include "core/engine.hpp"
 #include "core/global_config.hpp"
@@ -250,7 +251,7 @@ class PlandController : public IThreadRunner {
 
         double TARGET_PLATFORM_HEIGHT =
             GlobalConfig.GetConfig().platform_height.get();
-        double drone_enu_z = pos_enu.z();
+        double drone_enu_z = get_current_z(ctx_);
         double current_z = std::max(0.0, drone_enu_z - TARGET_PLATFORM_HEIGHT);
 
         if (current_z > 1.0) is_blind_drop_ = false;
@@ -366,7 +367,7 @@ class PlandController : public IThreadRunner {
             // =======================================================
             // [修复 5] 消除 Z 轴的 if/else 阶跃跳变，使用线性漏斗系数
             // =======================================================
-            double align_dist_thresh = std::max(0.2, current_z * 0.4);
+            double align_dist_thresh = std::max(0.2, current_z * 0.2);
             double hold_dist_thresh = 3.5;
 
             double xy_descent_factor = 1.0;
@@ -393,7 +394,7 @@ class PlandController : public IThreadRunner {
             double descent_factor = xy_descent_factor * yaw_descent_factor;
 
             if (descent_factor > 0.05) {
-                double takeoff_alt = ctx_.takeoff_lon_lat_alt.load().z();
+                double takeoff_alt = 10.0;
                 double alt_ratio = std::min(
                     1.0, std::abs(current_z / std::max(takeoff_alt, 1.0)));
                 double base_descent_vel = 0.2 + alt_ratio * 0.8;
@@ -406,6 +407,8 @@ class PlandController : public IThreadRunner {
                 z_enu_target = drone_enu_z;  // 完全没对准时，严格保持当前高度
             }
         }
+        double cfg_max_vel_z = GlobalConfig.GetConfig().pland_max_vel_z.get();
+        max_vel_z = std::min(max_vel_z, cfg_max_vel_z);
 
         // 把 Z 坐标赋给目标 ENU 点
         pos_cmd_enu.z() = z_enu_target;

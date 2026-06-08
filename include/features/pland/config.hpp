@@ -73,4 +73,6 @@ struct PlandConfig {
         INIT_PARAM("pland_blind_drop_alt", 0.3, "切降落的高度");
     dk::Param<double> platform_height =
         INIT_PARAM("platform_height", 0.0, "降落平台的高度");
+    dk::Param<double> pland_max_vel_z =
+        INIT_PARAM("pland_max_vel_z", 1.0, "最大降落速度");
 };
