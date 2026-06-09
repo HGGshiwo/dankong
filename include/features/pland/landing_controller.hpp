@@ -440,11 +440,11 @@ class PlandController : public IThreadRunner {
                 "Z:{:.1f} | EKF_V:{:.2f}m/s | "
                 "Angle:{:.1f}deg | ErrXY:{:.2f}m | "
                 "ff_vel:{:.2f}m/s | max_z_v:{:.2f} | "
-                "(blind_drop:{}) | "
+                "(blind_drop:{}) | delay:{:.2f} | "
                 "(LeashClamp:{}) | "
                 "Gamma:{:.2f} | AccLim:{:.2f}",
                 current_z, ekf_v, visual_angle_deg, current_xy_error, ff_vel,
-                max_vel_z, is_blind_drop_ ? "YES" : "NO",
+                max_vel_z, is_blind_drop_ ? "YES" : "NO", delay_sec,
                 is_leash_clamped ? "YES" : "NO", gamma, pland_acc_xy);
         }
     }

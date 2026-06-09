@@ -13,6 +13,9 @@ command_timeout_sec: 0.5
 fcu_data_rate: 10
 fix_yaw_dist: 1
 follow_timeout: 1
+gimbal_pitch_topic: /gimbal/current_pitch
+gimbal_roll_topic: /gimbal/roll
+gimbal_yaw_topic: /gimbal/yaw
 inner_tag_size: 0.90000000000000002
 is_omnidirectional: true
 json_path: config/config.json
@@ -25,6 +28,7 @@ ki_z: 0.01
 kp_xy: 1.5
 kp_yaw: 2
 kp_z: 1
+log_dir: logs/my_log.txt
 loop_rate_hz: 50
 lost_target_alt: 15
 max_acc_xy: 1
@@ -43,6 +47,7 @@ offset_y: -0.10000000000000001
 offset_z: 0.085000000000000006
 outter_tag_size: 0.192
 pdef_path: config/apm.pdef.xml
+pland_blind_drop_alt: 0.29999999999999999
 pland_cruise_speed_xy: 3
 pland_decay_start_z: 3
 pland_detect_topic: /pland/detect
@@ -52,12 +57,15 @@ pland_fix_yaw: false
 pland_gamma: 0.25
 pland_gamma_yaw: 0.20000000000000001
 pland_gamma_z: 0.5
+pland_gimbal_abs: false
 pland_image_topic: /roscam/cam/image_raw
 pland_limit_start_z: 3
 pland_max_acc_xy: 1
 pland_max_devel_xy: 1
+pland_max_vel_z: 1
 pland_min_cruise_speed: 0.40000000000000002
 pland_min_gamma: 0.10000000000000001
+platform_height: 0
 pos_tolerance: 1
 pos_tolerance_m: 0.050000000000000003
 posvel_timeout: 3

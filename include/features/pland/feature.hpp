@@ -20,6 +20,7 @@
 #include "ros/publisher.h"
 #include "ros/time.h"
 #include "spdlog/spdlog.h"
+#include "std_msgs/Float64.h"
 
 class PlandFeature {
    public:
@@ -49,7 +50,7 @@ class PlandFeature {
     template <typename RosAdapter>
     static void setup(TagRos, std::shared_ptr<RosAdapter>& ros) {
         ros->bind_context(
-            GlobalConfig.GetConfig().pland_image_topic,
+            GlobalConfig.GetConfig().pland_image_topic.get(),
             [](const sensor_msgs::ImageConstPtr& msg, RobotContext& ctx) {
                 try {
                     cv_bridge::CvImagePtr cv_ptr = cv_bridge::toCvCopy(
@@ -61,12 +62,33 @@ class PlandFeature {
                     spdlog::error("[Pland] convert image error: {}", e.what());
                 }
             });
+
+        ros->bind_context(
+            GlobalConfig.GetConfig().gimbal_roll_topic,
+            [](const std_msgs::Float64::ConstPtr& msg, RobotContext& ctx) {
+                double data = msg->data * (M_PI / 180.0);
+                ctx.gimbal_roll.store(data);
+            });
+        ros->bind_context(
+            GlobalConfig.GetConfig().gimbal_pitch_topic,
+            [](const std_msgs::Float64::ConstPtr& msg, RobotContext& ctx) {
+                double data = msg->data * (M_PI / 180.0);
+                ctx.gimbal_pitch.store(data);
+            });
+        ros->bind_context(
+            GlobalConfig.GetConfig().gimbal_yaw_topic,
+            [](const std_msgs::Float64::ConstPtr& msg, RobotContext& ctx) {
+                double data = msg->data * (M_PI / 180.0);
+                ctx.gimbal_yaw.store(data);
+            });
     }
 
     template <typename WebAdapter>
     static void setup(TagWeb, std::shared_ptr<WebAdapter>& web) {
         web->template register_route<StartPlandDetectEvent, EventResult>(
             boost::beast::http::verb::post, "/start_pland_detect");
+        web->template register_route<SetPlandTarget, EventResult>(
+            boost::beast::http ::verb::post, "/pland_target/set");
     }
 
     static void setup(TagListeners, const std::shared_ptr<Engine>& engine) {

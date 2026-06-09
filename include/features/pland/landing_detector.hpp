@@ -2,7 +2,9 @@
 
 #include <Eigen/Dense>
 #include <chrono>
+#include <limits>
 #include <opencv2/opencv.hpp>
+#include <optional>
 
 #include "./config.hpp"
 // #include "./kalman_filter_imm_ukf.hpp"
@@ -12,6 +14,8 @@
 #include "./kalman_filter_yaw.hpp"
 #include "./target_tracker.hpp"
 #include "./utils.hpp"
+#include "Eigen/src/Core/Matrix.h"
+#include "core/global_config.hpp"
 #include "robot_context.hpp"
 #include "safe_aprialtag.hpp"
 #include "states/state_utils.hpp"
@@ -75,72 +79,125 @@ class LandingDetector : public IThreadRunner {
                                config_.offset_z.get());
     }
 
-    // [射线法直接返回目标在世界地图上的绝对ENU坐标，带云台掩码补偿
+    Eigen::Matrix3d get_cam_to_frd_matrix() const {
+        Eigen::Matrix3d R;
+        R << 0, 0, 1, 1, 0, 0, 0, 1, 0;
+        return R;
+    }
+
+    // 射线法直接返回目标在世界地图上的绝对ENU坐标，带云台真实角度补偿
+    /**
+     * @brief 射线法：基于可选的云台角度，求解世界坐标系(ENU)下的地面交点
+     * * @param img_x              图像像素坐标 X
+     * @param img_y              图像像素坐标 Y
+     * @param hist_drone_pos     历史无人机位置 (ENU)
+     * @param hist_R_wb          历史无人机姿态矩阵 (FLU to ENU)
+     * @param platform_height    目标地平面高度
+     * @param gimbal_roll        云台 Roll 角 (可选)
+     * @param gimbal_pitch       云台 Pitch 角 (可选)
+     * @param gimbal_yaw         云台 Yaw 角 (可选)
+     * @param is_gimbal_absolute 云台角度是否为相对于地面的绝对角
+     * @return Eigen::Vector3d   地面交点坐标 (ENU)，若无交点返回 NaN
+     */
     Eigen::Vector3d solve_pose_by_ray(
         double img_x, double img_y, const Eigen::Vector3d &hist_drone_pos,
-        const Eigen::Matrix3d &hist_R_wb,
-        double platform_height = 0.0,  // 平台的高度
-        bool stab_roll = false,        // 是否有横滚增稳？
-        bool stab_pitch = false,  // 是否有俯仰增稳？(最常见的单轴)
-        bool stab_yaw = false) {  // 是否有航向增稳？
-
-        Eigen::Matrix3d R_bc = get_camera_to_body_rotation();
+        const Eigen::Matrix3d &hist_R_wb, double platform_height = 0.0,
+        std::optional<double> gimbal_roll = std::nullopt,
+        std::optional<double> gimbal_pitch = std::nullopt,
+        std::optional<double> gimbal_yaw = std::nullopt,
+        bool is_gimbal_absolute = true) const {
+        // Get camera physical offset (FLU)
         Eigen::Vector3d t_bc = get_camera_body_offset();
-
-        // 1. 相机光学系下的射线方向
+        // 1. Ray direction in camera optical frame
         Eigen::Vector3d cam_ray =
             camera_inner_matrix_.inverse() * Eigen::Vector3d(img_x, img_y, 1.0);
-
+        Eigen::Matrix3d R_effective_cam_to_world;
+        // Default camera mounting: pointing vertically downward relative to the
+        // body
+        // (-90 deg pitch in FRD frame)
+        double def_roll = 0.0;
+        double def_pitch = -M_PI_2;
+        double def_yaw = 0.0;
+        // Static transform: FRD to FLU (X_flu=X_frd, Y_flu=-Y_frd,
+        // Z_flu=-Z_frd)
+        Eigen::Matrix3d R_frd_to_flu;
+        R_frd_to_flu << 1, 0, 0, 0, -1, 0, 0, 0, -1;
         // ==========================================
-        // 2. 姿态解耦：构建云台增稳后的等效旋转矩阵
+        // 2. Build effective rotation matrix
         // ==========================================
-        // 从飞机的绝对姿态矩阵中，提取 Z-Y-X (Yaw-Pitch-Roll) 欧拉角
-        double roll = atan2(hist_R_wb(2, 1), hist_R_wb(2, 2));
-        double pitch = asin(-hist_R_wb(2, 0));
-        double yaw = atan2(hist_R_wb(1, 0), hist_R_wb(0, 0));
+        if (!is_gimbal_absolute) {
+            // [Mode A: Relative to body (FRD frame)]
+            double g_roll = gimbal_roll.value_or(def_roll);
+            double g_pitch = gimbal_pitch.value_or(def_pitch);
+            double g_yaw = gimbal_yaw.value_or(def_yaw);
+            // A-1: Gimbal motor rotation in FRD (Z-Y-X)
+            Eigen::Matrix3d R_motor =
+                (Eigen::AngleAxisd(g_yaw, Eigen::Vector3d::UnitZ()) *
+                 Eigen::AngleAxisd(g_pitch, Eigen::Vector3d::UnitY()) *
+                 Eigen::AngleAxisd(g_roll, Eigen::Vector3d::UnitX()))
+                    .toRotationMatrix();
+            // A-2: Full physical chain assembly
+            // Cam -> Gimbal FRD -> Body FLU -> World ENU
+            R_effective_cam_to_world =
+                hist_R_wb * R_frd_to_flu * R_motor * get_cam_to_frd_matrix();
+        } else {
+            // [Mode B: Absolute to ground (NED frame)]
+            // B-1: Build default motor rotation matrix
+            Eigen::Matrix3d R_motor_def =
+                (Eigen::AngleAxisd(def_yaw, Eigen::Vector3d::UnitZ()) *
+                 Eigen::AngleAxisd(def_pitch, Eigen::Vector3d::UnitY()) *
+                 Eigen::AngleAxisd(def_roll, Eigen::Vector3d::UnitX()))
+                    .toRotationMatrix();
+            // Static transform: ENU (World) to NED (Ground)
+            Eigen::Matrix3d R_enu_to_ned;
+            R_enu_to_ned << 0, 1, 0, 1, 0, 0, 0, 0, -1;
+            // Default gimbal-FRD to ground-NED rotation matrix
+            Eigen::Matrix3d R_g_to_ned_def =
+                R_enu_to_ned * hist_R_wb * R_frd_to_flu * R_motor_def;
+            // B-2: Extract Euler angles (NED Z-Y-X) from the default rotation
+            double r20 = R_g_to_ned_def(2, 0);
+            r20 = std::max(-1.0, std::min(1.0, r20));  // clamp to avoid NaN
 
-        // 云台掩码
-        // (Mask)：如果该轴被云台增稳（始终朝下），则剥离该轴的飞机旋转干扰
-        if (stab_roll) roll = 0.0;
-        if (stab_pitch) pitch = 0.0;
-        if (stab_yaw) yaw = 0.0;  // 普通下视云台通常为 false，让其跟随飞机偏航
-
-        // 重组增稳后的世界系旋转矩阵 R_wb_stabilized
-        Eigen::Matrix3d R_wb_stabilized;
-        R_wb_stabilized = Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ()) *
-                          Eigen::AngleAxisd(pitch, Eigen::Vector3d::UnitY()) *
-                          Eigen::AngleAxisd(roll, Eigen::Vector3d::UnitX());
-
+            double base_abs_roll =
+                atan2(R_g_to_ned_def(2, 1), R_g_to_ned_def(2, 2));
+            double base_abs_pitch = asin(-r20);
+            double base_abs_yaw =
+                atan2(R_g_to_ned_def(1, 0), R_g_to_ned_def(0, 0));
+            // B-3: Mix and override. Fallback to default downward pointing if
+            // missing
+            double final_abs_roll = gimbal_roll.value_or(base_abs_roll);
+            double final_abs_pitch = gimbal_pitch.value_or(base_abs_pitch);
+            double final_abs_yaw = gimbal_yaw.value_or(base_abs_yaw);
+            // B-4: Reconstruct Gimbal-FRD to Ground-NED rotation with final
+            // angles
+            Eigen::Matrix3d R_g_to_ned_final =
+                (Eigen::AngleAxisd(final_abs_yaw, Eigen::Vector3d::UnitZ()) *
+                 Eigen::AngleAxisd(final_abs_pitch, Eigen::Vector3d::UnitY()) *
+                 Eigen::AngleAxisd(final_abs_roll, Eigen::Vector3d::UnitX()))
+                    .toRotationMatrix();
+            // B-5: Absolute chain assembly
+            // Cam -> Gimbal FRD -> Ground NED -> World ENU
+            Eigen::Matrix3d R_ned_to_enu = R_enu_to_ned.transpose();
+            R_effective_cam_to_world =
+                R_ned_to_enu * R_g_to_ned_final * get_cam_to_frd_matrix();
+        }
         // ==========================================
-        // 3. 机体系到世界系的射线转换 (核心区分点)
+        // 3. Ray-Plane intersection
         // ==========================================
-        // 射线方向：使用【剥离了特定轴的增稳矩阵】
-        Eigen::Vector3d body_ray = R_bc * cam_ray;
-        Eigen::Vector3d world_ray = R_wb_stabilized * body_ray;
-
-        // 射线起点：必须使用【飞机的全量原始矩阵】，因为云台转动不改变它的物理铰链点位置
+        Eigen::Vector3d world_ray = R_effective_cam_to_world * cam_ray;
+        // Gimbal origin: always bounded to real drone pose
         Eigen::Vector3d camera_pos_world = hist_drone_pos + hist_R_wb * t_bc;
-
-        // ==========================================
-        // 4. 求与 Z = platform_height 平面的交点 (已修改)
-        // ==========================================
-
-        // 如果射线与水平面几乎平行，则认为无交点
+        // Cull invalid rays (parallel to ground or pointing to sky)
         if (std::abs(world_ray.z()) < 1e-6) {
             return Eigen::Vector3d::Constant(
                 std::numeric_limits<double>::quiet_NaN());
         }
-
-        // 计算射线步长 t: t = (目标平面Z - 起点Z) / 射线方向Z
         double t = (platform_height - camera_pos_world.z()) / world_ray.z();
-
-        // t < 0 表示射线背离了目标平面（例如飞机在平台上方，但相机朝天上看）
         if (t < 0) {
             return Eigen::Vector3d::Constant(
                 std::numeric_limits<double>::quiet_NaN());
         }
-
-        return camera_pos_world + t * world_ray;  // 直接返回带高度的 ENU 交点
+        return camera_pos_world + t * world_ray;
     }
 
     // [重大修改] PnP 法直接返回目标在世界地图上的【绝对ENU坐标】
@@ -206,12 +263,11 @@ class LandingDetector : public IThreadRunner {
         Eigen::Vector3d fused_result;
 
         // X 和 Y 进行加权平均平滑过渡
-        // fused_result.x() = (w_pnp * pnp_result.x()) + (w_los *
-        // los_result.x()); fused_result.y() = (w_pnp * pnp_result.y()) + (w_los
-        // * los_result.y());
+        fused_result.x() = (w_pnp * pnp_result.x()) + (w_los * los_result.x());
+        fused_result.y() = (w_pnp * pnp_result.y()) + (w_los * los_result.y());
         fused_result.x() = los_result.x();
         fused_result.y() = los_result.y();
-        fused_result.z() = 0;  // los没有yaw，只能用pnp
+        fused_result.z() = 0;  // 这里是高度
 
         return fused_result;
     }
@@ -275,12 +331,6 @@ class LandingDetector : public IThreadRunner {
             hist_q = ctx_.orientation.load();
         }
         auto rpy = state_utils::orientation_to_euler(hist_q);
-        // spdlog::info(
-        //     "min_diff={:.2f} pos_x={:.2f} pos_y={:.2f} r={:.2f} p={:.2f} "
-        //     "y={:.2f}",
-        //     min_diff, hist_drone_pos.x(), hist_drone_pos.y(), rpy.x(),
-        //     rpy.y(), rpy.z());
-
         Eigen::Matrix3d hist_R_wb = hist_q.toRotationMatrix();
 
         // 【修改点 1】: 获取当前帧，保存到 detected
@@ -329,7 +379,15 @@ class LandingDetector : public IThreadRunner {
             is_inner = false;
         }
 
-        double current_z = get_current_z(ctx_);
+        std::optional<Eigen::Vector3d> pland_target = ctx_.pland_target.load();
+        bool use_target = pland_target.has_value();
+        if (result == nullptr && !use_target) return output;
+
+        double relative_yaw = 0.0;
+        double abs_yaw = 0.0;
+        Eigen::Vector3d raw_target_enu;
+        Eigen::Vector3d pnp_enu, los_enu;
+
         if (result != nullptr) {
             // 绘制绿色边框
             for (int i = 0; i < 4; i++) {
@@ -410,21 +468,22 @@ class LandingDetector : public IThreadRunner {
             double px = result->c[0];
             double py = result->c[1];
 
-            double relative_yaw = 0.0;
-            double abs_yaw = 0.0;
-
             // 调用高度融合算法，传入历史位姿解算绝对坐标
-            Eigen::Vector3d pnp_enu = solve_pose_by_pnp(
-                best_pose, hist_drone_pos, hist_R_wb, relative_yaw, abs_yaw);
-            Eigen::Vector3d los_enu = solve_pose_by_ray(
-                px, py, hist_drone_pos, hist_R_wb,
-                config_.platform_height.get(), config_.pland_fix_roll.get(),
-                config_.pland_fix_pitch.get(), config_.pland_fix_yaw.get());
+            pnp_enu = solve_pose_by_pnp(best_pose, hist_drone_pos, hist_R_wb,
+                                        relative_yaw, abs_yaw);
+
+            bool gimbal_abs = config_.pland_gimbal_abs.get();
+            std::optional<double> gimbal_roll = ctx_.gimbal_roll.load();
+            std::optional<double> gimbal_pitch = ctx_.gimbal_pitch.load();
+            std::optional<double> gimbal_yaw = ctx_.gimbal_yaw.load();
+
+            los_enu =
+                solve_pose_by_ray(px, py, hist_drone_pos, hist_R_wb,
+                                  config_.platform_height.get(), gimbal_roll,
+                                  gimbal_pitch, gimbal_yaw, gimbal_abs);
 
             bool los_valid = !std::isnan(los_enu.x());
             bool pnp_valid = !std::isnan(pnp_enu.x());
-
-            Eigen::Vector3d raw_target_enu;
             output.is_valid = true;
 
             // 异常处理：如果由于某种原因只剩一个有效，直接返回有效的那个
@@ -442,120 +501,133 @@ class LandingDetector : public IThreadRunner {
                 output.los_pos = los_enu;
                 raw_target_enu = solve_fused_pose(pnp_enu, los_enu);
             }
+        }
 
-            static Throttle throttle{4};
-            auto pos_enu = ctx_.pos_enu.load();
+        static Throttle throttle{4};
+        auto pos_enu = ctx_.pos_enu.load();
 
-            if (output.is_valid) {
-                output.fused_pos = raw_target_enu;
+        if (output.is_valid || use_target) {
+            Eigen::Vector2d target_err{0.0, 0.0};
+            if (use_target) {
+                Eigen::Vector3d target = pland_target.value();
+                target_err = pos_enu.head<2>() - target.head<2>();
+                raw_target_enu = {target.x(), target.y(), 0.0};
+                abs_yaw = target.z();
+                relative_yaw = abs_yaw - ctx_.yaw_enu.load();
+                output.is_valid = true;
+            }
+            output.fused_pos = raw_target_enu;
 
-                // 计算 EKF 时间间隔 (使用真实照片时间戳)
-                double dt_ekf = 0.033;
-                if (last_ekf_stamp_ > 0) {
-                    dt_ekf = (stamp_tracker - last_ekf_stamp_);
-                }
+            // 计算 EKF 时间间隔 (使用真实照片时间戳)
+            double dt_ekf = 0.033;
+            if (last_ekf_stamp_ > 0) {
+                dt_ekf = (stamp_tracker - last_ekf_stamp_);
+            }
 
-                if (has_last_valid_pos_) {
-                    // 计算本次视觉结果与上一次有效结果的物理距离
-                    double jump_dist = (raw_target_enu.head<2>() -
-                                        last_valid_enu_pos_.head<2>())
-                                           .norm();
+            if (has_last_valid_pos_) {
+                // 计算本次视觉结果与上一次有效结果的物理距离
+                double jump_dist =
+                    (raw_target_enu.head<2>() - last_valid_enu_pos_.head<2>())
+                        .norm();
 
-                    // 物理学常识限制：假设降落垫(车/船)的最大移动速度是 20 m/s
-                    // dt_ekf 是与上一帧的时间差，那么理论上的最大合理位移是:
-                    double max_physical_jump =
-                        20.0 * dt_ekf + 1.0;  // 加 1.0 米的容错冗余
+                // 物理学常识限制：假设降落垫(车/船)的最大移动速度是 20 m/s
+                // dt_ekf 是与上一帧的时间差，那么理论上的最大合理位移是:
+                double max_physical_jump =
+                    20.0 * dt_ekf + 1.0;  // 加 1.0 米的容错冗余
 
-                    if (jump_dist > max_physical_jump) {
-                        spdlog::warn(
-                            "[Pland] Outlier Rejected! Jump dist {:.2f}m is "
-                            "physically impossible.",
-                            jump_dist);
-                        // 剔除这个幽灵数据，强制按无效帧处理
-                        output.is_valid = false;
-                        return output;
-                    }
-                }
-
-                if (!has_last_valid_pos_ || dt_ekf <= 1e-4 || dt_ekf > 1.0) {
-                    reset_estimator();
-                    dt_ekf = 0.033;
-                    kf_xy_->force_set_state(raw_target_enu.x(),
-                                            raw_target_enu.y());
-                    kf_yaw_->force_set_state(relative_yaw);
-                    kf_abs_yaw_->force_set_state(abs_yaw);
-                }
-                last_ekf_stamp_ = stamp_tracker;
-
-                // 数据合法，更新记录并放行进入 EKF
-                last_valid_enu_pos_ = raw_target_enu;
-                has_last_valid_pos_ = true;
-
-                TargetState target_state =
-                    target_tracker_->update(raw_target_enu.head<2>());
-
-                Eigen::Quaterniond q = ctx_.orientation.load();
-                q.normalize();
-                Eigen::Matrix3d R_wb = q.toRotationMatrix();
-                auto pos_enu = ctx_.pos_enu.load();
-                Eigen::Vector3d target_body_relative =
-                    R_wb.transpose() * (raw_target_enu - pos_enu);
-
-                double dist_xy = std::hypot(target_body_relative.x(),
-                                            target_body_relative.y());
-
-                double current_visual_angle_deg =
-                    std::atan2(dist_xy, current_z) * 180.0 / M_PI;
-
-                // 3. 执行 KF 滤波 (由于已经是 ENU，不需要任何 R_wb 转换)
-                double current_angular_rate =
-                    ctx_.vel_angular_body.load().norm();
-                double epsilon = 0;
-                kf_xy_->update(epsilon, raw_target_enu.x(), raw_target_enu.y(),
-                               dt_ekf, current_z, current_angular_rate,
-                               current_visual_angle_deg);
-                kf_yaw_->update(relative_yaw, dt_ekf);
-                kf_abs_yaw_->update(abs_yaw, dt_ekf);
-
-                Eigen::Vector2d v_xy_enu = kf_xy_->get_vel();
-                if (v_xy_enu.norm() < config_.velocity_deadzone.get()) {
-                    v_xy_enu.setZero();
-                }
-
-                output.current_z = current_z;
-                output.yaw_relative = kf_yaw_->get_yaw();
-                output.target_pos_enu.head<2>() = kf_xy_->get_pos();
-                output.target_pos_enu.z() = raw_target_enu.z();
-                output.target_yaw_enu = kf_abs_yaw_->get_yaw();
-
-                double yaw_rate = kf_abs_yaw_->get_yaw_rate();
-
-                if (target_state == TargetState::MOVING) {
-                    output.target_vel_enu << v_xy_enu.x(), v_xy_enu.y(),
-                        yaw_rate;
-                } else {
-                    output.target_vel_enu.setZero();
-                    output.target_vel_enu.z() = yaw_rate;
-                }
-                // auto prob = kf_xy_->get_prob();
-                if (throttle.shouldLog()) {
-                    spdlog::info(
-                        "ekf_x={:.2f} ekf_y={:.2f} drone_x={:.2f} "
-                        "drone_y={:.2f} "
-                        "drone_roll={:.2f} drone_pitch={:.2f} "
-                        "drone_yaw={:.2f} epsilon={:.2f}",
-                        raw_target_enu.x(), raw_target_enu.y(), pos_enu.x(),
-                        pos_enu.y(), ctx_.roll.load(), ctx_.pitch.load(),
-                        ctx_.yaw_enu.load(), epsilon);
+                if (jump_dist > max_physical_jump) {
+                    spdlog::warn(
+                        "[Pland] Outlier Rejected! Jump dist {:.2f}m is "
+                        "physically impossible.",
+                        jump_dist);
+                    // 剔除这个幽灵数据，强制按无效帧处理
+                    output.is_valid = false;
+                    return output;
                 }
             }
+
+            if (!has_last_valid_pos_ || dt_ekf <= 1e-4 || dt_ekf > 1.0) {
+                reset_estimator();
+                dt_ekf = 0.033;
+                kf_xy_->force_set_state(raw_target_enu.x(), raw_target_enu.y());
+                kf_yaw_->force_set_state(relative_yaw);
+                kf_abs_yaw_->force_set_state(abs_yaw);
+            }
+            last_ekf_stamp_ = stamp_tracker;
+
+            // 数据合法，更新记录并放行进入 EKF
+            last_valid_enu_pos_ = raw_target_enu;
+            has_last_valid_pos_ = true;
+
+            TargetState target_state =
+                target_tracker_->update(raw_target_enu.head<2>());
+
+            Eigen::Quaterniond q = ctx_.orientation.load();
+            q.normalize();
+            Eigen::Matrix3d R_wb = q.toRotationMatrix();
+            auto pos_enu = ctx_.pos_enu.load();
+            Eigen::Vector3d target_body_relative =
+                R_wb.transpose() * (raw_target_enu - pos_enu);
+
+            double dist_xy =
+                std::hypot(target_body_relative.x(), target_body_relative.y());
+            double current_z = get_current_z(ctx_);
+            double current_visual_angle_deg =
+                std::atan2(dist_xy, current_z) * 180.0 / M_PI;
+
+            // 3. 执行 KF 滤波 (由于已经是 ENU，不需要任何 R_wb 转换)
+            double current_angular_rate = ctx_.vel_angular_body.load().norm();
+            double epsilon = 0;
+            kf_xy_->update(epsilon, raw_target_enu.x(), raw_target_enu.y(),
+                           dt_ekf, current_z, current_angular_rate,
+                           current_visual_angle_deg);
+            kf_yaw_->update(relative_yaw, dt_ekf);
+            kf_abs_yaw_->update(abs_yaw, dt_ekf);
+
+            Eigen::Vector2d v_xy_enu = kf_xy_->get_vel();
+            if (v_xy_enu.norm() < config_.velocity_deadzone.get()) {
+                v_xy_enu.setZero();
+            }
+
+            output.current_z = current_z;
+            output.yaw_relative = kf_yaw_->get_yaw();
+            output.target_pos_enu.head<2>() = kf_xy_->get_pos();
+            output.target_pos_enu.z() = raw_target_enu.z();
+            output.target_yaw_enu = kf_abs_yaw_->get_yaw();
+
+            double yaw_rate = kf_abs_yaw_->get_yaw_rate();
+
+            if (target_state == TargetState::MOVING) {
+                output.target_vel_enu << v_xy_enu.x(), v_xy_enu.y(), yaw_rate;
+            } else {
+                output.target_vel_enu.setZero();
+                output.target_vel_enu.z() = yaw_rate;
+            }
+            // auto prob = kf_xy_->get_prob();
+            if (throttle.shouldLog()) {
+                spdlog::info(
+                    "pnp_enu=[{:.2f}, {:.2f}] los_enu=[{:.2f}, {:.2f}] "
+                    "drone_enu=[{:.2f}, {:.2f}, {:.2f}] "
+                    "drone_rpy=[{:.2f}, {:.2f}, {:.2f}] "
+                    "target_err=[{:.2f}, {:.2f}] "
+                    "epsilon={:.2f}",
+                    pnp_enu.x(), pnp_enu.y(), los_enu.x(), los_enu.y(),
+                    pos_enu.x(), pos_enu.y(), pos_enu.z(), ctx_.roll.load(),
+                    ctx_.pitch.load(), ctx_.yaw_enu.load(), target_err.x(),
+                    target_err.y(), epsilon);
+            }
         }
+
         return output;
     }
 
     void set_target_id(int target_id) { target_id_ = target_id; }
 
     void on_start() { reset_estimator(); }
+
+    void on_stop() {
+        ctx_.pland_target.store(std::nullopt);  // 清空目标，避免污染
+    }
 
     void on_step(double dt) {
         cv::Mat detected;

@@ -103,6 +103,7 @@ class TestPland(unittest.TestCase):
                         "/set_param",
                         get_param(
                             dict(
+                                PLND_ENABLE=0,
                                 # PLND_TYPE=1,
                                 # PLND_OPTIONS=1,
                                 SIM_SONAR_SCALE=10,

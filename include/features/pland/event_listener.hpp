@@ -19,11 +19,18 @@
 class PlandEventListener
     : public dk::BaseEventListener<RobotContext, PlandEventListener> {
    public:
-    using AllowedEvents = std::tuple<StartPlandDetectEvent>;
+    using AllowedEvents = std::tuple<StartPlandDetectEvent, SetPlandTarget>;
 
     void on_event(const StartPlandDetectEvent& event, RobotContext& ctx) {
         ctx.land_detector->set_target_id(0);
         ctx.land_detector->start(30);
+        event.resolve({"success", "OK"});
+    }
+
+    void on_event(const SetPlandTarget& event, RobotContext& ctx) {
+        auto pos = ctx.pos_enu.load();
+        ctx.pland_target.store(
+            Eigen::Vector3d{pos.x(), pos.y(), ctx.yaw_enu.load()});
         event.resolve({"success", "OK"});
     }
 };

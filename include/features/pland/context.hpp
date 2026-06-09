@@ -2,10 +2,12 @@
 #include <atomic>
 #include <memory>
 #include <opencv2/opencv.hpp>
+#include <optional>
 
 #include "dk/adapters/udp/udp_client.hpp"
 #include "dk/report.hpp"
 #include "mavlink/mavros.hpp"
+#include "utils/dirty_var.hpp"
 #include "utils/state_registry.hpp"
 
 class PlandController;
@@ -16,6 +18,12 @@ struct PlandContext {
     DirtyVar<cv::Mat> pland_image;
     DirtyVar<int> land_target_id{-1};
     DirtyVar<double> pland_image_stamp{-1.0};
+    DirtyVar<std::optional<double>> gimbal_roll{std::nullopt};
+    DirtyVar<std::optional<double>> gimbal_pitch{std::nullopt};
+    DirtyVar<std::optional<double>> gimbal_yaw{std::nullopt};
+    DirtyVar<std::optional<Eigen::Vector3d>> pland_target{
+        std::nullopt};  // 用来作弊的精准降落目标
+
     std::shared_ptr<LandingDetector> land_detector;
     std::shared_ptr<PlandController> land_controller;
 

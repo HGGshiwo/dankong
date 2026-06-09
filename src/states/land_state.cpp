@@ -41,8 +41,7 @@ void LandState::on_enter(RobotContext& ctx) {
     update_land_target(ctx, land_target_id_);
     SetGimbalEvent e1;
     auto config = GlobalConfig.GetConfig();
-    if (config.pland_fix_yaw.get() || config.pland_fix_roll.get() ||
-        config.pland_fix_pitch.get()) {
+    if (config.pland_gimbal_abs.get()) {
         e1.mode = "abs";
     } else {
         e1.mode = "body";

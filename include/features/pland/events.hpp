@@ -5,3 +5,6 @@
 
 // @JSON_ENABLE
 struct StartPlandDetectEvent : dk::AsyncEvent<EventResult> {};
+
+// @JSON_ENABLE
+struct SetPlandTarget : dk::AsyncEvent<EventResult> {};

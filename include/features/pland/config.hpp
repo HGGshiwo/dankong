@@ -24,13 +24,6 @@ struct PlandConfig {
     dk::Param<std::string> pland_detect_topic =
         INIT_HIDDEN_PARAM("pland_detect_topic", "/pland/detect");
 
-    dk::Param<bool> pland_fix_roll =
-        INIT_PARAM("pland_fix_roll", false, "云台固定roll");
-    dk::Param<bool> pland_fix_pitch =
-        INIT_PARAM("pland_fix_pitch", false, "云台固定pitch");
-    dk::Param<bool> pland_fix_yaw =
-        INIT_PARAM("pland_fix_yaw", false, "云台固定yaw");
-
     dk::Param<double> velocity_deadzone =
         INIT_PARAM("velocity_deadzone", 0.2, "如果速度小于0.2则认为没有移动");
 
@@ -75,4 +68,13 @@ struct PlandConfig {
         INIT_PARAM("platform_height", 0.0, "降落平台的高度");
     dk::Param<double> pland_max_vel_z =
         INIT_PARAM("pland_max_vel_z", 1.0, "最大降落速度");
+
+    dk::Param<bool> pland_gimbal_abs =
+        INIT_PARAM("pland_gimbal_abs", false, "云台固定角模式(垂直地面)");
+    dk::Param<std::string> gimbal_roll_topic =
+        INIT_PARAM("gimbal_roll_topic", "/gimbal/roll", "云台回传数据");
+    dk::Param<std::string> gimbal_pitch_topic =
+        INIT_PARAM("gimbal_pitch_topic", "/gimbal/pitch", "云台回传数据");
+    dk::Param<std::string> gimbal_yaw_topic =
+        INIT_PARAM("gimbal_yaw_topic", "/gimbal/yaw", "云台回传数据");
 };

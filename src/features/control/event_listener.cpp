@@ -173,27 +173,41 @@ void ControlEventListener::on_event(const SetModeEvent& event,
                                     RobotContext& ctx) {
     using Promise = dk::Promise<bool>;
     Promise p(ctx.engine);
+
+    // 1. 提前获取 Future，避免后续 Promise 被 move 后无法获取
+    auto future = p.get_future();
+
     if (ctx.mode.load() == event.mode) {
+        // 同步完成的情况，直接 resolve，局部变量 p 会随函数结束正常销毁
         p.resolve(true);
     } else {
         ctx.robot->set_mode(event.mode);
-        ctx.engine->wait_for(1000,
-                             [mode = FixedString64(event.mode),
-                              p](const FlightModeEvent& e) mutable -> bool {
-                                 if (mode != e.cur) return false;
-                                 p.resolve(true);
-                                 return true;
-                             });
+
+        // 2. 将 promise 移动 (Move) 进 Lambda 中
+        // 这样 p 的生命周期就交给了引擎的事件队列，执行完后自动释放
+        ctx.engine->wait_for(
+            1000,
+            [mode = FixedString64(event.mode),
+             p = std::move(p)](const FlightModeEvent& e) mutable -> bool {
+                if (mode != e.cur) return false;
+                p.resolve(true);
+                return true;
+            });
     }
 
-    p.get_future()
-        .then([event](bool res) {  // 这里还是值的拷贝
+    // 3. 处理 event 回调
+    // 注意：这里 [event] 进行了值拷贝。
+    // 请确保 SetModeEvent 的拷贝构造函数是安全的，并且副本的 resolve
+    // 能够真正响应到客户端。
+    future
+        .then([event](bool res) mutable {
             if (res)
                 event.resolve({"success", "OK"});
             else
                 event.reject("set mode error");
         })
-        .catch_error([event](std::exception_ptr e) { event.reject(e); });
+        .catch_error(
+            [event](std::exception_ptr e) mutable { event.reject(e); });
 }
 
 void ControlEventListener::on_event(const RebootFcuEvent& event,
@@ -232,8 +246,8 @@ void ControlEventListener::on_event(const FcuConnectedEvent& event,
         });
         ctx.engine->get_context().robot->set_stream_rate(
             0, GlobalConfig.GetConfig().fcu_data_rate);
-        ctx.engine->get_context().robot->set_msg_interval(32, 50);  // position
-        ctx.engine->get_context().robot->set_msg_interval(30, 50);  // attitude
+        ctx.engine->get_context().robot->set_msg_interval(32, 30);  // position
+        ctx.engine->get_context().robot->set_msg_interval(30, 30);  // attitude
     }
 }
 
