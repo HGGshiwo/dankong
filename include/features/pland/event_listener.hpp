@@ -29,6 +29,8 @@ class PlandEventListener
 
     void on_event(const SetPlandTarget& event, RobotContext& ctx) {
         auto pos = ctx.pos_enu.load();
+        spdlog::info("[Pland] Set Target: [{:.2f}, {:.2f}, {:.2f}]", pos.x(),
+                     pos.y(), pos.z());
         ctx.pland_target.store(
             Eigen::Vector3d{pos.x(), pos.y(), ctx.yaw_enu.load()});
         event.resolve({"success", "OK"});

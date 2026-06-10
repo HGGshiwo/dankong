@@ -1,3 +1,4 @@
+pland_use_disarm: true
 auto_heading_enable_dist_m: 1
 camera_inner_matrix:
   - 554.38271282264407
@@ -51,13 +52,10 @@ pland_blind_drop_alt: 0.29999999999999999
 pland_cruise_speed_xy: 3
 pland_decay_start_z: 3
 pland_detect_topic: /pland/detect
-pland_fix_pitch: false
-pland_fix_roll: false
-pland_fix_yaw: false
 pland_gamma: 0.25
 pland_gamma_yaw: 0.20000000000000001
 pland_gamma_z: 0.5
-pland_gimbal_abs: false
+pland_gimbal_abs: true
 pland_image_topic: /roscam/cam/image_raw
 pland_limit_start_z: 3
 pland_max_acc_xy: 1

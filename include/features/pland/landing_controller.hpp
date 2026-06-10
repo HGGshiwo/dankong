@@ -333,7 +333,9 @@ class PlandController : public IThreadRunner {
                                     0.0);  // Z轴下面单独计算
         Eigen::Vector3d ff_vel_enu(virtual_state_enu.vel.x(),
                                    virtual_state_enu.vel.y(), 0.0);
-
+        if (!GlobalConfig.GetConfig().use_ff_vel.get()) {
+            ff_vel_enu.setZero();
+        }
         // ---------------- 降落阶段 Z 轴与下发逻辑 ----------------
         double touchdown_vel = GlobalConfig.GetConfig().touchdown_velocity;
         double pland_gamma_z = GlobalConfig.GetConfig().pland_gamma_z.get();
@@ -360,7 +362,8 @@ class PlandController : public IThreadRunner {
                 ctx_.robot->land();
             }
             return;
-        } else if ((current_z < 0.5 && invalid_time_ > 5) || is_blind_drop_) {
+        } else if (current_z < 0.8 &&
+                   (current_xy_error < 0.4 || is_blind_drop_)) {
             is_blind_drop_ = true;
             max_vel_z = touchdown_vel + 0.2;
             z_enu_target = TARGET_PLATFORM_HEIGHT - 0.5;  // 直接往下按
@@ -439,13 +442,13 @@ class PlandController : public IThreadRunner {
             bool is_leash_clamped = tracking_err.norm() > max_leash_length;
 
             spdlog::info(
-                "Z:{:.1f} | EKF_V:{:.2f}m/s | "
+                "Z:{:.1f} | "
                 "Angle:{:.1f}deg | ErrXY:{:.2f}m | "
                 "ff_vel:{:.2f}m/s | max_z_v:{:.2f} | "
                 "(blind_drop:{}) | delay:{:.2f} | "
                 "(LeashClamp:{}) | "
                 "Gamma:{:.2f} | AccLim:{:.2f}",
-                current_z, ekf_v, visual_angle_deg, current_xy_error, ff_vel,
+                current_z, visual_angle_deg, current_xy_error, ff_vel,
                 max_vel_z, is_blind_drop_ ? "YES" : "NO", delay_sec,
                 is_leash_clamped ? "YES" : "NO", gamma, pland_acc_xy);
         }

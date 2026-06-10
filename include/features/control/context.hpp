@@ -18,12 +18,56 @@ struct DronePoseRecord {
     Eigen::Quaterniond q;
 };
 
+struct ScalarRecord {
+    double stamp;
+    double value;
+};
+
 class PoseHistory {
    private:
     std::deque<DronePoseRecord> buffer_;
+    std::deque<ScalarRecord> roll_buf_;
+    std::deque<ScalarRecord> pitch_buf_;
+    std::deque<ScalarRecord> yaw_buf_;
     std::mutex mtx_;
     const double MAX_HISTORY_SEC = 2.0;
     const double MAX_TOLERANCE_SEC = 0.15;  // 允许的最大外推/丢失时间差
+
+    void push_scalar(std::deque<ScalarRecord>& buf, double t, double val) {
+        if (!buf.empty() && t <= buf.back().stamp) {
+            return;
+        }
+        buf.push_back({t, val});
+        while (buf.size() > 2 && (t - buf.front().stamp) > MAX_HISTORY_SEC) {
+            buf.pop_front();
+        }
+    }
+
+    bool get_scalar_at(const std::deque<ScalarRecord>& buf, double t,
+                       double& out) {
+        if (buf.empty()) return false;
+        if (t <= buf.front().stamp) {
+            if (buf.front().stamp - t > MAX_TOLERANCE_SEC) return false;
+            out = buf.front().value;
+            return true;
+        }
+        if (t >= buf.back().stamp) {
+            if (t - buf.back().stamp > MAX_TOLERANCE_SEC) return false;
+            out = buf.back().value;
+            return true;
+        }
+        auto it_after = std::lower_bound(
+            buf.begin(), buf.end(), t,
+            [](const ScalarRecord& record, double target_time) {
+                return record.stamp < target_time;
+            });
+        if (it_after == buf.begin() || it_after == buf.end()) return false;
+        auto it_before = it_after - 1;
+        double alpha =
+            (t - it_before->stamp) / (it_after->stamp - it_before->stamp);
+        out = it_before->value + alpha * (it_after->value - it_before->value);
+        return true;
+    }
 
    public:
     void push(double t, const Eigen::Vector3d& p, const Eigen::Quaterniond& q) {
@@ -41,6 +85,42 @@ class PoseHistory {
                (t - buffer_.front().stamp) > MAX_HISTORY_SEC) {
             buffer_.pop_front();
         }
+    }
+
+    void push_gimbal_roll(double t, double val) {
+        std::lock_guard<std::mutex> lk(mtx_);
+        push_scalar(roll_buf_, t, val);
+    }
+    void push_gimbal_pitch(double t, double val) {
+        std::lock_guard<std::mutex> lk(mtx_);
+        push_scalar(pitch_buf_, t, val);
+    }
+    void push_gimbal_yaw(double t, double val) {
+        std::lock_guard<std::mutex> lk(mtx_);
+        push_scalar(yaw_buf_, t, val);
+    }
+
+    bool get_gimbal_at(double t, std::optional<double>& roll,
+                       std::optional<double>& pitch,
+                       std::optional<double>& yaw) {
+        std::lock_guard<std::mutex> lk(mtx_);
+        double r, p, y;
+        bool ok_r = get_scalar_at(roll_buf_, t, r);
+        bool ok_p = get_scalar_at(pitch_buf_, t, p);
+        bool ok_y = get_scalar_at(yaw_buf_, t, y);
+        if (ok_r)
+            roll = r;
+        else
+            roll = std::nullopt;
+        if (ok_p)
+            pitch = p;
+        else
+            pitch = std::nullopt;
+        if (ok_y)
+            yaw = y;
+        else
+            yaw = std::nullopt;
+        return ok_r || ok_p || ok_y;
     }
 
     // 工业级插值查找

@@ -68,18 +68,24 @@ class PlandFeature {
             [](const std_msgs::Float64::ConstPtr& msg, RobotContext& ctx) {
                 double data = msg->data * (M_PI / 180.0);
                 ctx.gimbal_roll.store(data);
+                ctx.pose_history.push_gimbal_roll(
+                    ctx.engine->get_time_provider()->now(), data);
             });
         ros->bind_context(
             GlobalConfig.GetConfig().gimbal_pitch_topic,
             [](const std_msgs::Float64::ConstPtr& msg, RobotContext& ctx) {
                 double data = msg->data * (M_PI / 180.0);
                 ctx.gimbal_pitch.store(data);
+                ctx.pose_history.push_gimbal_pitch(
+                    ctx.engine->get_time_provider()->now(), data);
             });
         ros->bind_context(
             GlobalConfig.GetConfig().gimbal_yaw_topic,
             [](const std_msgs::Float64::ConstPtr& msg, RobotContext& ctx) {
                 double data = msg->data * (M_PI / 180.0);
                 ctx.gimbal_yaw.store(data);
+                ctx.pose_history.push_gimbal_yaw(
+                    ctx.engine->get_time_provider()->now(), data);
             });
     }
 
