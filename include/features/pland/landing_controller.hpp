@@ -354,8 +354,11 @@ class PlandController : public IThreadRunner {
         double land_height =
             GlobalConfig.GetConfig().pland_blind_drop_alt.get();
         if (current_z < land_height) {
-            // ctx_.robot->land();
-            ctx_.robot->disarm();
+            if (GlobalConfig.GetConfig().pland_use_disarm.get()) {
+                ctx_.robot->disarm();
+            } else {
+                ctx_.robot->land();
+            }
             return;
         } else if ((current_z < 0.5 && invalid_time_ > 5) || is_blind_drop_) {
             is_blind_drop_ = true;

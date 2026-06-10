@@ -77,4 +77,6 @@ struct PlandConfig {
         INIT_PARAM("gimbal_pitch_topic", "/gimbal/pitch", "云台回传数据");
     dk::Param<std::string> gimbal_yaw_topic =
         INIT_PARAM("gimbal_yaw_topic", "/gimbal/yaw", "云台回传数据");
+    dk::Param<bool> pland_use_disarm =
+        INIT_PARAM("pland_use_disarm", false, "是否直接上锁");
 };
