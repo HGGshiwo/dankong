@@ -134,6 +134,7 @@ class TestPland(unittest.TestCase):
                         record_thread = self.start_record(get_dist, writer, stop_event)
 
                         self.robot.wait_for_state("state", "地面状态", 10000)
+                        time.sleep(10)
                         stop_event.set()
                         if record_thread.is_alive():
                             record_thread.join()

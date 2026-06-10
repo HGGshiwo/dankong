@@ -248,6 +248,8 @@ void ControlEventListener::on_event(const FcuConnectedEvent& event,
             0, GlobalConfig.GetConfig().fcu_data_rate);
         ctx.engine->get_context().robot->set_msg_interval(32, 30);  // position
         ctx.engine->get_context().robot->set_msg_interval(30, 30);  // attitude
+        ctx.engine->get_context().robot->set_msg_interval(132,
+                                                          30);  // rangefinder
     }
 }
 

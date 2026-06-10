@@ -263,8 +263,9 @@ class LandingDetector : public IThreadRunner {
         Eigen::Vector3d fused_result;
 
         // X 和 Y 进行加权平均平滑过渡
-        fused_result.x() = (w_pnp * pnp_result.x()) + (w_los * los_result.x());
-        fused_result.y() = (w_pnp * pnp_result.y()) + (w_los * los_result.y());
+        // fused_result.x() = (w_pnp * pnp_result.x()) + (w_los *
+        // los_result.x()); fused_result.y() = (w_pnp * pnp_result.y()) + (w_los
+        // * los_result.y());
         fused_result.x() = los_result.x();
         fused_result.y() = los_result.y();
         fused_result.z() = 0;  // 这里是高度

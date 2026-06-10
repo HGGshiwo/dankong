@@ -352,17 +352,16 @@ class PlandController : public IThreadRunner {
         double max_vel_z = 0.0;
         double z_enu_target = drone_enu_z;  // 默认维持当前高度悬停
         double land_height =
-            std::max(GlobalConfig.GetConfig().pland_blind_drop_alt.get(),
-                     TARGET_PLATFORM_HEIGHT);
+            GlobalConfig.GetConfig().pland_blind_drop_alt.get();
         if (current_z < land_height) {
-            ctx_.robot->land();
+            // ctx_.robot->land();
+            ctx_.robot->disarm();
             return;
-            // } else if (current_z < 0.3 &&
-            //            (current_xy_error < 0.4 || is_blind_drop_)) {
-            //     is_blind_drop_ = true;
-            //     max_vel_z = touchdown_vel + 0.2;
-            //     z_enu_target = TARGET_PLATFORM_HEIGHT - 0.5;  // 直接往下按
-            //     pland_gamma_z = 100.0;
+        } else if ((current_z < 0.5 && invalid_time_ > 5) || is_blind_drop_) {
+            is_blind_drop_ = true;
+            max_vel_z = touchdown_vel + 0.2;
+            z_enu_target = TARGET_PLATFORM_HEIGHT - 0.5;  // 直接往下按
+            pland_gamma_z = 100.0;
         } else {
             // =======================================================
             // [修复 5] 消除 Z 轴的 if/else 阶跃跳变，使用线性漏斗系数

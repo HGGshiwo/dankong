@@ -2,8 +2,8 @@
 #include "robot_context.hpp"
 
 inline double get_current_z(RobotContext& ctx_) {
-    double min_alt = 3.0;
-    double max_alt = 10.0;
+    double min_alt = 1.0;
+    double max_alt = 3.0;
 
     double pos_z = ctx_.pos_enu.load().z();
     double rangefinder_z = std::abs(ctx_.rangefinder_alt.load());
