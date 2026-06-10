@@ -9,6 +9,7 @@ class LandState : public dk::BaseState<RobotContext, LandState, void> {
     LandState(int land_target_id) { land_target_id_ = land_target_id; };
 
     void on_enter(RobotContext& ctx) override;
+    void on_exit(RobotContext& ctx) override;
 
     StateAction on_event(const dk::TickEvent& e, RobotContext& ctx);
 

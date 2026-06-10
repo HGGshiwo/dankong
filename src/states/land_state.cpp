@@ -37,6 +37,11 @@ void update_land_target(ContextType& ctx, int& land_target_id_) {
         ctx.robot->set_mode("GUIDED");  // 精准降落要求GUIDED模式
 }
 
+void LandState::on_exit(RobotContext& ctx) {
+    StopRecordEvent e2;
+    ctx.engine->dispatch(e2);
+}
+
 void LandState::on_enter(RobotContext& ctx) {
     update_land_target(ctx, land_target_id_);
     SetGimbalEvent e1;
@@ -48,9 +53,6 @@ void LandState::on_enter(RobotContext& ctx) {
     }
     e1.angle = 90.0;
     ctx.engine->dispatch(e1);
-
-    StopRecordEvent e2;
-    ctx.engine->dispatch(e2);
 }
 
 template <typename ContextType>
