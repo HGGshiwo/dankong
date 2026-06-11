@@ -185,14 +185,14 @@ void ControlEventListener::on_event(const SetModeEvent& event,
 
         // 2. 将 promise 移动 (Move) 进 Lambda 中
         // 这样 p 的生命周期就交给了引擎的事件队列，执行完后自动释放
-        ctx.engine->wait_for(
-            1000,
-            [mode = FixedString64(event.mode),
-             p = std::move(p)](const FlightModeEvent& e) mutable -> bool {
-                if (mode != e.cur) return false;
-                p.resolve(true);
-                return true;
-            });
+        auto shared_p = std::make_shared<Promise>(std::move(p));
+        ctx.engine->wait_for(2000,
+                             [mode = FixedString64(event.mode), p = shared_p](
+                                 const FlightModeEvent& e) mutable -> bool {
+                                 if (mode != e.cur) return false;
+                                 p->resolve(true);
+                                 return true;
+                             });
     }
 
     // 3. 处理 event 回调

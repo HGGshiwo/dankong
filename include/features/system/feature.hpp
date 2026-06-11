@@ -37,6 +37,9 @@ class SystemFeature {
         web->template register_route<SetConfigEvent, EventResult>(
             boost::beast::http::verb::post, "/config/set");
 
+        web->template register_route<LogEvent, EventResult>(
+            boost::beast::http::verb::post, "/log");
+
         // 注册默认 Websocket
         web->register_managed_ws_route("/ws", [](auto, auto&) {});
     }

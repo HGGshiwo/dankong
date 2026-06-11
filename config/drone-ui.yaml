@@ -284,6 +284,23 @@ button:
       url: "/pland_target/set"
       method: "POST"
 
+  - key: btn_log
+    name: "记录日志"
+    group: "算法控制"
+    target:
+      config_type: "form"
+      title: "记录日志"
+      items:
+        - key: data
+          type: "input"
+          name: "日志内容"
+      submit:
+        config_type: "button"
+        target:
+          config_type: "toast"
+          url: "/log"
+          method: "POST"
+
   - key: btn_gimbal_ctrl
     name: "云台控制"
     group: "载荷控制"

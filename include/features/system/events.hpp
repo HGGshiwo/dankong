@@ -9,3 +9,8 @@ struct GetConfigEvent : dk::AsyncEvent<EventResult> {};
 struct SetConfigEvent : dk::AsyncEvent<EventResult> {
     nlohmann::json config;
 };
+
+//@JSON_ENABLE
+struct LogEvent : dk::AsyncEvent<EventResult> {
+    std::string data;
+};

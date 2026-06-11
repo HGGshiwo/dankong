@@ -220,6 +220,23 @@ button:
     group: "算法控制"
     target: { config_type: "toast", url: "/stop_planner", method: "POST" }
 
+  - key: btn_log
+    name: "记录日志"
+    group: "算法控制"
+    target:
+      config_type: "form"
+      title: "记录日志"
+      items:
+        - key: data
+          type: "string"
+          name: "日志内容"
+      submit:
+        config_type: "button"
+        target:
+          config_type: "toast"
+          url: "/log"
+          method: "POST"
+
   - key: btn_start_detect
     name: "开启检测"
     group: "算法控制"

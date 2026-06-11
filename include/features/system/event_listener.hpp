@@ -6,12 +6,17 @@
 class SystemEventListener
     : public dk::BaseEventListener<RobotContext, SystemEventListener> {
    public:
-    using AllowedEvents = std::tuple<GetConfigEvent, SetConfigEvent>;
+    using AllowedEvents = std::tuple<GetConfigEvent, SetConfigEvent, LogEvent>;
 
     void on_event(const GetConfigEvent& event, RobotContext& ctx) {
         nlohmann::json j;
         j["config"]["_value"] = GlobalConfig.GetAllParams();
         event.resolve({"success", j});
+    }
+
+    void on_event(const LogEvent& event, RobotContext& ctx) {
+        spdlog::info("[Log] {}", event.data);
+        event.resolve({"success", "OK"});
     }
 
     void on_event(const SetConfigEvent& event, RobotContext& ctx) {

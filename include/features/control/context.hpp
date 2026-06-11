@@ -269,6 +269,8 @@ struct ControlContext {
                             j["lon"] = data.x();
                             j["lat"] = data.y();
                             j["rel_alt"] = data.z();
+                            j["gps"] =
+                                Eigen::Vector3d{data.x(), data.y(), data.z()};
                         });
 
         reg.bind_custom(vel_enu, 10.0,
