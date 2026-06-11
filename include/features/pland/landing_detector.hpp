@@ -571,7 +571,7 @@ class LandingDetector : public IThreadRunner {
                     "drone_enu=[{:.2f}, {:.2f}, {:.2f}] "
                     "drone_rpy=[{:.2f}, {:.2f}, {:.2f}] "
                     "target_err=[{:.2f}, {:.2f}] "
-                    "vel_enu=[{:.2f}, {:.2f}] rangefinder={:.2f}"
+                    "vel_enu=[{:.2f}, {:.2f}] rangefinder={:.2f} "
                     "epsilon={:.2f}",
                     pnp_enu.x(), pnp_enu.y(), los_enu.x(), los_enu.y(),
                     pos_enu.x(), pos_enu.y(), pos_enu.z(), ctx_.roll.load(),
