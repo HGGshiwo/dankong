@@ -3,6 +3,7 @@
 #include <Eigen/Dense>
 #include <chrono>
 #include <limits>
+#include <memory>
 #include <opencv2/opencv.hpp>
 #include <optional>
 
@@ -12,12 +13,13 @@
 // #include "./kalman_filter_ctrv_ukf.hpp"
 #include "./kalman_filter_ctrv.hpp"
 #include "./kalman_filter_yaw.hpp"
+// #include "./tag_detector/tags_pattern1.hpp"
+#include "./tag_detector/multiarray_tags_pattern.hpp"
 #include "./target_tracker.hpp"
 #include "./utils.hpp"
 #include "Eigen/src/Core/Matrix.h"
 #include "core/global_config.hpp"
 #include "robot_context.hpp"
-#include "safe_aprialtag.hpp"
 #include "states/state_utils.hpp"
 #include "utils/dirty_var.hpp"
 #include "utils/thread_runner.hpp"
@@ -45,6 +47,7 @@ class LandingDetector : public IThreadRunner {
    private:
     PlandConfig &config_;
     std::unique_ptr<SafeAprilTagDetector> tag_detector_;
+    std::unique_ptr<ITargetPattern> current_pattern_;
 
     RobotContext &ctx_;
 
@@ -166,7 +169,7 @@ class LandingDetector : public IThreadRunner {
     // [修复后的 PnP 解算]：注入云台动态补偿
     // ---------------------------------------------------------
     Eigen::Vector3d solve_pose_by_pnp(
-        const SafeTagPose *safe_pose, const Eigen::Vector3d &hist_drone_pos,
+        const TargetPose *safe_pose, const Eigen::Vector3d &hist_drone_pos,
         const Eigen::Matrix3d &hist_R_wb, std::optional<double> gimbal_roll,
         std::optional<double> gimbal_pitch, std::optional<double> gimbal_yaw,
         bool is_gimbal_absolute, double &out_relative_yaw,
@@ -177,14 +180,9 @@ class LandingDetector : public IThreadRunner {
             is_gimbal_absolute);
 
         Eigen::Vector3d t_bc = get_camera_body_offset();
-        auto pose = &(safe_pose->pose);
 
-        Eigen::Vector3d t_tag_cam(pose->t->data[0], pose->t->data[1],
-                                  pose->t->data[2]);
-        Eigen::Matrix3d R_tag_cam;
-        R_tag_cam << pose->R->data[0], pose->R->data[1], pose->R->data[2],
-            pose->R->data[3], pose->R->data[4], pose->R->data[5],
-            pose->R->data[6], pose->R->data[7], pose->R->data[8];
+        Eigen::Vector3d t_tag_cam = safe_pose->t;
+        Eigen::Matrix3d R_tag_cam = safe_pose->R;
 
         Eigen::Vector3d P_tag_body = t_bc + R_bc * t_tag_cam;
         Eigen::Matrix3d R_tag_body = R_bc * R_tag_cam;
@@ -202,8 +200,8 @@ class LandingDetector : public IThreadRunner {
         // [原有逻辑保持不变]
         double current_z = get_current_z(ctx_);
 
-        double z_high = 3.0;
-        double z_low = 1.0;
+        double z_high = GlobalConfig.GetConfig().z_high.get();
+        double z_low = GlobalConfig.GetConfig().z_low.get();
 
         double w_pnp = 0.0;
         if (current_z >= z_high) {
@@ -215,8 +213,10 @@ class LandingDetector : public IThreadRunner {
         }
 
         Eigen::Vector3d fused_result;
-        fused_result.x() = los_result.x();
-        fused_result.y() = los_result.y();
+        fused_result.x() =
+            (1 - w_pnp) * los_result.x() + w_pnp * pnp_result.x();
+        fused_result.y() =
+            (1 - w_pnp) * los_result.y() + w_pnp * pnp_result.y();
         fused_result.z() = 0;
         return fused_result;
     }
@@ -229,7 +229,8 @@ class LandingDetector : public IThreadRunner {
           config_(config),
           ctx_(ctx),
           set_target_(set_target) {
-        tag_detector_ = std::make_unique<SafeAprilTagDetector>();
+        tag_detector_ =
+            std::make_unique<SafeAprilTagDetector>(config_.tag_famliy.get());
 
         kf_xy_ = std::make_shared<KalmanFilterCTRV>();
         kf_yaw_ = std::make_shared<KalmanFilterYaw>();
@@ -238,6 +239,12 @@ class LandingDetector : public IThreadRunner {
 
         camera_inner_matrix_ = config_.camera_inner_matrix.get();
         last_ekf_stamp_ = 0.0;
+
+        // current_pattern_ = std::make_unique<ConcentricTagsPattern>(
+        //     target_id_, config_.inner_tag_size.get(),
+        //     config_.outter_tag_size.get());
+        current_pattern_ = std::make_unique<MultiArrayTagsPattern>(
+            target_id_, config_.tag_pos_map.get());
     }
 
     ~LandingDetector() {}
@@ -249,17 +256,13 @@ class LandingDetector : public IThreadRunner {
         DetectorResult output;
         output.is_valid = false;
 
-        // 1. 获取图片真实时间戳
+        // 1. 时间戳与历史状态获取 (时光机逻辑保持不变)
         auto stamp_tracker = ctx_.pland_image_stamp.load();
-        if (stamp_tracker <= 0) {
-            return output;  // 没有获取到图片
-        }
-
-        // 如果图像时间戳没有更新，直接返回（防止重复处理同一帧）
-        if (std::abs(stamp_tracker - last_ekf_stamp_) < 1e-6) return output;
+        if (stamp_tracker <= 0 ||
+            std::abs(stamp_tracker - last_ekf_stamp_) < 1e-6)
+            return output;
 
         output.stamp = stamp_tracker;
-
         double elapsed =
             ctx_.engine->get_time_provider()->now() - stamp_tracker;
         if (elapsed > 0.15) {
@@ -267,187 +270,100 @@ class LandingDetector : public IThreadRunner {
             return output;
         }
 
-        // =======================================================
-        // ★ 时光机核心：提取拍照那一瞬间的历史无人机姿态 ★
-        // =======================================================
         Eigen::Vector3d hist_drone_pos;
         Eigen::Quaterniond hist_q;
         double min_diff = -1;
         if (!ctx_.pose_history.get_pose_at(stamp_tracker, hist_drone_pos,
                                            hist_q, min_diff)) {
-            // 如果找不到历史状态（比如刚启动），用当前状态凑合
             hist_drone_pos = ctx_.pos_enu.load();
             hist_q = ctx_.orientation.load();
         }
-        auto rpy = state_utils::orientation_to_euler(hist_q);
         Eigen::Matrix3d hist_R_wb = hist_q.toRotationMatrix();
 
-        // 【修改点 1】: 获取当前帧，保存到 detected
-        // 用于可视化输出，并用于灰度转换
+        // 2. 图像预处理与基础检测
         cv::Mat current_img = ctx_.pland_image.load();
         if (current_img.empty()) return output;
-        detected = current_img.clone();  // 保障 RTSP 内存安全
+        detected = current_img.clone();
 
         cv::Mat gray;
         cv::cvtColor(current_img, gray, cv::COLOR_BGR2GRAY);
         auto detections = tag_detector_->detect(gray);
 
-        apriltag_detection_t *inner_result = nullptr;
-        double inner_dist = -1;
-        apriltag_detection_t *outter_result = nullptr;
-        double outter_dist = -1;
-
-        for (int i = 0; i < detections.size(); i++) {
-            apriltag_detection_t *det = detections[i];
-
-            double dx = det->c[0] / ((double)gray.cols) - 0.5;
-            double dy = det->c[1] / ((double)gray.rows) - 0.5;
-            double dist = std::sqrt(dx * dx + dy * dy);
-
-            if (det->id == target_id_ * 2 + 1) {
-                if (inner_dist < 0 || dist < inner_dist) {
-                    inner_dist = dist;
-                    inner_result = det;
-                }
-            } else if (det->id == target_id_ * 2) {
-                if (outter_dist < 0 || dist < outter_dist) {
-                    outter_dist = dist;
-                    outter_result = det;
-                }
-            }
-        }
-
-        apriltag_detection_t *result = nullptr;
-        bool is_inner = false;  // 初始化
-
-        if (inner_dist >= 0) {
-            result = inner_result;
-            is_inner = true;
-        } else if (outter_dist >= 0) {
-            result = outter_result;
-            is_inner = false;
-        }
+        // =======================================================
+        // ★ 核心重构点：调用策略类处理特定图案、绘制并返回标准化观测 ★
+        // =======================================================
+        TargetObservation obs = current_pattern_->process(
+            detections, tag_detector_.get(), camera_inner_matrix_, detected);
 
         std::optional<Eigen::Vector3d> pland_target = ctx_.pland_target.load();
         bool use_target = pland_target.has_value();
-        if (result == nullptr && !use_target) return output;
+        if (!obs.is_valid && !use_target) return output;
 
         double relative_yaw = 0.0;
         double abs_yaw = 0.0;
         Eigen::Vector3d raw_target_enu;
         Eigen::Vector3d pnp_enu, los_enu;
 
-        if (result != nullptr) {
-            // 绘制绿色边框
-            for (int i = 0; i < 4; i++) {
-                cv::Point pt1(result->p[i][0], result->p[i][1]);
-                cv::Point pt2(result->p[(i + 1) % 4][0],
-                              result->p[(i + 1) % 4][1]);
-                cv::line(detected, pt1, pt2, cv::Scalar(0, 255, 0), 2);
-            }
-            // 绘制红色中心点
-            cv::circle(detected, cv::Point(result->c[0], result->c[1]), 4,
-                       cv::Scalar(0, 0, 255), -1);
-            // 标注 ID 文本
-            std::string tag_label = "ID: " + std::to_string(result->id);
-            cv::putText(detected, tag_label,
-                        cv::Point(result->c[0] + 10, result->c[1] - 10),
-                        cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 0),
-                        2);
+        // 3. 如果视觉有效，进行姿态歧义消除与坐标系转换
+        if (obs.is_valid) {
+            TargetPose *best_pose = &obs.pose1;  // 默认相信 pose1
 
-            // 后续姿态解算
-            double tag_size =
-                is_inner ? config_.inner_tag_size : config_.outter_tag_size;
-
-            SafeTagPose pose1, pose2;
-
-            tag_detector_->estimatePose(
-                result, tag_size, camera_inner_matrix_(0, 0),
-                camera_inner_matrix_(1, 1), camera_inner_matrix_(0, 2),
-                camera_inner_matrix_(1, 2), pose1, pose2);
-
-            if (!pose1.isValid()) {
-                output.is_valid = false;
-                return output;
-            }
-
-            SafeTagPose *best_pose =
-                &pose1;  // 默认相信误差较小的那个 (通常是 pose1)
-
-            // 获取云台状态 (用于 PnP 和 Ambiguity Resolution)
             bool gimbal_abs = config_.pland_gimbal_abs.get();
             std::optional<double> gimbal_roll, gimbal_pitch, gimbal_yaw;
-
-            // 优先从历史记录中获取拍照那一瞬间的云台姿态 (时光机回溯)
             if (!ctx_.pose_history.get_gimbal_at(stamp_tracker, gimbal_roll,
                                                  gimbal_pitch, gimbal_yaw)) {
-                // 如果历史记录中没有，则使用最新的（备选方案）
                 gimbal_roll = ctx_.gimbal_roll.load();
                 gimbal_pitch = ctx_.gimbal_pitch.load();
                 gimbal_yaw = ctx_.gimbal_yaw.load();
             }
 
-            // 如果算法确实产生了歧义(算出了两个解)，且我们的 EKF 已经收敛
+            // --- 歧义消除逻辑 ---
             double time_since_last_valid = stamp_tracker - last_ekf_stamp_;
             bool is_prior_reliable =
                 has_last_valid_pos_ && (time_since_last_valid < 0.5);
-            if (pose2.isValid() && is_prior_reliable) {
+
+            if (obs.pose2.valid && is_prior_reliable) {
                 Eigen::Matrix3d R_bc_dynamic =
                     get_dynamic_camera_to_body_rotation(hist_R_wb, gimbal_roll,
                                                         gimbal_pitch,
                                                         gimbal_yaw, gimbal_abs);
 
-                // 提取姿态 1 的旋转矩阵和 Yaw
-                Eigen::Matrix3d R1 = pose1.getRotation();
-                Eigen::Matrix3d R_tag_body1 = R_bc_dynamic * R1;
-                Eigen::Matrix3d R_tag_world1 = hist_R_wb * R_tag_body1;
-                double yaw1 =
-                    std::atan2(R_tag_world1(1, 0), R_tag_world1(0, 0));
+                auto get_yaw_from_pose = [&](const TargetPose &p) {
+                    Eigen::Matrix3d R_tag_world =
+                        hist_R_wb * (R_bc_dynamic * p.R);
+                    return std::atan2(R_tag_world(1, 0), R_tag_world(0, 0));
+                };
 
-                // 提取姿态 2 的旋转矩阵和 Yaw
-                Eigen::Matrix3d R2 = pose2.getRotation();
-                Eigen::Matrix3d R_tag_body2 = R_bc_dynamic * R2;
-                Eigen::Matrix3d R_tag_world2 = hist_R_wb * R_tag_body2;
-                double yaw2 =
-                    std::atan2(R_tag_world2(1, 0), R_tag_world2(0, 0));
-
-                // 引入 EKF 的先验知识当裁判
+                double yaw1 = get_yaw_from_pose(obs.pose1);
+                double yaw2 = get_yaw_from_pose(obs.pose2);
                 double predicted_yaw = kf_abs_yaw_->get_yaw();
 
-                // 计算两个解与先验的差异 (注意 normalize_angle 处理 -pi 到 pi
-                // 的环绕)
                 double diff1 = std::abs(
                     KalmanFilterYaw::normalize_angle(yaw1 - predicted_yaw));
                 double diff2 = std::abs(
                     KalmanFilterYaw::normalize_angle(yaw2 - predicted_yaw));
 
-                // 哪一个更符合物理运动的连续性，我们就强制采用哪一个！
                 if (diff2 < diff1) {
-                    best_pose = &pose2;
+                    best_pose = &obs.pose2;
                     spdlog::info(
                         "[Pland] Pose Ambiguity Resolved: Chose Pose 2 based "
                         "on EKF prior.");
                 }
             }
 
-            double px = result->c[0];
-            double py = result->c[1];
-
-            // 调用高度融合算法，传入历史位姿解算绝对坐标
+            // --- 坐标求解 ---
             pnp_enu = solve_pose_by_pnp(best_pose, hist_drone_pos, hist_R_wb,
                                         gimbal_roll, gimbal_pitch, gimbal_yaw,
                                         gimbal_abs, relative_yaw, abs_yaw);
 
-            los_enu =
-                solve_pose_by_ray(px, py, hist_drone_pos, hist_R_wb,
-                                  config_.platform_height.get(), gimbal_roll,
-                                  gimbal_pitch, gimbal_yaw, gimbal_abs);
+            los_enu = solve_pose_by_ray(
+                obs.center_pixel.x, obs.center_pixel.y, hist_drone_pos,
+                hist_R_wb, config_.platform_height.get(), gimbal_roll,
+                gimbal_pitch, gimbal_yaw, gimbal_abs);
 
             bool los_valid = !std::isnan(los_enu.x());
             bool pnp_valid = !std::isnan(pnp_enu.x());
-            output.is_valid = true;
 
-            // 异常处理：如果由于某种原因只剩一个有效，直接返回有效的那个
             if (!los_valid && pnp_valid) {
                 raw_target_enu = pnp_enu;
                 output.pnp_pos = raw_target_enu;
@@ -455,13 +371,13 @@ class LandingDetector : public IThreadRunner {
                 raw_target_enu = los_enu;
                 output.los_pos = raw_target_enu;
             } else if (!los_valid && !pnp_valid) {
-                output.is_valid = false;
-                return output;  // 没有解算出结果，直接丢弃
+                return output;
             } else {
                 output.pnp_pos = pnp_enu;
                 output.los_pos = los_enu;
                 raw_target_enu = solve_fused_pose(pnp_enu, los_enu);
             }
+            output.is_valid = true;
         }
 
         static Throttle throttle{4};
@@ -585,7 +501,11 @@ class LandingDetector : public IThreadRunner {
         return output;
     }
 
-    void set_target_id(int target_id) { target_id_ = target_id; }
+    void set_target_id(int target_id) {
+        target_id_ = target_id;
+        current_pattern_ = std::make_unique<MultiArrayTagsPattern>(
+            target_id_, config_.tag_pos_map.get());
+    }
 
     void on_start() { reset_estimator(); }
 

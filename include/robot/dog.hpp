@@ -5,7 +5,6 @@
 
 #include "dk/adapters/udp/udp_client.hpp"
 #include "dk/future.hpp"
-#include "dk/report.hpp"
 #include "features/dog/command.hpp"
 #include "features/tracker/tracker.hpp"
 #include "mavlink/mavros.hpp"

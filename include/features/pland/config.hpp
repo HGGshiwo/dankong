@@ -3,6 +3,8 @@
 
 #include "utils/config_param.hpp"
 
+using LayoutMap = std::map<std::string, std::vector<Eigen::Vector3d>>;
+
 //@JSON_ENABLE
 struct PlandConfig {
     static constexpr const char* __group_name = "Pland";
@@ -81,4 +83,12 @@ struct PlandConfig {
         INIT_PARAM("pland_use_disarm", false, "是否直接上锁");
     dk::Param<bool> use_ff_vel =
         INIT_PARAM("use_ff_vel", true, "是否使用前馈速度");
+
+    dk::Param<LayoutMap> tag_pos_map =
+        INIT_PARAM("tag_pos_map", LayoutMap{}, "每个tag的物理坐标");
+    dk::Param<std::string> tag_famliy =
+        INIT_PARAM("tag_famliy", "tag16h5", "tag family");
+    dk::Param<double> z_high =
+        INIT_PARAM("z_high", 10.0, "该高度以上完全使用los");
+    dk::Param<double> z_low = INIT_PARAM("z_low", 8.0, "该高度以下完全使用pnp");
 };

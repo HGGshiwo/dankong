@@ -5,7 +5,6 @@
 #include <optional>
 
 #include "dk/adapters/udp/udp_client.hpp"
-#include "dk/report.hpp"
 #include "mavlink/mavros.hpp"
 #include "utils/dirty_var.hpp"
 #include "utils/state_registry.hpp"

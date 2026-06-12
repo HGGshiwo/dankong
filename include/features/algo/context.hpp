@@ -1,5 +1,4 @@
 #pragma once
-#include "dk/report.hpp"
 #include "utils/dirty_var.hpp"
 #include "utils/fixed_string64.hpp"
 #include "utils/state_registry.hpp"

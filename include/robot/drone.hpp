@@ -4,7 +4,6 @@
 #include <memory>
 
 #include "core/global_config.hpp"
-#include "dk/report.hpp"
 #include "dk/utils.hpp"
 #include "mavlink/imavlink.hpp"
 #include "robot/irobot.hpp"

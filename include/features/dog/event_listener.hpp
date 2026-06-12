@@ -5,7 +5,6 @@
 #include "dk/adapters/udp/udp_client.hpp"
 #include "dk/engine.hpp"
 #include "dk/event_listener.hpp"
-#include "dk/report.hpp"
 #include "robot_context.hpp"
 #include "utils/state_registry.hpp"
 

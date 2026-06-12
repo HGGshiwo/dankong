@@ -1,4 +1,3 @@
-#include "dk/report.hpp"
 #include "utils/state_registry.hpp"
 
 struct TemplateContext {

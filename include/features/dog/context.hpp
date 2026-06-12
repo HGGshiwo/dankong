@@ -7,7 +7,6 @@
 #include "./events.hpp"
 #include "core/global_config.hpp"
 #include "dk/adapters/udp/udp_client.hpp"
-#include "dk/report.hpp"
 #include "mavlink/mavros.hpp"
 #include "robot/irobot.hpp"
 #include "utils/dirty_var.hpp"

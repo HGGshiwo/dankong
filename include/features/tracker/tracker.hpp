@@ -11,7 +11,6 @@
 #include <thread>
 
 #include "core/base_tracker.hpp"
-#include "dk/report.hpp"
 #include "features/tracker/config.hpp"
 #include "mavlink/imavlink.hpp"
 #include "states/state_utils.hpp"

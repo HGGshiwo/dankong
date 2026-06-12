@@ -5,7 +5,6 @@
 
 #include "dk/adapters/web/websocket.hpp"
 #include "dk/engine.hpp"
-#include "dk/report.hpp"
 #include "robot/irobot.hpp"
 #include "utils/state_registry.hpp"
 

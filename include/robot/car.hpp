@@ -5,19 +5,8 @@
 #include <iostream>
 
 #include "dk/adapters/can/can_client.hpp"
+#include "features/car/ipc_vcu_zrd.h"
 #include "irobot.hpp"
-
-// 假设这是底层 CAN 适配器或打包库提供的接口
-// 如果你使用 cantools，它会自动生成这个结构体和 pack 函数
-struct ipc_210_cmd_t {
-    uint8_t ipc_en;         // 控制使能
-    uint8_t brake_en;       // 制动使能
-    uint8_t target_gear;    // 目标挡位: 0=P, 1=R, 2=N, 3=D
-    uint8_t steering_mode;  // 转向模式: 0=阿克曼, 1=原地掉头
-    double target_speed;    // 目标车速 (km/h)
-    double target_angle;    // 目标角度 (°)
-};
-extern void ipc_210_pack(uint8_t* dst, const ipc_210_cmd_t* src, size_t len);
 
 class Car : public IRobot {
    private:
@@ -42,7 +31,7 @@ class Car : public IRobot {
 
     // 降落 -> 映射为：驻车/急停
     bool land() override {
-        ipc_210_cmd_t cmd = {0};
+        ipc_vcu_zrd_ipc_210_t cmd = {0};
         cmd.ipc_en = 1;       // 保持使能
         cmd.brake_en = 1;     // 踩死刹车
         cmd.target_gear = 0;  // 挂 P 挡
@@ -51,14 +40,14 @@ class Car : public IRobot {
         cmd.steering_mode = 0;
 
         uint8_t payload[8] = {0};
-        ipc_210_pack(payload, &cmd, sizeof(payload));
+        ipc_vcu_zrd_ipc_210_pack(payload, &cmd, sizeof(payload));
         return can_client_->send_frame(0x210, payload,
                                        8);  // 0x210 即十进制 528
     }
 
     // 悬停 -> 映射为：临时停车（N 挡待命）
     bool loiter() override {
-        ipc_210_cmd_t cmd = {0};
+        ipc_vcu_zrd_ipc_210_t cmd = {0};
         cmd.ipc_en = 1;
         cmd.brake_en = 1;     // 踩下刹车
         cmd.target_gear = 2;  // 挂 N 挡
@@ -67,14 +56,14 @@ class Car : public IRobot {
         cmd.steering_mode = 0;
 
         uint8_t payload[8] = {0};
-        ipc_210_pack(payload, &cmd, sizeof(payload));
+        ipc_vcu_zrd_ipc_210_pack(payload, &cmd, sizeof(payload));
         return can_client_->send_frame(0x210, payload, 8);
     }
 
     // 起飞 -> 映射为：解锁车辆，挂 D 挡准备行驶
     bool takeoff(double alt) override {
         // 地面车辆忽略 alt(高度) 参数
-        ipc_210_cmd_t cmd = {0};
+        ipc_vcu_zrd_ipc_210_t cmd = {0};
         cmd.ipc_en = 1;       // 开启线控
         cmd.brake_en = 0;     // 松开刹车
         cmd.target_gear = 3;  // 挂 D 挡
@@ -83,7 +72,7 @@ class Car : public IRobot {
         cmd.steering_mode = 0;
 
         uint8_t payload[8] = {0};
-        ipc_210_pack(payload, &cmd, sizeof(payload));
+        ipc_vcu_zrd_ipc_210_pack(payload, &cmd, sizeof(payload));
         return can_client_->send_frame(0x210, payload, 8);
     }
 
@@ -96,7 +85,7 @@ class Car : public IRobot {
         // double vz = vel[2]; // 车辆忽略垂直速度
         double yaw_rate = vel[3];
 
-        ipc_210_cmd_t cmd = {0};
+        ipc_vcu_zrd_ipc_210_t cmd = {0};
         cmd.ipc_en = 1;
         cmd.brake_en = 0;
 
@@ -145,7 +134,7 @@ class Car : public IRobot {
         }
 
         uint8_t payload[8] = {0};
-        ipc_210_pack(payload, &cmd, sizeof(payload));
+        ipc_vcu_zrd_ipc_210_pack(payload, &cmd, sizeof(payload));
         return can_client_->send_frame(0x210, payload, 8);
     }
 
