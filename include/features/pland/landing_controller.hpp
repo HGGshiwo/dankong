@@ -29,9 +29,6 @@ class KinematicTrajectoryGenerator2D {
     Eigen::Vector2d virtual_vel_;
     bool initialized_ = false;
 
-    const double Kp_ = 0.5;
-    const double Kv_ = 1.5;
-
    public:
     struct State {
         Eigen::Vector2d pos;
@@ -56,6 +53,9 @@ class KinematicTrajectoryGenerator2D {
                const Eigen::Vector2d& target_vel, double max_vel,
                double max_acc) {
         if (!initialized_) return {target_pos, target_vel};
+
+        double Kp_ = GlobalConfig.GetConfig().pland_kp.get();
+        double Kv_ = GlobalConfig.GetConfig().pland_kv.get();
 
         Eigen::Vector2d pos_err = target_pos - virtual_pos_;
         Eigen::Vector2d rel_vel = pos_err * Kp_;
@@ -353,8 +353,9 @@ class PlandController : public IThreadRunner {
 
         double max_vel_z = 0.0;
         double z_enu_target = drone_enu_z;  // 默认维持当前高度悬停
-        double land_height =
-            GlobalConfig.GetConfig().pland_blind_drop_alt.get();
+        double land_height = GlobalConfig.GetConfig().pland_land_alt.get();
+        double hold_dist_thresh = 0;
+
         if (current_z < land_height) {
             if (GlobalConfig.GetConfig().pland_use_disarm.get()) {
                 ctx_.robot->disarm();
@@ -362,8 +363,11 @@ class PlandController : public IThreadRunner {
                 ctx_.robot->land();
             }
             return;
-        } else if (current_z < 0.8 &&
-                   (current_xy_error < 0.4 || is_blind_drop_)) {
+        } else if (current_z <
+                       GlobalConfig.GetConfig().pland_blind_drop_alt.get() &&
+                   (current_xy_error <
+                        GlobalConfig.GetConfig().blind_drop_xy_thresh.get() ||
+                    is_blind_drop_)) {
             is_blind_drop_ = true;
             max_vel_z = touchdown_vel + 0.2;
             z_enu_target = TARGET_PLATFORM_HEIGHT - 0.5;  // 直接往下按
@@ -373,7 +377,22 @@ class PlandController : public IThreadRunner {
             // [修复 5] 消除 Z 轴的 if/else 阶跃跳变，使用线性漏斗系数
             // =======================================================
             double align_dist_thresh = std::max(0.2, current_z * 0.2);
-            double hold_dist_thresh = 3.5;
+            double hold_dist_thresh_max =
+                GlobalConfig.GetConfig().hold_dist_thresh_max.get();
+            double hold_dist_thresh_min =
+                GlobalConfig.GetConfig().hold_dist_thresh_min.get();
+            double hold_dist_thresh_min_lat =
+                GlobalConfig.GetConfig().hold_dist_thresh_min_alt.get();
+            double hold_dist_height_base = 10;
+            if (current_z <= hold_dist_thresh_min_lat) {
+                hold_dist_thresh = hold_dist_thresh_min;
+            } else {
+                hold_dist_thresh =
+                    hold_dist_thresh_min +
+                    (std::min(current_z, hold_dist_height_base)) /
+                        (hold_dist_height_base - hold_dist_thresh_min_lat) *
+                        (hold_dist_thresh_max - hold_dist_thresh_min);
+            }
 
             double xy_descent_factor = 1.0;
             if (current_xy_error > hold_dist_thresh) {
@@ -446,11 +465,12 @@ class PlandController : public IThreadRunner {
                 "Angle:{:.1f}deg | ErrXY:{:.2f}m | "
                 "ff_vel:{:.2f}m/s | max_z_v:{:.2f} | "
                 "(blind_drop:{}) | delay:{:.2f} | "
-                "(LeashClamp:{}) | "
-                "Gamma:{:.2f} | AccLim:{:.2f}",
+                "(LeashClamp:{}) | Gamma:{:.2f} | "
+                "AccLim:{:.2f} | xy_thresh:{:.3f}",
                 current_z, visual_angle_deg, current_xy_error, ff_vel,
                 max_vel_z, is_blind_drop_ ? "YES" : "NO", delay_sec,
-                is_leash_clamped ? "YES" : "NO", gamma, pland_acc_xy);
+                is_leash_clamped ? "YES" : "NO", gamma, pland_acc_xy,
+                hold_dist_thresh);
         }
     }
 };

@@ -486,15 +486,15 @@ class LandingDetector : public IThreadRunner {
                     "pnp_enu=[{:.2f}, {:.2f}] los_enu=[{:.2f}, {:.2f}] "
                     "drone_enu=[{:.2f}, {:.2f}, {:.2f}] "
                     "drone_rpy=[{:.2f}, {:.2f}, {:.2f}] "
-                    "target_err=[{:.2f}, {:.2f}] "
+                    "target_err=[{:.2f}, {:.2f}] imagexy=[{:.2f}, {:.2f}] "
                     "vel_enu=[{:.2f}, {:.2f}] rangefinder={:.2f} "
                     "epsilon={:.2f}",
                     pnp_enu.x(), pnp_enu.y(), los_enu.x(), los_enu.y(),
                     pos_enu.x(), pos_enu.y(), pos_enu.z(), ctx_.roll.load(),
                     ctx_.pitch.load(), ctx_.yaw_enu.load(), target_err.x(),
-                    target_err.y(), output.target_vel_enu.x(),
-                    output.target_vel_enu.y(), ctx_.rangefinder_alt.load(),
-                    epsilon);
+                    target_err.y(), obs.center_pixel.x, obs.center_pixel.y,
+                    output.target_vel_enu.x(), output.target_vel_enu.y(),
+                    ctx_.rangefinder_alt.load(), epsilon);
             }
         }
 

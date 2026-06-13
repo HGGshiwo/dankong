@@ -64,8 +64,6 @@ struct PlandConfig {
         INIT_PARAM("pland_min_gamma", 0.1, "位置反馈系数线性衰减最终值");
     dk::Param<double> pland_gamma_z =
         INIT_PARAM("pland_gamma_z", 0.5, "位置反馈系数线性衰减开始值");
-    dk::Param<double> pland_blind_drop_alt =
-        INIT_PARAM("pland_blind_drop_alt", 0.3, "切降落的高度");
     dk::Param<double> platform_height =
         INIT_PARAM("platform_height", 0.0, "降落平台的高度");
     dk::Param<double> pland_max_vel_z =
@@ -91,4 +89,22 @@ struct PlandConfig {
     dk::Param<double> z_high =
         INIT_PARAM("z_high", 10.0, "该高度以上完全使用los");
     dk::Param<double> z_low = INIT_PARAM("z_low", 8.0, "该高度以下完全使用pnp");
+
+    dk::Param<double> blind_drop_xy_thresh =
+        INIT_PARAM("blind_drop_xy_thresh", 0.2, "达到该误差允许切blind_drop");
+    dk::Param<double> hold_dist_thresh_max = INIT_PARAM(
+        "hold_dist_thresh_max", 3.5, "允许降低高度的误差thresh(10m)");
+    dk::Param<double> hold_dist_thresh_min = INIT_PARAM(
+        "hold_dist_thresh_min", 0.2, "允许降低高度的误差thresh(最小高度)");
+
+    dk::Param<double> pland_blind_drop_alt =
+        INIT_PARAM("pland_blind_drop_alt", 0.3, "触发盲降的高度");
+    dk::Param<double> pland_land_alt =
+        INIT_PARAM("pland_land_alt", 0.1, "切降落的高度");
+
+    dk::Param<double> hold_dist_thresh_min_alt =
+        INIT_PARAM("hold_dist_thresh_min_alt", 0.5,
+                   "该高度下始终使用hold_dist_thresh_min");
+    dk::Param<double> pland_kp = INIT_PARAM("pland_kp", 1.5, "兔子的位置系数");
+    dk::Param<double> pland_kv = INIT_PARAM("pland_kv", 2.5, "兔子的速度系数");
 };

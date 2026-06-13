@@ -84,7 +84,7 @@ class MultiArrayTagsPattern : public ITargetPattern {
             // 进行解算，这能有效剔除误识别的单帧噪点，实现你想要的"提取精确解"
             bool success =
                 cv::solvePnPRansac(object_points, image_points, camera_matrix,
-                                   dist_coeffs, rvec, tvec, false, 100, 8.0,
+                                   dist_coeffs, rvec, tvec, false, 100, 2.0,
                                    0.99, cv::noArray(), cv::SOLVEPNP_ITERATIVE);
 
             if (success) {
