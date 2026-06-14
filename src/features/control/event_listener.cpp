@@ -162,7 +162,7 @@ void ControlEventListener::on_event(SetWaypointEvent event, RobotContext& ctx) {
                 event.resolve({"success", "OK"});
                 // 其他情况（有航点，或空中原地悬停/返航）：进入
                 // LiftingState 执行航点处理
-                ctx.engine->step<WaypointState::LiftingState>(
+                ctx.engine->step_reenter_all<WaypointState::LiftingState>(
                     std::make_tuple(std::move(event)), std::tuple<>());
             }
         }

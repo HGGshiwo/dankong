@@ -22,7 +22,7 @@ WaypointState::WaypointState(SetWaypointEvent e)
       land_target_id_(e.land_target_id),
       target_vel_(e.speed) {}
 
-void WaypointState::WaypointState::on_enter(RobotContext& ctx) {
+void WaypointState::on_enter(RobotContext& ctx) {
     // 现在一定是起飞中了
 
     // return 转为land情况
@@ -69,7 +69,7 @@ void WaypointState::WaypointState::on_enter(RobotContext& ctx) {
     ctx.wp_idx.store(0);
 }
 
-void WaypointState::WaypointState::on_exit(RobotContext& ctx) {
+void WaypointState::on_exit(RobotContext& ctx) {
     // 清空数据
     ctx.dist_to_target.store(0.0);
 }

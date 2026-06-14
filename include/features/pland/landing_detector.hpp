@@ -14,6 +14,7 @@
 #include "./kalman_filter_ctrv.hpp"
 #include "./kalman_filter_yaw.hpp"
 // #include "./tag_detector/tags_pattern1.hpp"
+#include "./ilanding_detector.hpp"
 #include "./tag_detector/multiarray_tags_pattern.hpp"
 #include "./target_tracker.hpp"
 #include "./utils.hpp"
@@ -25,25 +26,7 @@
 #include "utils/thread_runner.hpp"
 #include "utils/throttle.hpp"
 
-struct DetectorResult {
-    bool is_valid = false;
-    double stamp;  // 图像拍摄的真实时间
-
-    // ENU 导航系下的绝对目标位置和速度 (EKF 融合后)
-    Eigen::Vector3d target_pos_enu = Eigen::Vector3d::Zero();
-    Eigen::Vector3d target_vel_enu =
-        Eigen::Vector3d::Zero();  // .z() is yaw_rate
-
-    double target_yaw_enu = 0.0;
-    double yaw_relative = 0.0;
-    double current_z = 0.0;  // 相对高度
-
-    std::optional<Eigen::Vector3d> pnp_pos;
-    std::optional<Eigen::Vector3d> los_pos;
-    std::optional<Eigen::Vector3d> fused_pos;
-};
-
-class LandingDetector : public IThreadRunner {
+class LandingDetector : public IThreadRunner, public ILandingDetector {
    private:
     PlandConfig &config_;
     std::unique_ptr<SafeAprilTagDetector> tag_detector_;
@@ -501,19 +484,22 @@ class LandingDetector : public IThreadRunner {
         return output;
     }
 
-    void set_target_id(int target_id) {
+    void set_target_id(int target_id) override {
         target_id_ = target_id;
         current_pattern_ = std::make_unique<MultiArrayTagsPattern>(
             target_id_, config_.tag_pos_map.get());
     }
 
-    void on_start() { reset_estimator(); }
+    void start(int hz) override { IThreadRunner::start(hz); }
+    void stop() override { IThreadRunner::stop(); }
 
-    void on_stop() {
+    void on_start() override { reset_estimator(); }
+
+    void on_stop() override {
         ctx_.pland_target.store(std::nullopt);  // 清空目标，避免污染
     }
 
-    void on_step(double dt) {
+    void on_step(double dt) override {
         cv::Mat detected;
         auto result = update(dt, detected);
         set_target_(result, detected);

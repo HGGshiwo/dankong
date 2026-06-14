@@ -5,12 +5,14 @@
 #include "core/engine.hpp"
 #include "core/tag.hpp"
 #include "dk/adapters/ros.hpp"
+#include "dk/adapters/web/adapter.hpp"
+#include "robot_context.hpp"
 #include "std_msgs/String.h"
 
 class AlgoFeature {
    public:
-    template <typename WebAdapter>
-    static void setup(TagWeb, std::shared_ptr<WebAdapter>& web) {
+    static void setup(
+        TagWeb, std::shared_ptr<dk::WebAdapter<RobotContext, Engine>>& web) {
         web->template register_route<StopFollowEvent, EventResult>(
             boost::beast::http::verb::post, "/stop_follow");
 
@@ -37,14 +39,6 @@ class AlgoFeature {
 
         web->template register_route<SetExposureEvent, EventResult>(
             boost::beast::http::verb::post, "/set_exposure");
-
-        // 该接口只是调试时候使用
-        web->template register_route<SetWaypointEvent, EventResult>(
-            boost::beast::http::verb::post, "/pland", 5000,
-            [](SetWaypointEvent& event) {
-                event.land_target_id = 0;
-                event.finish_action = FinishAction::LAND;
-            });
 
         web->template register_route<EnableDetectEvent, EventResult>(
             boost::beast::http::verb::post, "/start_detect");

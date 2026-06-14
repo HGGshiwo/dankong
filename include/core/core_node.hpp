@@ -7,10 +7,12 @@
 #include "core/tag.hpp"
 #include "dk/AsioTimeProvider.hpp"
 #include "dk/ITimeProvider.hpp"
+#include "dk/adapters/can/can_adapter.hpp"
 #include "dk/adapters/udp/udp.hpp"
 #include "dk/adapters/web.hpp"
 #include "dk/adapters/web/adapter.hpp"
 #include "features/dog/command.hpp"
+#include "robot_context.hpp"
 #include "states/init_state.hpp"
 #include "utils/get_executable_path.hpp"
 #include "utils/logger.hpp"
@@ -29,6 +31,7 @@ class CoreNode {
 #endif
     using WebAdapterType = dk::WebAdapter<ContextType, Engine>;
     using UdpAdpterType = dk::UdpAdapter<ContextType, Engine, CommandType>;
+    using CanAdapterType = dk::CanAdapter<ContextType, Engine>;
 
    private:
     boost::asio::io_context global_io_;
@@ -42,6 +45,7 @@ class CoreNode {
 #endif
     std::shared_ptr<WebAdapterType> web_adapter_;
     std::shared_ptr<UdpAdpterType> udp_adapter_;
+    std::shared_ptr<CanAdapterType> can_adapter_;
 
    public:
     CoreNode(const std::string config_path) {
@@ -91,6 +95,12 @@ class CoreNode {
                     return UdpPacketView(data).command();
                 });
             AssemblerType::template setup<TagUdp>(udp_adapter_);
+        }
+
+        if constexpr (AssemblerType::template has_feature_for<TagCan>) {
+            can_adapter_ = std::make_shared<CanAdapterType>(
+                engine_, GlobalConfig.GetConfig().can_name.get());
+            AssemblerType::template setup<TagCan>(can_adapter_);
         }
 
         if constexpr (AssemblerType::template has_feature_for<TagInit>) {

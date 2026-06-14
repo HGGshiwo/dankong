@@ -1,7 +1,7 @@
 #include "states/land_state.hpp"
 
-#include "features/pland/landing_controller.hpp"
-#include "features/pland/landing_detector.hpp"
+#include "features/pland/ilanding_controller.hpp"
+#include "features/pland/ilanding_detector.hpp"
 #include "robot_context.hpp"
 #include "states/ground_state.hpp"
 
@@ -16,13 +16,16 @@ struct has_land_target<T,
                        std::void_t<decltype(std::declval<T>().land_target_id)>>
     : std::true_type {};
 
+void LandState::on_exit(RobotContext& ctx) {
+    StopRecordEvent e2;
+    ctx.engine->dispatch(e2);
+}
+
+// 该函数是必须的，否则has_land_target仍然会检查该分支
 template <typename ContextType>
-void update_land_target(ContextType& ctx, int& land_target_id_) {
-    // 此时 ContextType 是模板参数
-    bool do_pland = false;
+void set_pland(ContextType& ctx, int land_target_id_, bool& do_pland) {
+    // 1. 修改：必须判断 ContextType，而不是写死 RobotContext
     if constexpr (has_land_target<ContextType>::value) {
-        // 因为 ctx 依赖于模板参数，如果条件为
-        // false，编译器会直接丢弃这一行，不报错
         ctx.land_target_id.store(land_target_id_);
         if (land_target_id_ >= 0) {
             do_pland = true;
@@ -30,34 +33,39 @@ void update_land_target(ContextType& ctx, int& land_target_id_) {
             ctx.land_detector->start(30);
             ctx.land_controller->start(50);
         }
+
+        SetGimbalEvent e1;
+        e1.angle = 90.0;
+
+        // 2. 修改：用泛型 lambda 强行让 GlobalConfig 变成依赖类型（Dependent
+        // Type） 这样只要外层 if constexpr 为
+        // false，这段代码就永远不会被实例化和检查。
+        [&](auto& global_cfg) {
+            auto config = global_cfg.GetConfig();
+            if (config.pland_gimbal_abs.get()) {
+                e1.mode = "abs";
+            } else {
+                e1.mode = "body";
+            }
+        }(GlobalConfig);  // 立即调用并传入全局的 GlobalConfig
+
+        ctx.engine->dispatch(e1);
     }
+}
+
+void LandState::on_enter(RobotContext& ctx) {
+    bool do_pland = false;
+    set_pland(ctx, land_target_id_, do_pland);
+
     if (!do_pland)
         ctx.robot->land();
     else
         ctx.robot->set_mode("GUIDED");  // 精准降落要求GUIDED模式
 }
 
-void LandState::on_exit(RobotContext& ctx) {
-    StopRecordEvent e2;
-    ctx.engine->dispatch(e2);
-}
-
-void LandState::on_enter(RobotContext& ctx) {
-    update_land_target(ctx, land_target_id_);
-    SetGimbalEvent e1;
-    auto config = GlobalConfig.GetConfig();
-    if (config.pland_gimbal_abs.get()) {
-        e1.mode = "abs";
-    } else {
-        e1.mode = "body";
-    }
-    e1.angle = 90.0;
-    ctx.engine->dispatch(e1);
-}
-
 template <typename ContextType>
 void stop_pland(ContextType& ctx, int land_target_id) {
-    if constexpr (has_land_target<RobotContext>::value) {
+    if constexpr (has_land_target<ContextType>::value) {
         if (land_target_id >= 0) {
             ctx.land_detector->stop();
             ctx.land_controller->stop();

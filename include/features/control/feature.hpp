@@ -20,16 +20,16 @@
 #include "Eigen/src/Geometry/Quaternion.h"
 #include "core/engine.hpp"
 #include "core/tag.hpp"
+#include "dk/adapters/ros.hpp"
+#include "dk/adapters/web/adapter.hpp"
 #include "features/control/events.hpp"
+#include "robot_context.hpp"
 #include "states/state_utils.hpp"
 
 class ControlFeature {
    public:
-    // 1. 声明属于自己的 Context（如果没有，就写 EmptyContext）
-    using Context = ControlContext;
-
-    template <typename RosAdapter>
-    static void setup(TagRos, std::shared_ptr<RosAdapter>& ros) {
+    static void setup(
+        TagRos, std::shared_ptr<dk::RosAdapter<RobotContext, Engine>>& ros) {
         ros->bind_context(
             "/mavros/state",
             [](const mavros_msgs::State::ConstPtr& state_ptr,
@@ -164,8 +164,9 @@ class ControlFeature {
                             return e;
                         });
     }
-    template <typename WebAdapter>
-    static void setup(TagWeb, std::shared_ptr<WebAdapter>& web) {
+
+    static void setup(
+        TagWeb, std::shared_ptr<dk::WebAdapter<RobotContext, Engine>>& web) {
         web->template register_route<PrearmEvent, EventResult>(
             boost::beast::http::verb::get, "/prearms", 5000);
 

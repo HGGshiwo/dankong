@@ -221,6 +221,10 @@ endfunction()
 # 使用函数生成不同的 Targets
 # ==============================================================================
 create_dankong_target(drone)
+# create_dankong_target(car
+#     EXTRA_SOURCES generated/can_bus/ipc_vcu_zrd.c
+#     EXTRA_INCLUDES generated/can_bus/
+# )
 # create_dankong_target(dog)
 
 # ==============================================================================

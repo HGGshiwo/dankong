@@ -4,6 +4,7 @@
 #include "./context.hpp"
 #include "core/engine.hpp"
 #include "core/tag.hpp"
+#include "dk/adapters/ros.hpp"
 #include "dk/adapters/udp/udp.hpp"
 #include "robot/drone.hpp"
 #include "robot_context.hpp"
@@ -15,8 +16,8 @@ struct DroneFeature {
         ctx.robot = std::make_shared<Drone>(std::make_shared<MavRos>());
     }
 
-    template <typename RosAdapterType>
-    static void setup(TagRos, std::shared_ptr<RosAdapterType>& ros) {
+    static void setup(
+        TagRos, std::shared_ptr<dk::RosAdapter<RobotContext, Engine>>& ros) {
         ros->bind_context("/mavros/vfr_hud",
                           [](const mavros_msgs::VFR_HUD::ConstPtr& vfr_hud_msg,
                              RobotContext& ctx) -> auto {

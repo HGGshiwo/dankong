@@ -11,9 +11,8 @@
 // =================================================================
 // 终极魔法：只需这一段配置，剩下的全交由编译器生成！
 // =================================================================
-using CarAssembler =
-    BaseAssembler<SystemFeature, AlgoFeature, ControlFeature, ReportFeature,
-                  CarFeature, TrackerFeature, SystemFeature>;
+using CarAssembler = BaseAssembler<SystemFeature, AlgoFeature, ControlFeature,
+                                   ReportFeature, CarFeature, TrackerFeature>;
 
 // 全局唯一的上下文类型生成
 using RobotAssembler = CarAssembler;

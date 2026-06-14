@@ -44,6 +44,7 @@ def sitl_env(robot_type: str = None):
     robot_type_map = {
         "drone": ("ArduCopter", "gazebo-iris"),
         "dog": ("Rover", "gazebo-rover"),
+        "car": ("Rover", "gazebo-rover"),
     }
     apm_arg = robot_type_map.get(robot_type, None)
     if apm_arg is None:
@@ -103,7 +104,7 @@ def sitl_env(robot_type: str = None):
             session_cleanup()
 
 
-MODEL_NAME_MAP = {"dog": "/", "drone": "iris_demo"}
+MODEL_NAME_MAP = {"dog": "/", "drone": "iris_demo", "car": "ugv_0"}
 
 
 def http_post(url, data=None, check=False) -> Dict[str, Any]:

@@ -8,12 +8,12 @@
 #include <mutex>
 #include <optional>
 
+#include "./ilanding_controller.hpp"
 #include "./utils.hpp"
 #include "core/base_tracker.hpp"
 #include "core/engine.hpp"
 #include "core/global_config.hpp"
 #include "features/tracker/tracker.hpp"
-#include "landing_detector.hpp"
 #include "nav_msgs/Odometry.h"
 #include "robot_context.hpp"
 #include "ros/publisher.h"
@@ -88,7 +88,7 @@ class KinematicTrajectoryGenerator2D {
     }
 };
 
-class PlandController : public IThreadRunner {
+class PlandController : public IThreadRunner, public ILandingController {
    private:
     RobotContext& ctx_;
     int invalid_time_ = 0;
@@ -143,13 +143,17 @@ class PlandController : public IThreadRunner {
         }
     }
 
-    void update_observation(const DetectorResult& result) {
+    void update_observation(const DetectorResult& result) override {
         std::lock_guard<std::mutex> lk(state_mtx_);
         if (result.is_valid) {
             latest_obs_ = result;
             publish_debug_data(ctx_, result);
         }
     }
+
+    void start(int hz) override { IThreadRunner::start(hz); }
+
+    void stop() override { IThreadRunner::stop(); }
 
     void on_start() override {
         traj_gen_.reset(

@@ -5,15 +5,17 @@
 #include "./event_listener.hpp"
 #include "core/engine.hpp"
 #include "core/tag.hpp"
+#include "dk/adapters/ros.hpp"
+#include "dk/adapters/web/adapter.hpp"
 
 class TemplateFeature {
    public:
-    template <typename RosAdapter>
-    static void setup(TagRos, std::shared_ptr<RosAdapter>& ros) {
+    static void setup(
+        TagRos, std::shared_ptr<dk::RosAdapter<RobotContext, Engine>>& ros) {
         // ...
     }
-    template <typename WebAdapter>
-    static void setup(TagWeb, std::shared_ptr<WebAdapter>& web) {
+    static void setup(
+        TagWeb, std::shared_ptr<dk::WebAdapter<RobotContext, Engine>>& web) {
         // ...
     }
 

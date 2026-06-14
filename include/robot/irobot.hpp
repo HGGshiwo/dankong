@@ -39,6 +39,8 @@ class IRobot : public ITrackerRuntime {
             return inner_check_hover(ctx.dog_state);
         } else if constexpr (robot_type == "DRONE") {
             return inner_check_hover(ctx.arm.load(), ctx.throttle.load());
+        } else if constexpr (robot_type == "CAR") {
+            return inner_check_hover(ctx.gear.load());
         } else {
             return false;
         }
@@ -60,7 +62,11 @@ class IRobot : public ITrackerRuntime {
 
     virtual bool inner_check_hover(unsigned int state) { return false; };
 
+    virtual bool inner_check_hover(int gear) { return false; };
+
     virtual bool inner_is_landed(unsigned int state) { return false; };
+
+    virtual bool inner_is_landed(int gear) { return false; };
 
     virtual bool inner_is_landed(bool arm, double throttle,
                                  double rangefinder) {

@@ -1,0 +1,32 @@
+ui_config: car-ui.yaml
+can_name: vcan0
+is_omnidirectional: false
+wheelbase: 2.6
+
+# System Settings (Hidden from UI)
+server_port: 8000
+
+# Path Settings
+static_dir: "dist"
+json_path: "config/config.json"
+
+# Control Settings
+fcu_data_rate: 10
+pdef_path: "config/apm.pdef.xml"
+follow_timeout: 1.0
+prearm_timeout: 3.0
+takeoff_timeout: 100.0
+posvel_timeout: 3.0
+pos_tolerance: 1.0
+yaw_tolerance: 0.08
+z_tolerance: 1.0
+fix_yaw_dist: 1.0
+
+# Algo Settings
+detect_map:
+  nohardhat: "/UAV0/perception/yolo_detection/enable_detection"
+  smoke: "/UAV0/perception/yolo_detection_smoke/enable_detection"
+
+# Report Settings
+report_hz: 10.0
+report_mission_hz: 1.0

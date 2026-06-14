@@ -16,7 +16,7 @@ struct CarContext {
     std::shared_ptr<CanClient> can_client =
         std::make_shared<CanClient>(GlobalConfig.GetConfig().can_name);
 
-    DirtyVar<double> gear{0};  // 挡位 (0:P, 1:R, 2:N, 3:D)
+    DirtyVar<int> gear{0};  // 挡位 (0:P, 1:R, 2:N, 3:D)
     DirtyVar<FixedString64> gear_str{"UNKNOWN"};
 
     DirtyVar<double> speed{0.0};    // 车速 km/h

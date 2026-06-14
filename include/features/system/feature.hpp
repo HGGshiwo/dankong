@@ -17,8 +17,8 @@ class SystemFeature {
         engine->add_listener(listener);
     }
 
-    template <typename WebAdapter>
-    static void setup(TagWeb, std::shared_ptr<WebAdapter>& web) {
+    static void setup(
+        TagWeb, std::shared_ptr<dk::WebAdapter<RobotContext, Engine>>& web) {
         auto& cfg = GlobalConfig.GetConfig();
 
         web->enable_cors();

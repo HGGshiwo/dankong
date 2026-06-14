@@ -10,6 +10,8 @@
 #include "core/engine.hpp"
 #include "core/global_config.hpp"
 #include "core/tag.hpp"
+#include "dk/adapters/ros.hpp"
+#include "dk/adapters/web/adapter.hpp"
 #include "event_listener.hpp"
 #include "features/algo/events.hpp"
 #include "features/tracker/tracker.hpp"
@@ -47,8 +49,8 @@ class PlandFeature {
             });
     }
 
-    template <typename RosAdapter>
-    static void setup(TagRos, std::shared_ptr<RosAdapter>& ros) {
+    static void setup(
+        TagRos, std::shared_ptr<dk::RosAdapter<RobotContext, Engine>>& ros) {
         ros->bind_context(
             GlobalConfig.GetConfig().pland_image_topic.get(),
             [](const sensor_msgs::ImageConstPtr& msg, RobotContext& ctx) {
@@ -89,12 +91,19 @@ class PlandFeature {
             });
     }
 
-    template <typename WebAdapter>
-    static void setup(TagWeb, std::shared_ptr<WebAdapter>& web) {
+    static void setup(
+        TagWeb, std::shared_ptr<dk::WebAdapter<RobotContext, Engine>>& web) {
         web->template register_route<StartPlandDetectEvent, EventResult>(
             boost::beast::http::verb::post, "/start_pland_detect");
         web->template register_route<SetPlandTarget, EventResult>(
             boost::beast::http ::verb::post, "/pland_target/set");
+        // 该接口只是调试时候使用
+        web->template register_route<SetWaypointEvent, EventResult>(
+            boost::beast::http::verb::post, "/pland", 5000,
+            [](SetWaypointEvent& event) {
+                event.land_target_id = 0;
+                event.finish_action = FinishAction::LAND;
+            });
     }
 
     static void setup(TagListeners, const std::shared_ptr<Engine>& engine) {

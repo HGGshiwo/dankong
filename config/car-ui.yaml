@@ -1,0 +1,442 @@
+# ==========================================
+# 1. 状态指示器配置 (StatusConfig)
+# 对应 config_type: "state"
+# ==========================================
+state_bool:
+  - key: connected
+    name: "飞控连接"
+    collapse: false
+    
+  - key: arm
+    name: "解锁"
+    collapse: false
+    
+  - key: planner
+    name: "避障"
+    collapse: false
+ 
+  - key: detect_type
+    name: "检测"
+    collapse: false
+  
+  - key: recording
+    name: "录制"
+    collapse: false
+
+state_value:
+  - key: mode
+    name: "飞控模式"
+    collapse: false
+  
+  - key: state
+    name: "单控模式"
+    collapse: false
+
+state:
+  - key: basic_state
+    name: "狗状态"
+    collapse: false
+    
+  - key: gps_nsats
+    name: "GPS星数"
+    collapse: false
+  
+  - key: gps_fix_type
+    name: "GPS fix_type"
+    collapse: false
+  
+  - key: rel_alt
+    name: "相对高度"
+    collapse: false
+    fixed: 2
+  
+  - key: dist
+    name: "目标距离"
+    collapse: false
+    fixed: 2
+  
+  - key: version
+    name: "version"
+    collapse: false
+  
+  - key: battery_level
+    name: "电量"
+    collapse: false
+  
+  - key: yaw_diff
+    name: "偏航误差"
+    collapse: true
+  
+  - key: yr
+    name: "期望角速"
+    collapse: true
+  
+  - key: vx
+    name: "期望速度"
+    collapse: true
+  
+  - key: alt_diff
+    name: "高度误差"
+    collapse: true
+  
+  - key: wp_idx
+    name: "当前航点"
+    collapse: true
+  
+  # - key: follow x
+  #   name: "跟随速度X"
+  #   collapse: true
+  # - key: follow y
+  #   name: "跟随速度Y"
+  #   collapse: true
+  # - key: follow z
+  #   name: "跟随速度Z"
+  #   collapse: true
+  # - key: max_forward_vel
+  #   name: "最大前向速度"
+  #   collapse: true
+  # - key: max_backward_vel
+  #   name: "最大后向速度"
+  #   collapse: true
+
+# ==========================================
+# 2. 按钮触发器配置 (PrimaryButtonConfig)
+# 对应 config_type: "button"
+# ==========================================
+button:
+  - key: btn_prearms
+    name: "起飞检查"
+    group: "飞行控制"
+    target:
+      config_type: "toast"
+      url: "/prearms"
+      method: "GET"
+
+  - key: btn_takeoff
+    name: "起飞"
+    group: "飞行控制"
+    target:
+      config_type: "form"
+      title: "起飞"
+      items:
+        - key: alt
+          type: "number"
+          name: "起飞高度"
+          default: 10
+      submit:
+        config_type: "button"
+        target:
+          config_type: "toast"
+          url: "/takeoff"
+          method: "POST"
+
+  # - key: btn_arm
+  #   name: "解锁"
+  #   target:
+  #     config_type: "toast"
+  #     url: "/arm"
+  #     method: "POST"
+
+  - key: btn_guided
+    name: "GUIDED"
+    group: "飞行控制"
+    target:
+      config_type: "toast"
+      url: "/set_mode"
+      method: "POST"
+      data:
+        mode: "GUIDED"
+
+  - key: btn_loiter
+    name: "悬停"
+    group: "飞行控制"
+    target: { config_type: "toast", url: "/loiter", method: "POST" }
+
+  - key: btn_return
+    name: "返航"
+    group: "飞行控制"
+    target: { config_type: "toast", url: "/return", method: "POST" }
+
+  - key: btn_land
+    name: "降落"
+    group: "飞行控制"
+    target: { config_type: "toast", url: "/land", method: "POST" }
+
+  - key: btn_pland
+    name: "精准降落"
+    group: "飞行控制"
+    target: { config_type: "toast", url: "/land", method: "POST", "data": {"land_target_id": 0} }
+
+  - key: btn_reboot_fcu
+    name: "重启飞控"
+    group: "飞行控制"
+    target: { config_type: "toast", url: "/reboot_fcu", method: "POST" }
+
+  # - key: btn_input_waypoint
+  #   name: "输入航点"
+  #   target:
+  #     config_type: "form"
+  #     title: "输入航点"
+  #     items:
+  #       - key: waypoint
+  #         type: "input"
+  #         name: "输入航点"
+  #         default: ""
+  #         transform: "json"
+  #       - key: vel
+  #         type: "number"
+  #         name: "输入速度"
+  #         default: 5
+  #     submit:
+  #       config_type: "button"
+  #       target: { config_type: "toast", url: "/set_waypoint", method: "POST" }
+
+  - key: btn_get_waypoint
+    name: "获取航点"
+    group: "参数获取"
+    target: { config_type: "copy", url: "/get_waypoint", method: "GET" }
+
+  - key: btn_get_gps
+    name: "获取GPS"
+    group: "参数获取"
+    target: { config_type: "copy", url: "/get_gps", method: "GET" }
+
+  # - key: btn_get_gpsv2
+  #   name: "获取GPSv2"
+  #   target: { config_type: "copy", url: "/get_gpsv2", method: "GET" }
+
+  - key: btn_stop_follow
+    name: "停止跟随"
+    group: "算法控制"
+    target: { config_type: "toast", url: "/stop_follow", method: "POST" }
+
+  - key: btn_start_planner
+    name: "启用避障"
+    group: "算法控制"
+    target: { config_type: "toast", url: "/start_planner", method: "POST" }
+
+  - key: btn_stop_planner
+    name: "关闭避障"
+    group: "算法控制"
+    target: { config_type: "toast", url: "/stop_planner", method: "POST" }
+
+  - key: btn_log
+    name: "记录日志"
+    group: "算法控制"
+    target:
+      config_type: "form"
+      title: "记录日志"
+      items:
+        - key: data
+          type: "string"
+          name: "日志内容"
+      submit:
+        config_type: "button"
+        target:
+          config_type: "toast"
+          url: "/log"
+          method: "POST"
+
+  - key: btn_start_detect
+    name: "开启检测"
+    group: "算法控制"
+    target:
+      config_type: "form"
+      title: "开启检测"
+      url: "/get_detect"
+      method: "GET"
+      items:
+        - key: type
+          type: "radio"
+          name: "检测类型"
+          options:
+            - key: smoke
+              name: "烟雾"
+            - key: nohardhat
+              name: "头盔"
+      submit:
+        config_type: "button"
+        target: { config_type: "toast", url: "/start_detect", method: "POST" }
+
+  - key: btn_stop_detect
+    name: "关闭检测"
+    group: "算法控制"
+    target: { config_type: "toast", url: "/stop_detect", method: "POST" }
+
+  - key: btn_start_record
+    name: "开始录制"
+    group: "算法控制"
+    target:
+      config_type: "form"
+      title: "开始录制"
+      items:
+        - key: bag_name
+          type: "input"
+          name: "录制名称"
+          default: "task"
+      submit:
+        config_type: "button"
+        name: "提交"
+        target: { config_type: "toast", url: "/start_record", method: "POST" }
+
+  - key: btn_stop_record
+    name: "结束录制"
+    group: "算法控制"
+    target: { config_type: "toast", url: "/stop_record", method: "POST" }
+
+  - key: btn_gimbal_ctrl
+    name: "云台控制"
+    group: "载荷控制"
+    target:
+      config_type: "form"
+      title: "云台控制"
+      url: "/get_gimbal"
+      method: "GET"
+      items:
+        - key: mode
+          type: "radio"
+          name: "模式"
+          options:
+            - key: body
+              name: "body"
+            - key: abs
+              name: "abs"
+        - key: angle
+          type: "number"
+          name: "角度"
+      submit:
+        config_type: "button"
+        name: "提交"
+        target: { config_type: "toast", url: "/set_gimbal", method: "POST" }
+
+  - key: btn_exposure_ctrl
+    name: "曝光控制"
+    group: "载荷控制"
+    target:
+      config_type: "form"
+      title: "曝光控制"
+      url: "/get_exposure"
+      method: "GET"
+      items:
+        - key: shutter
+          type: "number"
+          name: "shutter"
+        - key: sensitivity
+          type: "number"
+          name: "sensitivity"
+      submit:
+        config_type: "button"
+        name: "提交"
+        target: { config_type: "toast", url: "/set_exposure", method: "POST" }
+
+  - key: btn_param_set
+    name: "参数设置"
+    group: "参数获取"
+    target:
+      config_type: "form"
+      title: "参数设置"
+      url: "/params"
+      method: "GET"
+      items:
+        - key: param
+          type: "group_table"
+          titleKey: "name"
+          columns:
+            - key: name
+              title: "参数名称"
+            - key: help
+              title: "参数解释"
+              width: 300
+            - key: value
+              title: "参数值"
+              editable: true
+      submit:
+        config_type: "button"
+        name: "提交"
+        target: { config_type: "toast", url: "/set_param", method: "POST" }
+
+  - key: btn_config_set
+    name: "配置设置"
+    group: "参数获取"
+    target:
+      config_type: "form"
+      title: "配置设置"
+      url: "/config/get"
+      method: "GET"
+      items:
+        - key: config
+          type: "group_table"
+          titleKey: "name"
+          columns:
+            - key: name
+              title: "配置名称"
+            - key: help
+              title: "配置解释"
+              width: 300
+            - key: value
+              title: "配置值"
+              editable: true
+      submit:
+        config_type: "button"
+        name: "提交"
+        target: { config_type: "toast", url: "/config/set", method: "POST" }
+
+# ==========================================
+# 3. 表格配置 (TableConfig)
+# 对应 config_type: "table"
+# ==========================================
+table:
+  - key: mission_data
+    curIndexKey: "wp_idx"
+    columns:
+      - key: num
+        title: "索引"
+      - key: lat
+        title: "纬度"
+      - key: lon
+        title: "经度"
+      - key: alt
+        title: "高度"
+      - key: command
+        title: "类型"
+
+logbox:
+  - key: error
+    config_type: logbox
+    type: error
+    label: "error"
+    color: "#D83030"
+    backgroundColor: "#FFEDED"
+    borderColor: "#FFB3B3"
+  
+  - key: info
+    config_type: logbox
+    type: info
+    label: "info"
+    color: "#0958D9"
+    backgroundColor: "#EBF4FF"
+    borderColor: "#B3D1FF"
+  
+  - key: event
+    config_type: logbox
+    type: event
+    label: "event"
+    color: "#7C3AED"
+    backgroundColor: "#F3E8FF"
+    borderColor: "#C4B5FD"
+  
+  - key: warn
+    config_type: logbox
+    type: warn
+    label: "warn"
+    color: "#FF6D00"
+    backgroundColor: "#FFF2E8"
+    borderColor: "#FFC080"
+  
+  - key: debug
+    config_type: logbox
+    type: debug
+    label: "debug"
+    color: "#6B7280"
+    backgroundColor: "#F3F4F6"
+    borderColor: "#D1D5DB"

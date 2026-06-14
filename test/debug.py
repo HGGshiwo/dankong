@@ -3,11 +3,10 @@
 import random
 import time
 import unittest
-from test.test_helper import Apriltag
+from test.test_helper import Apriltag, Robot, sitl_env
 
 import rospy
 import rostest
-from mavproxy_ros.test.test_helper import Robot, sitl_env
 from nav_msgs.msg import Odometry
 
 XY_THRESHOLD = 2.5  # 目标的距离阈值
