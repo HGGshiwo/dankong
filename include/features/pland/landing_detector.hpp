@@ -120,7 +120,8 @@ class LandingDetector : public IThreadRunner, public ILandingDetector {
         std::optional<double> gimbal_roll = std::nullopt,
         std::optional<double> gimbal_pitch = std::nullopt,
         std::optional<double> gimbal_yaw = std::nullopt,
-        bool is_gimbal_absolute = true) const {
+        bool is_gimbal_absolute = true,
+        Eigen::Vector3d *out_pos_body = nullptr) const {
         Eigen::Vector3d t_bc = get_camera_body_offset();
         Eigen::Vector3d cam_ray =
             camera_inner_matrix_.inverse() * Eigen::Vector3d(img_x, img_y, 1.0);
@@ -145,6 +146,9 @@ class LandingDetector : public IThreadRunner, public ILandingDetector {
             return Eigen::Vector3d::Constant(
                 std::numeric_limits<double>::quiet_NaN());
         }
+        if (out_pos_body) {
+            *out_pos_body = t_bc + t * R_cam_to_body * cam_ray;
+        }
         return camera_pos_world + t * world_ray;
     }
 
@@ -155,8 +159,8 @@ class LandingDetector : public IThreadRunner, public ILandingDetector {
         const TargetPose *safe_pose, const Eigen::Vector3d &hist_drone_pos,
         const Eigen::Matrix3d &hist_R_wb, std::optional<double> gimbal_roll,
         std::optional<double> gimbal_pitch, std::optional<double> gimbal_yaw,
-        bool is_gimbal_absolute, double &out_relative_yaw,
-        double &out_abs_yaw) {
+        bool is_gimbal_absolute, double &out_relative_yaw, double &out_abs_yaw,
+        Eigen::Vector3d &out_pos_body) {
         // 核心：用动态矩阵替代原本写死的静态 R_bc
         Eigen::Matrix3d R_bc = get_dynamic_camera_to_body_rotation(
             hist_R_wb, gimbal_roll, gimbal_pitch, gimbal_yaw,
@@ -168,6 +172,7 @@ class LandingDetector : public IThreadRunner, public ILandingDetector {
         Eigen::Matrix3d R_tag_cam = safe_pose->R;
 
         Eigen::Vector3d P_tag_body = t_bc + R_bc * t_tag_cam;
+        out_pos_body = P_tag_body;
         Eigen::Matrix3d R_tag_body = R_bc * R_tag_cam;
 
         out_relative_yaw = std::atan2(R_tag_body(1, 0), R_tag_body(0, 0));
@@ -335,14 +340,16 @@ class LandingDetector : public IThreadRunner, public ILandingDetector {
             }
 
             // --- 坐标求解 ---
-            pnp_enu = solve_pose_by_pnp(best_pose, hist_drone_pos, hist_R_wb,
-                                        gimbal_roll, gimbal_pitch, gimbal_yaw,
-                                        gimbal_abs, relative_yaw, abs_yaw);
+            Eigen::Vector3d pnp_pos_body = Eigen::Vector3d::Zero();
+            pnp_enu = solve_pose_by_pnp(
+                best_pose, hist_drone_pos, hist_R_wb, gimbal_roll, gimbal_pitch,
+                gimbal_yaw, gimbal_abs, relative_yaw, abs_yaw, pnp_pos_body);
 
+            Eigen::Vector3d los_pos_body = Eigen::Vector3d::Zero();
             los_enu = solve_pose_by_ray(
                 obs.center_pixel.x, obs.center_pixel.y, hist_drone_pos,
                 hist_R_wb, config_.platform_height.get(), gimbal_roll,
-                gimbal_pitch, gimbal_yaw, gimbal_abs);
+                gimbal_pitch, gimbal_yaw, gimbal_abs, &los_pos_body);
 
             bool los_valid = !std::isnan(los_enu.x());
             bool pnp_valid = !std::isnan(pnp_enu.x());
@@ -350,15 +357,18 @@ class LandingDetector : public IThreadRunner, public ILandingDetector {
             if (!los_valid && pnp_valid) {
                 raw_target_enu = pnp_enu;
                 output.pnp_pos = raw_target_enu;
+                output.target_pos_body = pnp_pos_body;
             } else if (los_valid && !pnp_valid) {
                 raw_target_enu = los_enu;
                 output.los_pos = raw_target_enu;
+                output.target_pos_body = los_pos_body;
             } else if (!los_valid && !pnp_valid) {
                 return output;
             } else {
                 output.pnp_pos = pnp_enu;
                 output.los_pos = los_enu;
                 raw_target_enu = solve_fused_pose(pnp_enu, los_enu);
+                output.target_pos_body = pnp_pos_body;
             }
             output.is_valid = true;
         }

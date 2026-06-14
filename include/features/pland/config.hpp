@@ -83,7 +83,7 @@ struct PlandConfig {
         INIT_PARAM("use_ff_vel", true, "是否使用前馈速度");
 
     dk::Param<LayoutMap> tag_pos_map =
-        INIT_PARAM("tag_pos_map", LayoutMap{}, "每个tag的物理坐标");
+        INIT_HIDDEN_PARAM("tag_pos_map", LayoutMap{});
     dk::Param<std::string> tag_famliy =
         INIT_PARAM("tag_famliy", "tag16h5", "tag family");
     dk::Param<double> z_high =
@@ -106,5 +106,8 @@ struct PlandConfig {
         INIT_PARAM("hold_dist_thresh_min_alt", 0.5,
                    "该高度下始终使用hold_dist_thresh_min");
     dk::Param<double> pland_kp = INIT_PARAM("pland_kp", 1.5, "兔子的位置系数");
+    dk::Param<double> vision_kp = INIT_PARAM("vision_kp", 1.0, "视觉伺服的k");
     dk::Param<double> pland_kv = INIT_PARAM("pland_kv", 2.5, "兔子的速度系数");
+    dk::Param<bool> pure_vision =
+        INIT_PARAM("pure_vision", true, "是否使用纯视觉伺服模式");
 };

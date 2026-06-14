@@ -4,6 +4,7 @@
 #include <thread>
 
 #include "./engine.hpp"
+#include "core/global_config.hpp"
 #include "core/tag.hpp"
 #include "dk/AsioTimeProvider.hpp"
 #include "dk/ITimeProvider.hpp"

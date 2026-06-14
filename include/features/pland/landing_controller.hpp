@@ -88,6 +88,12 @@ class KinematicTrajectoryGenerator2D {
     }
 };
 
+// [新增] 伺服模式枚举
+enum class ServoingMode {
+    GLOBAL_ENU,  // 原方案：基于全局坐标系的位置追踪
+    PURE_VISUAL_BODY  // 新方案：基于机体坐标系的纯视觉相对速度控制
+};
+
 class PlandController : public IThreadRunner, public ILandingController {
    private:
     RobotContext& ctx_;
@@ -104,6 +110,7 @@ class PlandController : public IThreadRunner, public ILandingController {
     std::mutex state_mtx_;
     DetectorResult latest_obs_;
     bool is_blind_drop_ = false;  // 是否已经进入降落状态
+    ServoingMode current_mode_ = ServoingMode::GLOBAL_ENU;  // 默认使用原方案
 
    public:
     PlandController(RobotContext& ctx)
@@ -115,6 +122,10 @@ class PlandController : public IThreadRunner, public ILandingController {
         vel_pub_ = nh.advertise<geometry_msgs::TwistStamped>("/pland/vel", 10);
         log_idx_ = 0;
         last_step_time_ = 0.0;
+
+        if (GlobalConfig.GetConfig().pure_vision.get()) {
+            current_mode_ = ServoingMode::PURE_VISUAL_BODY;
+        }
     }
 
     void publish_debug_data(RobotContext& ctx, DetectorResult result) {
@@ -169,6 +180,24 @@ class PlandController : public IThreadRunner, public ILandingController {
             obs = latest_obs_;
         }
 
+        // 动态读取配置，支持空中无缝切换
+        current_mode_ = GlobalConfig.GetConfig().pure_vision.get()
+                            ? ServoingMode::PURE_VISUAL_BODY
+                            : ServoingMode::GLOBAL_ENU;
+
+        // 根据模式进入不同的控制逻辑分支
+        if (current_mode_ == ServoingMode::GLOBAL_ENU) {
+            step_global_enu(dt, obs, now);
+        } else {
+            step_pure_visual(dt, obs, now);
+        }
+    }
+
+   private:
+    // =================================================================
+    // 方案一：保留你原有的全局 ENU 逻辑
+    // =================================================================
+    void step_global_enu(double dt, const DetectorResult& obs, double now) {
         if (obs.stamp == 0.0) return;
 
         auto pos_enu = ctx_.pos_enu.load();
@@ -475,6 +504,142 @@ class PlandController : public IThreadRunner, public ILandingController {
                 max_vel_z, is_blind_drop_ ? "YES" : "NO", delay_sec,
                 is_leash_clamped ? "YES" : "NO", gamma, pland_acc_xy,
                 hold_dist_thresh);
+        }
+    }
+
+    // =================================================================
+    // 方案二：新增的纯视觉伺服逻辑 (PBVS 基于位置的视觉伺服)
+    // =================================================================
+    void step_pure_visual(double dt, const DetectorResult& obs, double now) {
+        bool is_timeout = (obs.stamp == 0.0) || ((now - obs.stamp) > 1.0);
+        if (!obs.is_valid || is_timeout) {
+            invalid_time_ += 1;
+        } else {
+            invalid_time_ = 0;
+        }
+
+        // 1.
+        // 目标丢失处理：纯视觉失去目标后，最安全的做法是机体系速度归零（悬停）
+        if (invalid_time_ > 20) {
+            if (!is_blind_drop_) {
+                // 停止任何相对运动，等待目标重新进入视野
+                ctx_.tracker->send_vel_cmd(Eigen::Vector3d::Zero(),
+                                           std::nullopt, 0.0, CmdFrame::BODY);
+                return;
+            }
+        }
+
+        // 2. 提取视觉相对误差 (Body Frame)
+        Eigen::Vector3d err_body = obs.target_pos_body;
+        double err_yaw = obs.yaw_relative;
+
+        // ==========================================
+        // [核心修正] 3. 计算机体坐标系下的前馈速度
+        // ==========================================
+        Eigen::Vector2d ff_vel_body(0.0, 0.0);
+
+        // 如果系统开启了前馈，且目标处于运动状态
+        if (GlobalConfig.GetConfig().use_ff_vel.get()) {
+            // 取出 CTRV 滤波器算出的目标全局速度 (这个速度受 GPS 漂移影响较小)
+            Eigen::Vector2d target_vel_enu_xy = obs.target_vel_enu.head<2>();
+
+            // 获取无人机当前的全局偏航角 (只用 Yaw，不用 XY 位置)
+            double current_yaw = ctx_.yaw_enu.load();
+
+            // 旋转矩阵：将 ENU 速度投影到当前的机体前方 (X) 和左方/右方 (Y)
+            // 假设 Body 系为 FLU (前左上)
+            double cos_y = std::cos(current_yaw);
+            double sin_y = std::sin(current_yaw);
+
+            // 坐标旋转：从 ENU 变回 Body (逆旋转)
+            ff_vel_body.x() =
+                target_vel_enu_xy.x() * cos_y + target_vel_enu_xy.y() * sin_y;
+            ff_vel_body.y() =
+                -target_vel_enu_xy.x() * sin_y + target_vel_enu_xy.y() * cos_y;
+
+            // 可以在这里对 ff_vel_body 做一下限幅，防止异常脉冲
+            double max_ff =
+                GlobalConfig.GetConfig().pland_cruise_speed_xy.get() * 0.8;
+            if (ff_vel_body.norm() > max_ff) {
+                ff_vel_body = ff_vel_body.normalized() * max_ff;
+            }
+        }
+
+        // 4. 计算水平速度指令 (P-Controller + Feedforward)
+        double Kp_xy = GlobalConfig.GetConfig().vision_kp.get();
+        double max_v_xy = GlobalConfig.GetConfig().pland_cruise_speed_xy.get();
+
+        Eigen::Vector3d vel_cmd_body(0.0, 0.0, 0.0);
+
+        // 【结合误差反馈与目标前馈】
+        vel_cmd_body.x() = Kp_xy * err_body.x() + ff_vel_body.x();
+        vel_cmd_body.y() = Kp_xy * err_body.y() + ff_vel_body.y();
+
+        // 整体限幅
+        if (vel_cmd_body.head<2>().norm() > max_v_xy) {
+            vel_cmd_body.head<2>() =
+                vel_cmd_body.head<2>().normalized() * max_v_xy;
+        }
+
+        // 5. 计算偏航角速度指令 (包含角速度前馈)
+        double Kp_yaw = 1.0;
+        double ff_omega = obs.target_vel_enu.z();  // 目标的角速度直接作为前馈
+
+        double omega_z = Kp_yaw * err_yaw + ff_omega;
+        omega_z = std::clamp(omega_z, -0.5, 0.5);
+
+        // 6. 下降逻辑 (Z轴漏斗控制)
+        double current_z = get_current_z(ctx_);
+        double xy_error_norm = err_body.head<2>().norm();
+
+        // 简单的对齐漏斗：只有在水平面误差小于高度的 20% 时才允许下降
+        double align_thresh = std::max(0.2, current_z * 0.2);
+
+        if (current_z < GlobalConfig.GetConfig().pland_land_alt.get()) {
+            ctx_.robot->land();
+            return;
+        } else if (current_z <
+                       GlobalConfig.GetConfig().pland_blind_drop_alt.get() &&
+                   xy_error_norm <
+                       GlobalConfig.GetConfig().blind_drop_xy_thresh.get()) {
+            is_blind_drop_ = true;
+        }
+
+        if (is_blind_drop_) {
+            vel_cmd_body.z() = -(GlobalConfig.GetConfig().touchdown_velocity +
+                                 0.2);         // FLU中下降是负速度
+            vel_cmd_body.head<2>().setZero();  // 盲降时水平不乱动
+            omega_z = 0.0;
+        } else {
+            if (xy_error_norm < align_thresh) {
+                // 对准了，根据高度计算下降速度
+                double base_descent = 0.3 + (current_z / 10.0) * 0.5;
+                vel_cmd_body.z() =
+                    -std::min(base_descent,
+                              GlobalConfig.GetConfig().pland_max_vel_z.get());
+            } else {
+                // 没对准，保持高度，纯做水平逼近
+                vel_cmd_body.z() = 0.0;
+            }
+        }
+
+        // 7. 最终下发纯视觉速度指令 (完全运行在 CmdFrame::BODY 机体坐标系)
+        ctx_.tracker->send_vel_cmd(
+            vel_cmd_body,   // 机体坐标系下的 [vx, vy, vz]
+            std::nullopt,   // 不控制绝对偏航角
+            omega_z,        // 控制偏航角速度
+            CmdFrame::BODY  // ★ 关键：指令参考系为机体坐标系
+        );
+
+        // [Debug 日志] 打印机体系误差，方便调参
+        log_idx_ += 1;
+        if (log_idx_ % 10 == 0) {
+            spdlog::info(
+                "[PVS] err_body:[{:.2f}, {:.2f}] | vel_body:[{:.2f}, {:.2f}, "
+                "{:.2f}] | "
+                "err_yaw:{:.1f}deg | omega_z:{:.2f} | Z:{:.1f}",
+                err_body.x(), err_body.y(), vel_cmd_body.x(), vel_cmd_body.y(),
+                vel_cmd_body.z(), err_yaw * 180.0 / M_PI, omega_z, current_z);
         }
     }
 };

@@ -13,6 +13,7 @@ struct DetectorResult {
 
     double target_yaw_enu = 0.0;
     double yaw_relative = 0.0;
+    Eigen::Vector3d target_pos_body = Eigen::Vector3d::Zero();
     double current_z = 0.0;  // 相对高度
 
     std::optional<Eigen::Vector3d> pnp_pos;
