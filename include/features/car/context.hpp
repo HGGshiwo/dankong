@@ -19,17 +19,19 @@ struct CarContext {
     DirtyVar<int> gear{0};  // 挡位 (0:P, 1:R, 2:N, 3:D)
     DirtyVar<FixedString64> gear_str{"UNKNOWN"};
 
-    DirtyVar<double> speed{0.0};    // 车速 km/h
-    DirtyVar<double> angle{0.0};    // 转向角度 °
-    DirtyVar<int> drive_mode{0};    // 驾驶模式
-    DirtyVar<int> estop_status{0};  // 急停状态反馈 (0:未触发)
+    DirtyVar<double> speed{0.0};                    // 车速 km/h
+    DirtyVar<double> angle{0.0};                    // 转向角度 °
+    DirtyVar<FixedString64> drive_mode{"UNKNOWN"};  // 驾驶模式
+    DirtyVar<bool> estop_status{false};  // 急停状态反馈 (0:未触发)
+    DirtyVar<FixedString64> car_state{"UNKNOW"};  // 车辆启动/关机
 
     explicit CarContext(StateRegistry& reg) {
-        reg.bind("档位", gear_str, 2);
-        reg.bind("车速", speed, 2);
-        reg.bind("角度", angle, 2);
-        reg.bind("模式", drive_mode, 2);
-        reg.bind("急停", estop_status, 2);
+        reg.bind("gear", gear_str, 2);
+        reg.bind("speed", speed, 2);
+        reg.bind("angle", angle, 2);
+        reg.bind("drive_mode", drive_mode, 2);
+        reg.bind("estop", estop_status, 2);
+        reg.bind("car_state", car_state, 2);
     }
 
     static constexpr std::string_view ROBOT_TYPE = "CAR";

@@ -23,6 +23,10 @@ state_bool:
     name: "录制"
     collapse: false
 
+  - key: estop
+    name: "急停"
+    collapse: false
+
 state_value:
   - key: mode
     name: "飞控模式"
@@ -32,11 +36,11 @@ state_value:
     name: "单控模式"
     collapse: false
 
-state:
-  - key: basic_state
-    name: "狗状态"
+  - key: gear
+    name: "档位"
     collapse: false
-    
+
+state:
   - key: gps_nsats
     name: "GPS星数"
     collapse: false
@@ -61,6 +65,19 @@ state:
   
   - key: battery_level
     name: "电量"
+    collapse: false
+
+  - key: speed
+    name: "车速"
+    collapse: false
+    fixed: 2
+  
+  - key: drive_mode
+    name: "驾驶模式"
+    collapse: false
+
+  - key: car_state
+    name: "车辆状态"
     collapse: false
   
   - key: yaw_diff
@@ -328,6 +345,46 @@ button:
         config_type: "button"
         name: "提交"
         target: { config_type: "toast", url: "/set_exposure", method: "POST" }
+
+  - key: btn_far_set
+    name: "打开远光"
+    group: "载荷控制"
+    target:
+      config_type: "toast"
+      url: "/light/set"
+      method: "POST"
+      data:
+        far: true
+      
+  - key: btn_far_unset
+    name: "关闭远光"
+    group: "载荷控制"
+    target:
+      config_type: "toast"
+      url: "/light/set"
+      method: "POST"
+      data:
+        far: false
+  
+  - key: btn_horn_set
+    name: "打开喇叭"
+    group: "载荷控制"
+    target:
+      config_type: "toast"
+      url: "/horn/set"
+      method: "POST"
+      data:
+        horn: true
+
+  - key: btn_horn_unset
+    name: "关闭喇叭"
+    group: "载荷控制"
+    target:
+      config_type: "toast"
+      url: "/horn/set"
+      method: "POST"
+      data:
+        horn: false
 
   - key: btn_param_set
     name: "参数设置"

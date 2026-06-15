@@ -102,13 +102,19 @@ class PlandController : public IThreadRunner, public ILandingController {
         bool is_blind_drop;       // 是否触发盲降
         double descent_vel;       // 计算出的下降速度限幅 (绝对值)
         double hold_dist_thresh;  // (Debug用) 当前高度对应的漏斗半径
+
+        // --- 新增：ENU 控制所需的衍生附属参数 ---
+        double enu_target_z;  // 绝对目标高度
+        double enu_gamma_z;   // Z 轴追踪刚度
+        double enu_gamma_xy;  // XY 轴追踪刚度
     };
 
     ZControlCmd calculate_shared_z_descent(double current_z,
                                            double current_xy_error,
                                            double abs_yaw_err_deg,
-                                           bool is_currently_blind_drop) {
-        ZControlCmd cmd = {false, false, false, 0.0, 0.0};
+                                           bool is_currently_blind_drop,
+                                           double drone_enu_z) {
+        ZControlCmd cmd = {false, false, false, 0.0, 0.0, 0.0, 0.0, 0.0};
         auto cfg = GlobalConfig.GetConfig();
 
         // 默认继承当前状态
@@ -135,12 +141,6 @@ class PlandController : public IThreadRunner, public ILandingController {
             cmd.is_blind_drop = true;
         }
 
-        // 如果最终判定处于盲降状态，直接返回盲降速度
-        if (cmd.is_blind_drop) {
-            cmd.descent_vel = cfg.touchdown_velocity + 0.2;
-            return cmd;
-        }
-
         // 4. 计算动态对齐漏斗 (Funnel)
         double align_dist_thresh = std::max(0.2, current_z * 0.2);
         double hold_dist_thresh_max = cfg.hold_dist_thresh_max.get();
@@ -159,43 +159,87 @@ class PlandController : public IThreadRunner, public ILandingController {
                     (hold_dist_thresh_max - hold_dist_thresh_min);
         }
 
-        // 5. 计算下降意愿因子
-        double xy_descent_factor = 1.0;
-        if (current_xy_error > cmd.hold_dist_thresh) {
-            xy_descent_factor = 0.0;  // 在漏斗外，完全不下降
-        } else if (current_xy_error > align_dist_thresh) {
-            xy_descent_factor =
-                1.0 - (current_xy_error - align_dist_thresh) /
-                          (cmd.hold_dist_thresh - align_dist_thresh);
-        }
-
-        double yaw_descent_min_deg = 15.0;
-        double yaw_descent_max_deg = 35.0;
-        double yaw_descent_factor = 1.0;
-        if (abs_yaw_err_deg > yaw_descent_max_deg) {
-            yaw_descent_factor = 0.0;
-        } else if (abs_yaw_err_deg > yaw_descent_min_deg) {
-            yaw_descent_factor =
-                1.0 - (abs_yaw_err_deg - yaw_descent_min_deg) /
-                          (yaw_descent_max_deg - yaw_descent_min_deg);
-        }
-
-        double descent_factor = xy_descent_factor * yaw_descent_factor;
-
-        // 6. 根据意愿因子生成平滑的下降速度
-        if (descent_factor > 0.05) {
-            double takeoff_alt = 10.0;
-            double alt_ratio =
-                std::min(1.0, std::abs(current_z / std::max(takeoff_alt, 1.0)));
-            double base_descent_vel = 0.2 + alt_ratio * 0.8;
-            cmd.descent_vel = base_descent_vel * descent_factor;
+        // 如果最终判定处于盲降状态，设置盲降速度
+        if (cmd.is_blind_drop) {
+            cmd.descent_vel = cfg.touchdown_velocity + 0.2;
         } else {
-            cmd.descent_vel = 0.0;  // 未对准，严格保持高度
+            // 5. 计算下降意愿因子
+            double xy_descent_factor = 1.0;
+            if (current_xy_error > cmd.hold_dist_thresh) {
+                xy_descent_factor = 0.0;  // 在漏斗外，完全不下降
+            } else if (current_xy_error > align_dist_thresh) {
+                xy_descent_factor =
+                    1.0 - (current_xy_error - align_dist_thresh) /
+                              (cmd.hold_dist_thresh - align_dist_thresh);
+            }
+
+            double yaw_descent_min_deg = 15.0;
+            double yaw_descent_max_deg = 35.0;
+            double yaw_descent_factor = 1.0;
+            if (abs_yaw_err_deg > yaw_descent_max_deg) {
+                yaw_descent_factor = 0.0;
+            } else if (abs_yaw_err_deg > yaw_descent_min_deg) {
+                yaw_descent_factor =
+                    1.0 - (abs_yaw_err_deg - yaw_descent_min_deg) /
+                              (yaw_descent_max_deg - yaw_descent_min_deg);
+            }
+
+            double descent_factor = xy_descent_factor * yaw_descent_factor;
+
+            // 6. 根据意愿因子生成平滑的下降速度
+            if (descent_factor > 0.05) {
+                double takeoff_alt = 10.0;
+                double alt_ratio = std::min(
+                    1.0, std::abs(current_z / std::max(takeoff_alt, 1.0)));
+                double base_descent_vel = 0.2 + alt_ratio * 0.8;
+                cmd.descent_vel = base_descent_vel * descent_factor;
+            } else {
+                cmd.descent_vel = 0.0;  // 未对准，严格保持高度
+            }
         }
 
         // 全局最大速度限幅
         cmd.descent_vel = std::min(cmd.descent_vel, cfg.pland_max_vel_z.get());
 
+        // 7. 【新增】计算衍生的 ENU 控制参数
+        cmd.enu_target_z = (cmd.descent_vel > 0.0)
+                               ? cfg.platform_height.get() - 0.5
+                               : drone_enu_z;
+        cmd.enu_gamma_z = cmd.is_blind_drop ? 100.0 : cfg.pland_gamma_z.get();
+
+        double max_gamma = cfg.pland_gamma.get();
+        double min_gamma = cfg.pland_min_gamma.get();
+        double decay_start_z = cfg.pland_decay_start_z.get();
+
+        if (current_z > 0 && current_z <= decay_start_z) {
+            cmd.enu_gamma_xy = min_gamma + (max_gamma - min_gamma) *
+                                               (current_z / decay_start_z);
+        } else {
+            cmd.enu_gamma_xy = (current_z <= 0) ? min_gamma : max_gamma;
+        }
+
+        return cmd;
+    }
+
+    // 返回 std::nullopt 表示已经触发底层动作（降落），要求主循环立刻 return
+    std::optional<ZControlCmd> execute_z_state_machine(double current_z,
+                                                       double xy_error,
+                                                       double yaw_error_deg,
+                                                       double drone_enu_z) {
+        ZControlCmd cmd = calculate_shared_z_descent(
+            current_z, xy_error, yaw_error_deg, is_blind_drop_, drone_enu_z);
+
+        // 统一的安全拦截：触地停机
+        if (cmd.should_land) {
+            if (cmd.should_disarm)
+                ctx_.robot->disarm();
+            else
+                ctx_.robot->land();
+            return std::nullopt;
+        }
+
+        // 统一的状态同步
+        is_blind_drop_ = cmd.is_blind_drop;
         return cmd;
     }
 
@@ -283,16 +327,87 @@ class PlandController : public IThreadRunner, public ILandingController {
             obs = latest_obs_;
         }
 
+        // 统一处理超时与无效时间 (合并 invalid_time_ 逻辑)
+        bool is_timeout = (obs.stamp == 0.0) || ((now - obs.stamp) > 1.0);
+        if (!obs.is_valid || is_timeout) {
+            invalid_time_ += 1;
+        } else {
+            invalid_time_ = 0;
+        }
+
+        if (obs.stamp == 0.0) return;
+
+        double TARGET_PLATFORM_HEIGHT =
+            GlobalConfig.GetConfig().platform_height.get();
+        double drone_enu_z = get_current_z(ctx_);
+        double current_z = std::max(0.0, drone_enu_z - TARGET_PLATFORM_HEIGHT);
+
         // 动态读取配置，支持空中无缝切换
         current_mode_ = GlobalConfig.GetConfig().pure_vision.get()
                             ? ServoingMode::PURE_VISUAL_BODY
                             : ServoingMode::GLOBAL_ENU;
 
+        // 统一处理目标丢失的安全保护 (自动复飞/悬停)
+        if (invalid_time_ > 20) {
+            if (current_mode_ == ServoingMode::GLOBAL_ENU) {
+                if (is_blind_drop_) {
+                    // 【修复】ENU 盲降丢失：继续维持 Z 轴下压，XY 锁死当前位置
+                    auto pos_enu = ctx_.pos_enu.load();
+                    ctx_.tracker->send_pos_cmd(
+                        {pos_enu.x(), pos_enu.y(),
+                         TARGET_PLATFORM_HEIGHT - 0.5},
+                        ctx_.yaw_enu.load(), 0.0, Eigen::Vector3d::Zero(), 0.0,
+                        GlobalConfig.GetConfig().touchdown_velocity + 0.2, 0.0,
+                        CmdFrame::ENU, {100.0, 1.0, 100.0}, 0.5);
+                } else {
+                    // 原有的正常复飞逻辑
+                    auto pos_enu = ctx_.pos_enu.load();
+                    traj_gen_.reset(Eigen::Vector2d(pos_enu.x(), pos_enu.y()));
+                    ctx_.tracker->send_pos_cmd(
+                        {pos_enu.x(), pos_enu.y(),
+                         GlobalConfig.GetConfig().lost_target_alt.get()},
+                        std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+                        0.5, std::nullopt, CmdFrame::ENU);
+                }
+            } else {
+                Eigen::Vector3d safe_vel = Eigen::Vector3d::Zero();
+                if (is_blind_drop_) {
+                    safe_vel.z() =
+                        -(GlobalConfig.GetConfig().touchdown_velocity.get() +
+                          0.2);  // 盲降丢失继续砸
+                } else {
+                    // 【修复】使用相对降落垫的 current_z，而不是绝对物理高度
+                    // pvs_current_z
+                    if (current_z <
+                        GlobalConfig.GetConfig().lost_target_alt.get()) {
+                        safe_vel.z() =
+                            0.4;  // 危险低空丢失，正向爬升退回安全高度
+                    } else {
+                        safe_vel.z() = 0.0;  // 安全高度丢失，悬停等待
+                    }
+                }
+                ctx_.tracker->send_vel_cmd(safe_vel, std::nullopt, 0.0,
+                                           CmdFrame::BODY);
+            }
+            return;
+        }
+
+        std::string debug_msg = "";
+
         // 根据模式进入不同的控制逻辑分支
         if (current_mode_ == ServoingMode::GLOBAL_ENU) {
-            step_global_enu(dt, obs, now);
+            debug_msg = step_global_enu(dt, obs, now, current_z, drone_enu_z);
         } else {
-            step_pure_visual(dt, obs, now);
+            debug_msg = step_pure_visual(dt, obs, now, current_z, drone_enu_z);
+        }
+
+        // 统一合并日志输出
+        log_idx_ += 1;
+        if (log_idx_ % 10 == 0 && !debug_msg.empty()) {
+            spdlog::info(
+                "[{}] Z:{:.1f} | blind:{:<3} | {}",
+                current_mode_ == ServoingMode::GLOBAL_ENU ? "ENU" : "PVS",
+                current_z, is_blind_drop_ ? "YES" : "NO", debug_msg);
         }
     }
 
@@ -300,34 +415,15 @@ class PlandController : public IThreadRunner, public ILandingController {
     // =================================================================
     // 方案一：保留你原有的全局 ENU 逻辑
     // =================================================================
-    void step_global_enu(double dt, const DetectorResult& obs, double now) {
-        if (obs.stamp == 0.0) return;
-
+    std::string step_global_enu(double dt, const DetectorResult& obs,
+                                double now, double current_z,
+                                double drone_enu_z) {
         auto pos_enu = ctx_.pos_enu.load();
         Eigen::Quaterniond q = ctx_.orientation.load();
         q.normalize();
         Eigen::Matrix3d R_wb = q.toRotationMatrix();
 
         double current_drone_yaw = ctx_.yaw_enu.load();
-
-        bool is_timeout = (obs.stamp == 0.0) ? true : (now - obs.stamp) > 1.0;
-        if (!obs.is_valid || is_timeout) {
-            invalid_time_ += 1;
-        } else {
-            invalid_time_ = 0;
-        }
-
-        if (invalid_time_ > 20) {
-            if (!is_blind_drop_) {
-                traj_gen_.reset(Eigen::Vector2d(pos_enu.x(), pos_enu.y()));
-                ctx_.tracker->send_pos_cmd(
-                    {pos_enu.x(), pos_enu.y(),
-                     GlobalConfig.GetConfig().lost_target_alt},
-                    std::nullopt, std::nullopt, std::nullopt, std::nullopt, 0.5,
-                    std::nullopt, CmdFrame::ENU);
-                return;
-            }
-        }
 
         double delay_sec = (now - obs.stamp);
         if (is_blind_drop_)
@@ -351,6 +447,36 @@ class PlandController : public IThreadRunner, public ILandingController {
         current_target_yaw = std::fmod(current_target_yaw + M_PI, 2.0 * M_PI);
         if (current_target_yaw < 0) current_target_yaw += 2.0 * M_PI;
         current_target_yaw -= M_PI;
+
+        // =======================================================
+        // [修正] 动态渐进降落偏移 (Dynamic Landing Offset)
+        // =======================================================
+        // 相机相对于机身中心的物理安装位置 (例如 x:0.2 表示机头)
+        Eigen::Vector3d camera_offset_body(
+            GlobalConfig.GetConfig().offset_x.get(),
+            GlobalConfig.GetConfig().offset_y.get(), 0.0);
+
+        // 核心修正：高空 ratio=1.0(相机对准)，低空 ratio=0.0(机身对准)
+        double offset_ratio = 0.0;
+        double shift_start_z = 3.0;  // 从 3 米开始过渡
+        double shift_end_z = 1.0;  // 降至 1 米时完成 100% 撤出，转为机身对准
+
+        if (current_z > shift_start_z) {
+            offset_ratio = 1.0;
+        } else if (current_z > shift_end_z) {
+            offset_ratio =
+                (current_z - shift_end_z) / (shift_start_z - shift_end_z);
+        } else {
+            offset_ratio = 0.0;
+        }
+
+        // 计算当前应该补偿的有效机体偏移，并旋转到 ENU 坐标系
+        Eigen::Vector3d active_offset_body = camera_offset_body * offset_ratio;
+        Eigen::Vector3d active_offset_enu = R_wb * active_offset_body;
+
+        // 将目标的追踪参考点从相机中心"拉"向机身中心
+        current_target_enu -= active_offset_enu;
+        // =======================================================
 
         double current_xy_error =
             std::hypot(current_target_enu.x() - pos_enu.x(),
@@ -384,11 +510,6 @@ class PlandController : public IThreadRunner, public ILandingController {
             desired_yaw_enu = current_drone_yaw + yaw_diff * ratio;
             desired_omega = omega * ratio;
         }
-
-        double TARGET_PLATFORM_HEIGHT =
-            GlobalConfig.GetConfig().platform_height.get();
-        double drone_enu_z = get_current_z(ctx_);
-        double current_z = std::max(0.0, drone_enu_z - TARGET_PLATFORM_HEIGHT);
 
         double pland_max_acc_xy =
             GlobalConfig.GetConfig().pland_max_acc_xy.get();
@@ -472,45 +593,14 @@ class PlandController : public IThreadRunner, public ILandingController {
         }
         // ---------------- 降落阶段 Z 轴与下发逻辑 (已重构复用)
         // ----------------
-        ZControlCmd z_cmd = calculate_shared_z_descent(
-            current_z, current_xy_error, abs_yaw_err_deg, is_blind_drop_);
+        auto z_cmd_opt = execute_z_state_machine(current_z, current_xy_error,
+                                                 abs_yaw_err_deg, drone_enu_z);
+        if (!z_cmd_opt) return "";
+        auto z_cmd = z_cmd_opt.value();
 
-        if (z_cmd.should_land) {
-            if (z_cmd.should_disarm)
-                ctx_.robot->disarm();
-            else
-                ctx_.robot->land();
-            return;
-        }
-
-        // 同步状态机
-        is_blind_drop_ = z_cmd.is_blind_drop;
-        double max_vel_z = z_cmd.descent_vel;
-
-        // 目标位置下发逻辑
-        double z_enu_target = drone_enu_z;  // 默认维持当前高度
-        double pland_gamma_z = GlobalConfig.GetConfig().pland_gamma_z.get();
-        double pland_gamma_yaw = GlobalConfig.GetConfig().pland_gamma_yaw.get();
-
-        if (is_blind_drop_) {
-            z_enu_target = TARGET_PLATFORM_HEIGHT - 0.5;  // 盲降往下按
-            pland_gamma_z = 100.0;                        // 加大下压刚度
-        } else if (max_vel_z > 0.0) {
-            z_enu_target = TARGET_PLATFORM_HEIGHT - 0.5;  // 对准后提供下降梯度
-        }
-
-        double max_gamma = GlobalConfig.GetConfig().pland_gamma.get();
-        double min_gamma = GlobalConfig.GetConfig().pland_min_gamma.get();
-        double gamma = max_gamma;
-        if (current_z > 0 && current_z <= decay_start_z) {
-            double ratio = current_z / decay_start_z;
-            gamma = min_gamma + (max_gamma - min_gamma) * ratio;
-        } else if (current_z <= 0) {
-            gamma = min_gamma;
-        }
-
-        pos_cmd_enu.z() = z_enu_target;
+        pos_cmd_enu.z() = z_cmd.enu_target_z;  // 直接使用算好的附属参数
         double cruise_speed_yaw = 0.4;
+        double pland_gamma_yaw = GlobalConfig.GetConfig().pland_gamma_yaw.get();
 
         // =======================================================
         // [修复 6] 修正 P 增益，并发送 ENU 绝对指令
@@ -522,57 +612,67 @@ class PlandController : public IThreadRunner, public ILandingController {
             desired_yaw_enu,  // ENU绝对目标偏航角
             desired_omega,    // 目标偏航角速度
             ff_vel_enu,       // ENU前馈绝对速度
-            cruise_speed_xy, max_vel_z, cruise_speed_yaw,
+            cruise_speed_xy, z_cmd.descent_vel, cruise_speed_yaw,
             CmdFrame::ENU,  // ★ 切断与姿态解算的耦合，交由底层飞控闭环
-            {gamma, pland_gamma_yaw, pland_gamma_z},  // ★ 恢复正确的 XY 增益
+            {z_cmd.enu_gamma_xy, pland_gamma_yaw,
+             z_cmd.enu_gamma_z},  // ★ 恢复正确的 XY 增益
             pland_acc_xy);
 
-        // [Debug 日志]
-        log_idx_ += 1;
-        if (log_idx_ % 10 == 0) {
-            double ekf_v = vel_xy.norm();
-            double ff_vel = ff_vel_enu.norm();
-            bool is_leash_clamped = tracking_err.norm() > max_leash_length;
+        double ff_vel = ff_vel_enu.norm();
+        bool is_leash_clamped = tracking_err.norm() > max_leash_length;
 
-            spdlog::info(
-                "Z:{:.1f} | "
-                "Angle:{:.1f}deg | ErrXY:{:.2f}m | "
-                "ff_vel:{:.2f}m/s | max_z_v:{:.2f} | "
-                "(blind_drop:{}) | delay:{:.2f} | "
-                "(LeashClamp:{}) | Gamma:{:.2f} | "
-                "AccLim:{:.2f} | xy_thresh:{:.3f}",
-                current_z, visual_angle_deg, current_xy_error, ff_vel,
-                max_vel_z, is_blind_drop_ ? "YES" : "NO", delay_sec,
-                is_leash_clamped ? "YES" : "NO", gamma, pland_acc_xy,
-                z_cmd.hold_dist_thresh);
-        }
+        return fmt::format(
+            "Angle:{:.1f}deg | ErrXY:{:.2f}m | "
+            "ff_vel:{:.2f}m/s | max_z_v:{:.2f} | "
+            "delay:{:.2f} | "
+            "(LeashClamp:{}) | Gamma:{:.2f} | "
+            "AccLim:{:.2f} | xy_thresh:{:.3f}",
+            visual_angle_deg, current_xy_error, ff_vel, z_cmd.descent_vel,
+            delay_sec, is_leash_clamped ? "YES" : "NO", z_cmd.enu_gamma_xy,
+            pland_acc_xy, z_cmd.hold_dist_thresh);
     }
 
     // =================================================================
     // 方案二：新增的纯视觉伺服逻辑 (PBVS 基于位置的视觉伺服)
     // =================================================================
-    void step_pure_visual(double dt, const DetectorResult& obs, double now) {
-        bool is_timeout = (obs.stamp == 0.0) || ((now - obs.stamp) > 1.0);
-        if (!obs.is_valid || is_timeout) {
-            invalid_time_ += 1;
-        } else {
-            invalid_time_ = 0;
-        }
-
-        // 1.
-        // 目标丢失处理：纯视觉失去目标后，最安全的做法是机体系速度归零（悬停）
-        if (invalid_time_ > 20) {
-            if (!is_blind_drop_) {
-                // 停止任何相对运动，等待目标重新进入视野
-                ctx_.tracker->send_vel_cmd(Eigen::Vector3d::Zero(),
-                                           std::nullopt, 0.0, CmdFrame::BODY);
-                return;
-            }
-        }
-
+    std::string step_pure_visual(double dt, const DetectorResult& obs,
+                                 double now, double current_z,
+                                 double drone_enu_z) {
         // 2. 提取视觉相对误差 (Body Frame)
         Eigen::Vector3d err_body = obs.target_pos_body;
         double err_yaw = obs.yaw_relative;
+
+        // 低空乱舞修复：强行物理锁死航向
+        if (current_z < 1.0) {
+            err_yaw = 0.0;  // 坚决不听信低于1米的偏航视觉解算，只做平移修正！
+        }
+
+        // =======================================================
+        // [修正] 动态渐进降落偏移 (Body Frame)
+        // =======================================================
+        Eigen::Vector3d camera_offset_body(
+            GlobalConfig.GetConfig().offset_x.get(),
+            GlobalConfig.GetConfig().offset_y.get(), 0.0);
+
+        double offset_ratio = 0.0;
+        double shift_start_z = 3.0;
+        double shift_end_z = 1.0;
+
+        if (current_z > shift_start_z) {
+            offset_ratio = 1.0;
+        } else if (current_z > shift_end_z) {
+            offset_ratio =
+                (current_z - shift_end_z) / (shift_start_z - shift_end_z);
+        } else {
+            offset_ratio = 0.0;
+        }
+
+        // 在纯视觉误差中直接扣除动态补偿量
+        // 高空时 (ratio=1)，如果 pad 在机身正前方 0.2m
+        // (err_body=0.2)，而相机也前移了 0.2m
+        // 扣除后误差为0，机身悬停，此时相机正好完美看着正下方的 pad
+        err_body.head<2>() -= (camera_offset_body.head<2>() * offset_ratio);
+        // =======================================================
 
         // ==========================================
         // [核心修正] 3. 计算机体坐标系下的前馈速度
@@ -630,26 +730,16 @@ class PlandController : public IThreadRunner, public ILandingController {
         omega_z = std::clamp(omega_z, -0.5, 0.5);
 
         // 6. 下降逻辑 (调用通用 Z 轴漏斗控制引擎)
-        double current_z = get_current_z(ctx_);
         double xy_error_norm = err_body.head<2>().norm();
         double abs_yaw_err_deg = std::abs(err_yaw) * 180.0 / M_PI;
 
-        ZControlCmd z_cmd = calculate_shared_z_descent(
-            current_z, xy_error_norm, abs_yaw_err_deg, is_blind_drop_);
+        auto z_cmd_opt = execute_z_state_machine(current_z, xy_error_norm,
+                                                 abs_yaw_err_deg, drone_enu_z);
+        if (!z_cmd_opt) return "";
+        auto z_cmd = z_cmd_opt.value();
 
-        if (z_cmd.should_land) {
-            if (z_cmd.should_disarm)
-                ctx_.robot->disarm();
-            else
-                ctx_.robot->land();
-            return;
-        }
-
-        // 同步全局状态
-        is_blind_drop_ = z_cmd.is_blind_drop;
-
-        if (is_blind_drop_) {
-            // 盲降模式：切断水平和偏航输出
+        // 强制切断盲降输出
+        if (z_cmd.is_blind_drop) {
             vel_cmd_body.head<2>().setZero();
             omega_z = 0.0;
         }
@@ -665,15 +755,10 @@ class PlandController : public IThreadRunner, public ILandingController {
             CmdFrame::BODY  // ★ 关键：指令参考系为机体坐标系
         );
 
-        // [Debug 日志] 打印机体系误差，方便调参
-        log_idx_ += 1;
-        if (log_idx_ % 10 == 0) {
-            spdlog::info(
-                "[PVS] err_body:[{:.2f}, {:.2f}] | vel_body:[{:.2f}, {:.2f}, "
-                "{:.2f}] | "
-                "err_yaw:{:.1f}deg | omega_z:{:.2f} | Z:{:.1f}",
-                err_body.x(), err_body.y(), vel_cmd_body.x(), vel_cmd_body.y(),
-                vel_cmd_body.z(), err_yaw * 180.0 / M_PI, omega_z, current_z);
-        }
+        return fmt::format(
+            "err_body:[{:.2f}, {:.2f}] | vel_body:[{:.2f}, {:.2f}, {:.2f}] | "
+            "err_yaw:{:.1f}deg | omega_z:{:.2f}",
+            err_body.x(), err_body.y(), vel_cmd_body.x(), vel_cmd_body.y(),
+            vel_cmd_body.z(), err_yaw * 180.0 / M_PI, omega_z);
     }
 };
