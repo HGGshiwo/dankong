@@ -107,6 +107,10 @@ class Car : public IRobot, public IThreadRunner {
         double yaw_rate = vel[3];
 
         std::lock_guard<std::mutex> lock(cmd_mutex_);
+        if (!inner_check_hover(cmd_210_.target_gear)) {
+            return false;  // 停止状态，不允许挂除了前进或者后退的档位
+        }
+
         cmd_210_.ipc_en = 1;
         cmd_210_.brake_en = 0;
 

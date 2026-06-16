@@ -641,38 +641,16 @@ class PlandController : public IThreadRunner, public ILandingController {
         // 2. 提取视觉相对误差 (Body Frame)
         Eigen::Vector3d err_body = obs.target_pos_body;
         double err_yaw = obs.yaw_relative;
+        double ff_omega = obs.target_vel_enu.z();  // 目标的角速度直接作为前馈
 
         // 低空乱舞修复：强行物理锁死航向
         if (current_z < 1.0) {
             err_yaw = 0.0;  // 坚决不听信低于1米的偏航视觉解算，只做平移修正！
+            ff_omega = 0.0;
         }
 
-        // =======================================================
-        // [修正] 动态渐进降落偏移 (Body Frame)
-        // =======================================================
-        Eigen::Vector3d camera_offset_body(
-            GlobalConfig.GetConfig().offset_x.get(),
-            GlobalConfig.GetConfig().offset_y.get(), 0.0);
-
-        double offset_ratio = 0.0;
-        double shift_start_z = 3.0;
-        double shift_end_z = 1.0;
-
-        if (current_z > shift_start_z) {
-            offset_ratio = 1.0;
-        } else if (current_z > shift_end_z) {
-            offset_ratio =
-                (current_z - shift_end_z) / (shift_start_z - shift_end_z);
-        } else {
-            offset_ratio = 0.0;
-        }
-
-        // 在纯视觉误差中直接扣除动态补偿量
-        // 高空时 (ratio=1)，如果 pad 在机身正前方 0.2m
-        // (err_body=0.2)，而相机也前移了 0.2m
-        // 扣除后误差为0，机身悬停，此时相机正好完美看着正下方的 pad
-        err_body.head<2>() -= (camera_offset_body.head<2>() * offset_ratio);
-        // =======================================================
+        // 不需要补偿相机的安装偏移！因为erry_body已经在机体系了
+        // 我们在绘制tag的时候做出修正，所以不需要在这里处理
 
         // ==========================================
         // [核心修正] 3. 计算机体坐标系下的前馈速度
@@ -724,7 +702,6 @@ class PlandController : public IThreadRunner, public ILandingController {
 
         // 5. 计算偏航角速度指令 (包含角速度前馈)
         double Kp_yaw = 1.0;
-        double ff_omega = obs.target_vel_enu.z();  // 目标的角速度直接作为前馈
 
         double omega_z = Kp_yaw * err_yaw + ff_omega;
         omega_z = std::clamp(omega_z, -0.5, 0.5);

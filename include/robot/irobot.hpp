@@ -54,8 +54,11 @@ class IRobot : public ITrackerRuntime {
         } else if constexpr (robot_type == "DRONE") {
             return inner_is_landed(ctx.arm.load(), ctx.throttle.load(),
                                    ctx.rangefinder_alt.load());
+        } else if constexpr (robot_type == "CAR") {
+            return inner_is_landed(ctx.gear.load());
+        } else {
+            return false;
         }
-        return false;
     }
 
     virtual bool inner_check_hover(bool arm, double throttle) { return false; };
