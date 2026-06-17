@@ -1,5 +1,7 @@
 #pragma once
 
+#include <spdlog/fmt/ranges.h>  // 确保包含这个头文件
+
 #include <Eigen/Dense>
 #include <cmath>
 #include <cstdint>
@@ -12,6 +14,7 @@
 #include "ipc_vcu_zrd.h"
 #include "irobot.hpp"
 #include "utils/thread_runner.hpp"
+#include "utils/throttle.hpp"
 
 inline uint16_t to_uint16(double raw, double scale) {
     return (uint16_t)(raw / scale);
@@ -29,7 +32,7 @@ class Car : public IRobot, public IThreadRunner {
     static constexpr double MAX_SPEED_KMH = 2.0;  // 限制最高车速
     static constexpr double TANK_TURN_SPEED = 5.0;  // 原地掉头时的默认旋转车速
     std::shared_ptr<CanClient> can_client_;
-
+    Throttle t_{1};
     struct ipc_vcu_zrd_ipc_210_t cmd_210_;
     std::mutex cmd_mutex_;
 
@@ -52,6 +55,9 @@ class Car : public IRobot, public IThreadRunner {
         {
             std::lock_guard<std::mutex> lock(cmd_mutex_);
             ipc_vcu_zrd_ipc_210_pack(payload, &cmd_210_, sizeof(payload));
+            if (t_.shouldLog()) {
+                spdlog::info("[Car] data: {:02X}", fmt::join(payload, " "));
+            }
         }
         can_client_->send_frame(0x210, payload, 8);
     }
