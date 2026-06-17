@@ -11,6 +11,7 @@
 #include "dk/RosTimeProvider.hpp"
 #include "dk/adapters/can/can_adapter.hpp"
 #include "dk/adapters/web/adapter.hpp"
+#include "event_listener.hpp"
 #include "events.hpp"
 #include "ipc_vcu_zrd.h"
 #include "robot/car.hpp"
@@ -118,5 +119,10 @@ struct CarFeature {
                 ctx.car_state.store(
                     car_state_to_str(unpacked_data.car_start_state));
             });
+    }
+
+    static void setup(TagListeners, const std::shared_ptr<Engine>& engine) {
+        engine->add_listener(
+            std::make_shared<CarListener>(engine->get_context()));
     }
 };

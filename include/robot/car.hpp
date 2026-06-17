@@ -32,7 +32,7 @@ class Car : public IRobot, public IThreadRunner {
     static constexpr double MAX_SPEED_KMH = 2.0;  // 限制最高车速
     static constexpr double TANK_TURN_SPEED = 5.0;  // 原地掉头时的默认旋转车速
     std::shared_ptr<CanClient> can_client_;
-    Throttle t_{1};
+    Throttle t_{50};
     struct ipc_vcu_zrd_ipc_210_t cmd_210_;
     std::mutex cmd_mutex_;
 

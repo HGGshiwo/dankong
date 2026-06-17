@@ -19,15 +19,18 @@ class CarListener : public dk::BaseEventListener<RobotContext, CarListener> {
     void on_event(const LightEvent& event, RobotContext& ctx) {
         auto car = std::static_pointer_cast<Car>(ctx.robot);
         car->set_light(event);
+        event.resolve({"success", "OK"});
     }
 
     void on_event(const HornEvent& event, RobotContext& ctx) {
         auto car = std::static_pointer_cast<Car>(ctx.robot);
         car->set_horn(event);
+        event.resolve({"success", "OK"});
     }
 
     void on_event(const EStopEvent& event, RobotContext& ctx) {
         auto car = std::static_pointer_cast<Car>(ctx.robot);
         car->set_estop(event.set_estop);
+        event.resolve({"success", "OK"});
     }
 };
