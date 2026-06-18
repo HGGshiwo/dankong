@@ -29,4 +29,6 @@ struct ControlConfig {
         INIT_PARAM("z_tolerance", 1.0, "判定起飞到达高度的偏差(m)");
     dk::Param<double> fix_yaw_dist =
         INIT_PARAM("fix_yaw_dist", 1.0, "距离目标点小于此值时锁定朝向(m)");
+    dk::Param<int> msg_interval_rate =
+        INIT_PARAM("msg_interval_rate", 30, "数据上报频率");
 };

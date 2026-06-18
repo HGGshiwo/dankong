@@ -1,5 +1,6 @@
 #pragma once
 #include <Eigen/Dense>
+#include <nlohmann/json.hpp>
 #include <optional>
 #include <stdexcept>
 #include <string>

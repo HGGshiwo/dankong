@@ -1,4 +1,5 @@
 #pragma once
+#include <nlohmann/json.hpp>
 #include <utility>
 
 #include "core/base_context.hpp"

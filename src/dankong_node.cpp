@@ -11,7 +11,7 @@
 int main(int argc, char** argv) {
     CLI::App app{"dk"};
     std::string config_path;
-    ;
+
     app.allow_extras(true);
     app.add_option("-c,--config", config_path, "config file path");
     // 解析，如果传入了 -h 或 --help，会自动打印帮助并退出

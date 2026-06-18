@@ -18,6 +18,8 @@
 // 和控制相关的事件监听器
 class ControlEventListener
     : public dk::BaseEventListener<RobotContext, ControlEventListener> {
+    RateLimiter rate_{1};
+
    public:
     using AllowedEvents =
         std::tuple<PrearmEvent, TakeoffEvent, dk::StateChangeEvent,

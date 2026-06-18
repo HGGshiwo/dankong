@@ -66,6 +66,7 @@ state:
   - key: battery_level
     name: "电量"
     collapse: false
+    fixed: 2
 
   - key: speed
     name: "车速"
