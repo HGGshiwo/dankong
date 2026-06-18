@@ -261,7 +261,7 @@ struct ControlContext {
         reg.bind("yaw", yaw_ned, 10.0);
         reg.bind("pitch", pitch, 10.0);
         reg.bind("roll", roll, 10.0);
-        reg.bind("mission_data", mission_data, 1.0);
+        reg.bind("mission_data", mission_data, 10.0);
 
         // --- 2. 复合类型的自定义展开绑定 ---
         reg.bind_custom(lon_lat_alt, 10.0,

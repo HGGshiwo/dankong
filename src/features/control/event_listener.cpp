@@ -23,6 +23,7 @@ void ControlEventListener::on_event(dk::TickEvent event, RobotContext& ctx) {
     // 405飞控在连接上之前必须一直请求，否则不会主动发送心跳
     if (rate_.check_and_update(ctx.engine->get_time_provider()->now()) &&
         !ctx.fcu_connected.load()) {
+        spdlog::info("[Control] call pull param!");
         ctx.engine->post_background_task<bool>([robot = ctx.robot]() {
             robot->pull_params();
             return true;
