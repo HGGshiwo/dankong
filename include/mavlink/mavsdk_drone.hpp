@@ -1,6 +1,5 @@
 #pragma once
 
-#include <mavlink/v2.0/common/mavlink.h>
 #include <mavsdk/mavsdk.h>
 #include <mavsdk/plugins/action/action.h>
 #include <mavsdk/plugins/mavlink_passthrough/mavlink_passthrough.h>

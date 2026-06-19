@@ -9,6 +9,8 @@
 #include <std_msgs/Float64.h>
 #include <std_msgs/String.h>
 #include <std_msgs/UInt32.h>
+
+#include "dk/adapters/ros.hpp"
 #endif
 
 #include <Eigen/Dense>
@@ -18,7 +20,6 @@
 #include "Eigen/src/Geometry/Quaternion.h"
 #include "core/engine.hpp"
 #include "core/tag.hpp"
-#include "dk/adapters/ros.hpp"
 #include "dk/adapters/web/adapter.hpp"
 #include "features/control/events.hpp"
 #include "robot_context.hpp"

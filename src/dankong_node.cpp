@@ -16,14 +16,17 @@ int main(int argc, char** argv) {
     app.add_option("-c,--config", config_path, "config file path");
     // 解析，如果传入了 -h 或 --help，会自动打印帮助并退出
     CLI11_PARSE(app, argc, argv);
-
+#ifdef USE_ROS
     ros::init(argc, argv, "dk_node");
+#endif
     CoreNode<RobotAssembler, RobotContext> node{config_path};
 
+#ifdef USE_ROS
     // 启动 ROS 异步线程池 (处理网络 IO)
     ros::AsyncSpinner spinner(4);
     spinner.start();
     // 阻塞主线程
     ros::waitForShutdown();
+#endif
     return 0;
 }

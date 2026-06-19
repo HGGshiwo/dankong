@@ -3,7 +3,6 @@
 #include "./context.hpp"
 #include "core/engine.hpp"
 #include "core/tag.hpp"
-#include "dk/adapters/ros.hpp"
 #include "dk/adapters/udp/udp.hpp"
 // 确保包含你的 mavsdk_adapter 头文件
 #include "dk/adapters/mavsdk.hpp"

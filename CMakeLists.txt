@@ -9,7 +9,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # 编译时使用: cmake .. -DBUILD_WITH_ROS=OFF (关闭ROS) 或 cmake .. -DBUILD_WITH_ROS=ON (开启ROS)
 # 如果在 catkin_make 中，可以这样传参: catkin_make -DBUILD_WITH_ROS=ON
 # ==============================================================================
-option(BUILD_WITH_ROS "Build with ROS support" ON)
+option(BUILD_WITH_ROS "Build with ROS support" OFF)
 
 if(BUILD_WITH_ROS)
     message(STATUS "ROS Support is ENABLED")
@@ -45,14 +45,13 @@ endif()
 
 # OpenCV 体积过于庞大，源码编译耗时极长，强烈建议保留 find_package
 find_package(OpenCV REQUIRED)
-find_package(Boost REQUIRED COMPONENTS system)
+find_package(Boost REQUIRED COMPONENTS system filesystem)
 find_package(MAVSDK REQUIRED)
 # ------------------------------------------------------------------------------
 # 2. 第三方依赖 (FetchContent)
 # ------------------------------------------------------------------------------
 include(FetchContent)
 
-# ... [保留你原有的 cli11, eigen, tinyxml2, apriltag, yaml-cpp 的 FetchContent_Declare] ...
 FetchContent_Declare(cli11 GIT_REPOSITORY https://github.com/CLIUtils/CLI11.git GIT_TAG v2.4.1)
 FetchContent_Declare(eigen GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git GIT_TAG 3.4.0)
 FetchContent_Declare(tinyxml2 GIT_REPOSITORY https://github.com/leethomason/tinyxml2.git GIT_TAG 9.0.0)
@@ -80,15 +79,72 @@ if(BUILD_WITH_ROS)
 endif()
 include_directories(${GLOBAL_INCLUDE_DIRS})
 
-# ... [保留你原有的 BASE_STATE_SRC, FEATURES_SRC, BASE_MAVLINK_SRC, BASE_NODE_SRC 设置] ...
 set(BASE_STATE_SRC src/states/ground_state.cpp src/states/hover_state.cpp src/states/init_state.cpp src/states/land_state.cpp src/states/state_utils.cpp src/states/takeoff_state.cpp src/states/waypoint_state.cpp)
-set(FEATURES_SRC src/features/algo/event_listener.cpp src/features/control/event_listener.cpp)
+if(BUILD_WITH_ROS)
+    set(FEATURES_SRC src/features/algo/event_listener.cpp src/features/control/event_listener.cpp)
+else()
+
+    set(FEATURES_SRC src/features/control/event_listener.cpp)
+endif()
+
 set(BASE_MAVLINK_SRC src/mavlink/mavsdk_drone.cpp)
 set(BASE_NODE_SRC src/dankong_node.cpp)
 
-# ... [保留你原有的 target_copy_post_build 函数] ...
+# ==============================================================================
+# 文件/目录拷贝工具函数
+# ==============================================================================
 function(target_copy_post_build TARGET_NAME)
-# (此处省略原样照抄的 target_copy_post_build 代码，保持不变即可)
+    set(ALL_ARGS ${ARGN})
+    list(LENGTH ALL_ARGS ARGS_LEN)
+
+    if(ARGS_LEN LESS 2)
+        message(FATAL_ERROR "用法: target_copy_post_build(<target_name> <src1> [<src2> ...] <dest_relative_path>)")
+    endif()
+
+    math(EXPR LAST_IDX "${ARGS_LEN} - 1")
+    list(GET ALL_ARGS ${LAST_IDX} DEST_REL)
+    list(REMOVE_AT ALL_ARGS ${LAST_IDX})
+
+    if(DEST_REL STREQUAL "" OR DEST_REL STREQUAL ".")
+        set(DEST_BASE "$<TARGET_FILE_DIR:${TARGET_NAME}>")
+    else()
+        set(DEST_BASE "$<TARGET_FILE_DIR:${TARGET_NAME}>/${DEST_REL}")
+    endif()
+
+    list(LENGTH ALL_ARGS SRC_COUNT)
+
+    foreach(ITEM IN LISTS ALL_ARGS)
+        set(SRC_PATH "${CMAKE_CURRENT_SOURCE_DIR}/${ITEM}")
+        
+        if(IS_DIRECTORY "${SRC_PATH}")
+            add_custom_command(TARGET ${TARGET_NAME} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${SRC_PATH}"
+                "${DEST_BASE}"
+            )
+        else()
+            if(SRC_COUNT GREATER 1 OR DEST_REL MATCHES "/$")
+                get_filename_component(ITEM_NAME "${ITEM}" NAME)
+                set(FINAL_DEST_FILE "${DEST_BASE}/${ITEM_NAME}")
+                set(FINAL_DEST_DIR "${DEST_BASE}")
+            else()
+                set(FINAL_DEST_FILE "${DEST_BASE}")
+                get_filename_component(DEST_REL_DIR "${DEST_REL}" DIRECTORY)
+                if(DEST_REL_DIR STREQUAL "")
+                    set(FINAL_DEST_DIR "$<TARGET_FILE_DIR:${TARGET_NAME}>")
+                else()
+                    set(FINAL_DEST_DIR "$<TARGET_FILE_DIR:${TARGET_NAME}>/${DEST_REL_DIR}")
+                endif()
+            endif()
+
+            add_custom_command(TARGET ${TARGET_NAME} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E make_directory "${FINAL_DEST_DIR}"
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${SRC_PATH}"
+                "${FINAL_DEST_FILE}"
+            )
+        endif()
+    endforeach()
 endfunction()
 
 # ==============================================================================
@@ -125,6 +181,7 @@ function(create_dankong_target TARGET_TYPE)
         CLI11::CLI11
         MAVSDK::mavsdk
         Boost::system
+        Boost::filesystem
         pthread
         ${OpenCV_LIBS}
         ${PARSED_ARGS_EXTRA_LIBS}
@@ -152,6 +209,13 @@ endfunction()
 # 生成 Targets
 # ==============================================================================
 create_dankong_target(drone)
+
+# 支持其他种类的设备，不要删除这些注释！
+# create_dankong_target(car
+#     EXTRA_SOURCES generated/can_bus/ipc_vcu_zrd.c
+#     EXTRA_INCLUDES generated/can_bus/
+# )
+# create_dankong_target(dog)
 
 # ==============================================================================
 # 测试部分
