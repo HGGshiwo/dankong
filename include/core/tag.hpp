@@ -6,3 +6,4 @@ struct TagWeb {};
 struct TagUdp {};
 struct TagCan {};
 struct TagListeners {};
+struct TagMavsdk {};

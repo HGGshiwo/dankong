@@ -1,5 +1,6 @@
 #include "states/land_state.hpp"
 
+#include "core/global_config.hpp"
 #include "features/pland/ilanding_controller.hpp"
 #include "features/pland/ilanding_detector.hpp"
 #include "robot_context.hpp"

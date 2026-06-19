@@ -11,10 +11,10 @@
         <param name="robot_type" value="$(arg robot_type)" />
     </test>
 
-    <include file="$(find gazebo_sim)/launch/apm.launch">
+    <!-- <include file="$(find gazebo_sim)/launch/apm.launch">
         <arg name="fcu_url" value="tcp://:5760@" />
         <arg name="respawn_mavros" value="true" />
-    </include>
+    </include> -->
     <!-- <include file="$(find dankong)/launch/start_dk.launch">
         <arg name="robot_type" value="drone" />
         <arg name="respawn" value="true" />

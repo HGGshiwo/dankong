@@ -1,5 +1,6 @@
-#include <mavros_msgs/VFR_HUD.h>
+#ifdef USE_ROS
 #include <sensor_msgs/Range.h>
+#endif
 #include <spdlog/spdlog.h>
 
 #include <string>
@@ -58,9 +59,10 @@ FixedString64 car_state_to_str(int car_state) {
 
 struct CarFeature {
     static void setup(TagInit, RobotContext& ctx) {
-        ctx.robot =
-            std::make_shared<Car>(std::make_shared<MavRos>(), ctx.can_client,
-                                  ctx.engine->get_time_provider());
+        ctx.robot = std::make_shared<Car>(
+            std::make_shared<MavsdkDrone>(
+                ctx.engine->get_context().mavsdk_system),
+            ctx.can_client, ctx.engine->get_time_provider());
     }
 
     static void setup(

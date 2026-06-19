@@ -36,8 +36,6 @@
   <!--   Note that this is equivalent to the following: -->
   <!--   <build_depend>roscpp</build_depend> -->
   <!--   <exec_depend>roscpp</exec_depend> -->
-  <build_depend>mavros</build_depend>
-  <build_depend>mavros_msgs</build_depend>
   <build_depend>rsos_msgs</build_depend>
   <exec_depend>rsos_msgs</exec_depend>
 

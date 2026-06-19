@@ -18,4 +18,6 @@ struct SystemConfig {
         INIT_HIDDEN_PARAM("log_dir", "logs/my_log.txt");
     dk::Param<std::string> can_name =
         INIT_PARAM("can_name", "can0", "can总线对应网口名称");
+    dk::Param<double> fcu_timeout =
+        INIT_PARAM("fcu_timeout", 5.0, "首次连接的超时时间");
 };

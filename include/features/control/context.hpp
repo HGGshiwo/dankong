@@ -12,9 +12,13 @@
 #include "utils/fixed_string64.hpp"
 #include "utils/state_registry.hpp"
 
-struct DronePoseRecord {
+struct DronePosRecord {
     double stamp;
     Eigen::Vector3d pos_enu;
+};
+
+struct DroneQuatRecord {
+    double stamp;
     Eigen::Quaterniond q;
 };
 
@@ -25,7 +29,8 @@ struct ScalarRecord {
 
 class PoseHistory {
    private:
-    std::deque<DronePoseRecord> buffer_;
+    std::deque<DronePosRecord> pos_buffer_;
+    std::deque<DroneQuatRecord> quat_buffer_;
     std::deque<ScalarRecord> roll_buf_;
     std::deque<ScalarRecord> pitch_buf_;
     std::deque<ScalarRecord> yaw_buf_;
@@ -70,20 +75,23 @@ class PoseHistory {
     }
 
    public:
-    void push(double t, const Eigen::Vector3d& p, const Eigen::Quaterniond& q) {
+    void push_pos(double t, const Eigen::Vector3d& p) {
         std::lock_guard<std::mutex> lk(mtx_);
-
-        // 确保时间戳是单调递增的 (防止时间倒流或乱序乱入)
-        if (!buffer_.empty() && t <= buffer_.back().stamp) {
-            return;
+        if (!pos_buffer_.empty() && t <= pos_buffer_.back().stamp) return;
+        pos_buffer_.push_back({t, p});
+        while (pos_buffer_.size() > 2 &&
+               (t - pos_buffer_.front().stamp) > MAX_HISTORY_SEC) {
+            pos_buffer_.pop_front();
         }
+    }
 
-        buffer_.push_back({t, p, q});
-
-        // 维持最大时长
-        while (buffer_.size() > 2 &&
-               (t - buffer_.front().stamp) > MAX_HISTORY_SEC) {
-            buffer_.pop_front();
+    void push_quat(double t, const Eigen::Quaterniond& q) {
+        std::lock_guard<std::mutex> lk(mtx_);
+        if (!quat_buffer_.empty() && t <= quat_buffer_.back().stamp) return;
+        quat_buffer_.push_back({t, q});
+        while (quat_buffer_.size() > 2 &&
+               (t - quat_buffer_.front().stamp) > MAX_HISTORY_SEC) {
+            quat_buffer_.pop_front();
         }
     }
 
@@ -127,68 +135,72 @@ class PoseHistory {
     bool get_pose_at(double t, Eigen::Vector3d& out_p,
                      Eigen::Quaterniond& out_q, double& min_diff) {
         std::lock_guard<std::mutex> lk(mtx_);
-        if (buffer_.empty()) return false;
+        if (pos_buffer_.empty() || quat_buffer_.empty()) return false;
 
-        // 1. 处理边界情况：请求时间在队列最前面（太老的数据，或者还没来得及存）
-        if (t <= buffer_.front().stamp) {
-            min_diff = (buffer_.front().stamp - t);
-            if (min_diff > MAX_TOLERANCE_SEC) return false;
-            out_p = buffer_.front().pos_enu;
-            out_q = buffer_.front().q;
-            return true;
+        // --- 查找位置 ---
+        double min_diff_p = 0.0;
+        if (t <= pos_buffer_.front().stamp) {
+            min_diff_p = (pos_buffer_.front().stamp - t);
+            if (min_diff_p > MAX_TOLERANCE_SEC) return false;
+            out_p = pos_buffer_.front().pos_enu;
+        } else if (t >= pos_buffer_.back().stamp) {
+            min_diff_p = (t - pos_buffer_.back().stamp);
+            if (min_diff_p > MAX_TOLERANCE_SEC) return false;
+            out_p = pos_buffer_.back().pos_enu;
+        } else {
+            auto it_after_p = std::lower_bound(
+                pos_buffer_.begin(), pos_buffer_.end(), t,
+                [](const DronePosRecord& record, double target_time) {
+                    return record.stamp < target_time;
+                });
+            if (it_after_p == pos_buffer_.begin() ||
+                it_after_p == pos_buffer_.end())
+                return false;
+            auto it_before_p = it_after_p - 1;
+            double dt_p = it_after_p->stamp - it_before_p->stamp;
+            if (dt_p < 1e-6) {
+                out_p = it_before_p->pos_enu;
+            } else {
+                double alpha_p = (t - it_before_p->stamp) / dt_p;
+                out_p = it_before_p->pos_enu +
+                        alpha_p * (it_after_p->pos_enu - it_before_p->pos_enu);
+            }
+            min_diff_p =
+                std::min(it_after_p->stamp - t, t - it_before_p->stamp);
         }
 
-        // 2. 处理边界情况：请求时间在队列最后面（最新数据）
-        if (t >= buffer_.back().stamp) {
-            min_diff = (t - buffer_.back().stamp);
-            if (min_diff > MAX_TOLERANCE_SEC) return false;
-            out_p = buffer_.back().pos_enu;
-            out_q = buffer_.back().q;
-            return true;
+        // --- 查找姿态 ---
+        double min_diff_q = 0.0;
+        if (t <= quat_buffer_.front().stamp) {
+            min_diff_q = (quat_buffer_.front().stamp - t);
+            if (min_diff_q > MAX_TOLERANCE_SEC) return false;
+            out_q = quat_buffer_.front().q;
+        } else if (t >= quat_buffer_.back().stamp) {
+            min_diff_q = (t - quat_buffer_.back().stamp);
+            if (min_diff_q > MAX_TOLERANCE_SEC) return false;
+            out_q = quat_buffer_.back().q;
+        } else {
+            auto it_after_q = std::lower_bound(
+                quat_buffer_.begin(), quat_buffer_.end(), t,
+                [](const DroneQuatRecord& record, double target_time) {
+                    return record.stamp < target_time;
+                });
+            if (it_after_q == quat_buffer_.begin() ||
+                it_after_q == quat_buffer_.end())
+                return false;
+            auto it_before_q = it_after_q - 1;
+            double dt_q = it_after_q->stamp - it_before_q->stamp;
+            if (dt_q < 1e-6) {
+                out_q = it_before_q->q;
+            } else {
+                double alpha_q = (t - it_before_q->stamp) / dt_q;
+                out_q = it_before_q->q.slerp(alpha_q, it_after_q->q);
+            }
+            min_diff_q =
+                std::min(it_after_q->stamp - t, t - it_before_q->stamp);
         }
 
-        // 3. 核心：二分查找找到第一个时间戳大于请求时间 t 的迭代器
-        // 这样 t 就被夹在 (it - 1) 和 it 之间了
-        auto it_after = std::lower_bound(
-            buffer_.begin(), buffer_.end(), t,
-            [](const DronePoseRecord& record, double target_time) {
-                return record.stamp < target_time;
-            });
-
-        // 这在逻辑上不应该发生，因为前面的边界检查已经排除了，但为了安全起见：
-        if (it_after == buffer_.begin() || it_after == buffer_.end()) {
-            return false;
-        }
-
-        auto it_before = it_after - 1;
-
-        // 计算插值比例 (alpha 始终在 0.0 到 1.0 之间)
-        double t_before = it_before->stamp;
-        double t_after = it_after->stamp;
-        double t_req = t;
-
-        double dt = t_after - t_before;
-        if (dt < 1e-6) {  // 防护分母为 0 或时间极小
-            out_p = it_before->pos_enu;
-            out_q = it_before->q;
-            min_diff = 0.0;
-            return true;
-        }
-
-        double alpha = (t_req - t_before) / dt;
-
-        // ---- 极其关键的插值计算 ----
-        // 1. 位置线性插值 (LERP)
-        out_p = it_before->pos_enu +
-                alpha * (it_after->pos_enu - it_before->pos_enu);
-
-        // 2. 姿态球面线性插值 (SLERP)
-        // Eigen 的 slerp 会自动处理四元数的最短路径插值
-        out_q = it_before->q.slerp(alpha, it_after->q);
-
-        // 更新 min_diff 为插值后的理想时间差
-        min_diff = std::min(t_after - t, t - t_before);
-
+        min_diff = std::max(min_diff_p, min_diff_q);
         return true;
     }
 };

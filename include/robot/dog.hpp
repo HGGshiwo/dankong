@@ -7,7 +7,7 @@
 #include "dk/future.hpp"
 #include "features/dog/command.hpp"
 #include "features/tracker/tracker.hpp"
-#include "mavlink/mavros.hpp"
+#include "mavlink/mavsdk_drone.hpp"
 #include "robot/irobot.hpp"
 #include "robot_context.hpp"
 #include "utils/fixed_string64.hpp"

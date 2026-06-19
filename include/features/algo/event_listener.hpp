@@ -1,5 +1,4 @@
 #pragma once
-
 #include <ros/ros.h>
 #include <rsos_msgs/SetCameraExposure.h>
 #include <rsos_msgs/SetGimbalAngle.h>
@@ -12,9 +11,10 @@
 #include "./events.hpp"
 #include "core/global_config.hpp"
 #include "dk/event_listener.hpp"
-#include "mavlink/mavros.hpp"
+#include "mavlink/mavsdk_drone.hpp"
 #include "nlohmann/json.hpp"
 #include "robot_context.hpp"
+#include "utils/ros.hpp"
 
 // 和ROS相关的操作的事件走这个监听器
 class AlgoEventListener

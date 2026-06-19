@@ -7,7 +7,7 @@
 #include "dk/adapters/udp/udp_client.hpp"
 #include "ilanding_controller.hpp"
 #include "ilanding_detector.hpp"
-#include "mavlink/mavros.hpp"
+#include "mavlink/mavsdk_drone.hpp"
 #include "utils/dirty_var.hpp"
 #include "utils/state_registry.hpp"
 

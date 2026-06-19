@@ -22,7 +22,8 @@ const std::unordered_map<uint8_t, std::string> state_map = {
 class DogFeature {
    public:
     static void setup(TagInit, RobotContext& ctx) {
-        auto mavlink = std::make_shared<MavRos>();
+        auto mavlink = std::make_shared<MavsdkDrone>(
+            ctx.engine->get_context().mavsdk_system);
         auto& cfg = GlobalConfig.GetConfig();
         ctx.robot =
             std::make_shared<Dog>(mavlink, cfg.udp_host, cfg.udp_port, ctx);

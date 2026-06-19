@@ -1,6 +1,10 @@
+#include <mavsdk/connection_result.h>
+#include <mavsdk/mavsdk.h>
+
 #include <boost/filesystem/operations.hpp>
 #include <cstdint>
 #include <memory>
+#include <stdexcept>
 #include <thread>
 
 #include "./engine.hpp"
@@ -9,6 +13,7 @@
 #include "dk/AsioTimeProvider.hpp"
 #include "dk/ITimeProvider.hpp"
 #include "dk/adapters/can/can_adapter.hpp"
+#include "dk/adapters/mavsdk.hpp"
 #include "dk/adapters/udp/udp.hpp"
 #include "dk/adapters/web.hpp"
 #include "dk/adapters/web/adapter.hpp"
@@ -30,6 +35,7 @@ class CoreNode {
 #ifdef USE_ROS
     using RosAdapterType = dk::RosAdapter<ContextType, Engine>;
 #endif
+    using MavsdkAdapterType = dk::MavsdkAdapter<ContextType, Engine>;
     using WebAdapterType = dk::WebAdapter<ContextType, Engine>;
     using UdpAdpterType = dk::UdpAdapter<ContextType, Engine, CommandType>;
     using CanAdapterType = dk::CanAdapter<ContextType, Engine>;
@@ -47,6 +53,9 @@ class CoreNode {
     std::shared_ptr<WebAdapterType> web_adapter_;
     std::shared_ptr<UdpAdpterType> udp_adapter_;
     std::shared_ptr<CanAdapterType> can_adapter_;
+    std::shared_ptr<MavsdkAdapterType> mavsdk_adapter_;
+    std::shared_ptr<mavsdk::Mavsdk> mavsdk_;
+    std::shared_ptr<mavsdk::System> mavsdk_system_;
 
    public:
     CoreNode(const std::string config_path) {
@@ -61,9 +70,31 @@ class CoreNode {
         auto& cfg = GlobalConfig.GetConfig();
         init_logger();
 
+        // Initialize MAVSDK
+        mavsdk::Mavsdk::Configuration config(
+            mavsdk::ComponentType::GroundStation);
+        mavsdk_ = std::make_shared<mavsdk::Mavsdk>(config);
+        mavsdk::ConnectionResult connection_result =
+            mavsdk_->add_any_connection(cfg.mavsdk_url.get());
+        if (connection_result != mavsdk::ConnectionResult::Success) {
+            throw std::runtime_error(
+                "Connection failed: " +
+                std::to_string(static_cast<int>(connection_result)));
+        } else {
+            spdlog::info("Waiting to discover system...");
+            mavsdk_system_ = mavsdk_
+                                 ->first_autopilot(
+                                     GlobalConfig.GetConfig().fcu_timeout.get())
+                                 .value_or(nullptr);
+            if (mavsdk_system_ == nullptr) {
+                throw std::runtime_error("connect to fcu failed!");
+            }
+        }
+
         // 1. 初始化基础引擎
         engine_ = std::make_shared<Engine>(global_io_, time_provider_);
         engine_->get_context().engine = engine_;
+        engine_->get_context().mavsdk_system = mavsdk_system_;
 
         boost::filesystem::path config_dir =
             get_config_dir(config_path).parent_path();
@@ -88,6 +119,16 @@ class CoreNode {
             AssemblerType::template setup<TagRos>(ros_adapter_);
         }
 #endif
+
+        if constexpr (AssemblerType::template has_feature_for<TagMavsdk>) {
+            if (mavsdk_system_) {
+                mavsdk_adapter_ = std::make_shared<MavsdkAdapterType>(
+                    engine_, mavsdk_system_);
+                AssemblerType::template setup<TagMavsdk>(mavsdk_adapter_);
+            } else {
+                spdlog::warn("MAVSDK System is null, skipped TagMavsdk setup.");
+            }
+        }
 
         if constexpr (AssemblerType::template has_feature_for<TagUdp>) {
             udp_adapter_ = std::make_shared<UdpAdpterType>(
@@ -114,6 +155,10 @@ class CoreNode {
 
         // 3. 启动引擎
         engine_->start<InitState>(std::chrono::milliseconds(50));
+
+        bool is_connected = mavsdk_system_->is_connected();
+        engine_->get_context().fcu_connected.store(is_connected);
+        engine_->dispatch_internal(FcuConnectedEvent{is_connected});
 
 #ifdef USE_ROS
         asio_thread_ = std::thread([this]() {

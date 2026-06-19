@@ -1,5 +1,6 @@
 #include "features/control/event_listener.hpp"
 
+#include "Eigen/Dense"
 #include "core/global_config.hpp"
 #include "states/ground_state.hpp"
 #include "states/hover_state.hpp"
@@ -232,11 +233,12 @@ void ControlEventListener::on_event(const RebootFcuEvent& event,
 void ControlEventListener::on_event(const GetWpEvent& event,
                                     RobotContext& ctx) {
     auto mission_data = ctx.mission_data.load();
-    std::vector<Eigen::Vector3d> wp_list(mission_data.size());
+    nlohmann::json wp_list = nlohmann::json::array();
+
     for (int i = 0; i < mission_data.size(); ++i) {
         auto cur_mission = mission_data[i];
-        wp_list[i] = Eigen::Vector3d{cur_mission["lon"], cur_mission["lat"],
-                                     cur_mission["alt"]};
+        wp_list.push_back(
+            {cur_mission["lon"], cur_mission["lat"], cur_mission["alt"]});
     }
     event.resolve({"success", wp_list});
 }

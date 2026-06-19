@@ -5,7 +5,7 @@
 
 #include "dk/adapters/can/can_client.hpp"
 #include "dk/adapters/udp/udp_client.hpp"
-#include "mavlink/mavros.hpp"
+#include "mavlink/mavsdk_drone.hpp"
 #include "robot_context.hpp"
 #include "utils/dirty_var.hpp"
 #include "utils/fixed_string64.hpp"

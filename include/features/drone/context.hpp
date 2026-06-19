@@ -4,7 +4,7 @@
 #include <string_view>
 
 #include "dk/adapters/udp/udp_client.hpp"
-#include "mavlink/mavros.hpp"
+#include "mavlink/mavsdk_drone.hpp"
 #include "robot_context.hpp"
 
 struct DroneContext {

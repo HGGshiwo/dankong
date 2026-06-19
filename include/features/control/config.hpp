@@ -7,8 +7,10 @@
 struct ControlConfig {
     static constexpr const char* __group_name = "Control";
 
+    dk::Param<std::string> mavsdk_url = INIT_PARAM(
+        "mavsdk_url", "udp://:14540", "MAVSDK连接地址(如 udp://:14540)");
     dk::Param<int> fcu_data_rate =
-        INIT_PARAM("fcu_data_rate", 10, "设置MAVROS数据上报的频率(Hz)");
+        INIT_PARAM("fcu_data_rate", 10, "设置MAVSDK数据上报的频率(Hz)");
     dk::Param<std::string> pdef_path = INIT_PARAM(
         "pdef_path", "config/apm.pdef.xml", "APM参数描述XML文件路径");
 

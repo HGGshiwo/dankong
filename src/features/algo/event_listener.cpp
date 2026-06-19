@@ -22,6 +22,7 @@ AlgoEventListener::AlgoEventListener() : nh_() {
         std::make_shared<ServiceClient<rsos_msgs::SetGimbalAngle>>(
             "/UAV0/sensor/serial_gimbal/set_gimbal_angle",
             [](rsos_msgs::SetGimbalAngle srv) { return srv.response.success; });
+
     set_exposure_client_ =
         std::make_shared<ServiceClient<rsos_msgs::SetCameraExposure>>(
             "/UAV0/sensor/video11_camera/set_exposure",
@@ -45,23 +46,24 @@ void AlgoEventListener::on_event(const EnableDetectEvent& event,
         else
             nh_.setParam(it->first, false);
     }
-    ctx.detect_type.store(event.type);
     nh_.setParam(
         "/UAV0/perception/object_location/object_location_node/enable_send",
         true);
+    ctx.detect_type.store(event.type);
     event.resolve({"success", "OK"});
 }
 
 void AlgoEventListener::on_event(const DisableDetectEvent& event,
                                  RobotContext& ctx) {
     auto detect_map_ = GlobalConfig.GetConfig().detect_map.get();
+
     for (auto& [k, v] : detect_map_) {
         nh_.setParam(v, false);
     }
-    ctx.detect_type.store("Disabled");
     nh_.setParam(
         "/UAV0/perception/object_location/object_location_node/enable_send",
         false);
+    ctx.detect_type.store("Disabled");
     event.resolve({"success", "OK"});
 }
 
@@ -84,6 +86,7 @@ void AlgoEventListener::on_event(const StartRecordEvent& event,
     } else {
         event.reject(srv.response.message);
     }
+    return;
 }
 
 void AlgoEventListener::on_event(const StopRecordEvent& event,
