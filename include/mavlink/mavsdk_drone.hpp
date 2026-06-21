@@ -5,6 +5,7 @@
 #include <mavsdk/plugins/mavlink_passthrough/mavlink_passthrough.h>
 #include <mavsdk/plugins/offboard/offboard.h>
 #include <mavsdk/plugins/param/param.h>
+#include <mavsdk/plugins/rtk/rtk.h>
 #include <mavsdk/plugins/telemetry/telemetry.h>
 #include <tinyxml2.h>
 
@@ -21,6 +22,7 @@ class MavsdkDrone : public IMavlink {
     std::shared_ptr<mavsdk::Offboard> offboard_;
     std::shared_ptr<mavsdk::Telemetry> telemetry_;
     std::shared_ptr<mavsdk::MavlinkPassthrough> passthrough_;
+    std::shared_ptr<mavsdk::Rtk> rtk_;
     nlohmann::json pdef_;
 
     void load_pdef(const std::string& path);
@@ -40,4 +42,5 @@ class MavsdkDrone : public IMavlink {
     nlohmann::json get_all_params() override;
     bool reboot_fcu() override;
     bool cmd_vel(Eigen::Vector4d vel) override;
+    void send_rtcm_data(const uint8_t* data, size_t size) override;
 };

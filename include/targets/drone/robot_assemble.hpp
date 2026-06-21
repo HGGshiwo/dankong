@@ -4,6 +4,7 @@
 // 引入你需要的 Feature
 #include "features/control/feature.hpp"
 #include "features/drone/feature.hpp"
+#include "features/ntrip/feature.hpp"
 #include "features/report/feature.hpp"
 #include "features/system/feature.hpp"
 #include "features/tracker/feature.hpp"
@@ -19,7 +20,8 @@ using DroneAssembler = BaseAssembler<
 #ifdef USE_ROS
     AlgoFeature, PlandFeature,
 #endif
-    ControlFeature, ReportFeature, DroneFeature, TrackerFeature, SystemFeature>;
+    ControlFeature, ReportFeature, DroneFeature, TrackerFeature, SystemFeature,
+    NtripFeature>;
 
 // 全局唯一的上下文类型生成
 using RobotAssembler = DroneAssembler;

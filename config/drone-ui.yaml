@@ -22,6 +22,10 @@ state_bool:
   - key: recording
     name: "录制"
     collapse: false
+    
+  - key: ntrip_running
+    name: "RTK"
+    collapse: false
 
 state_value:
   - key: mode

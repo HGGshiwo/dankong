@@ -1,3 +1,11 @@
+ntrip_running: true
+ntrip_nstats: 10
+ntrip_ip: 120.253.239.161
+ntrip_port: 8002
+ntrip_mountpoint: RTCM33_GRC
+ntrip_username: cwpm11417
+ntrip_password: cfuejdyk
+
 mavsdk_url: tcp://127.0.0.1:5760
 pland_use_disarm: true
 auto_heading_enable_dist_m: 1

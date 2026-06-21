@@ -81,6 +81,7 @@ struct SysStatusEvent {
 
 struct StatusTextEvent {
     std::string text;
+    bool should_report = false;
 };
 
 struct ArmEvent {

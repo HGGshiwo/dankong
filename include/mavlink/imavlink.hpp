@@ -27,6 +27,7 @@ class IMavlink {
     virtual bool set_param(const std::string& name, const ApmParam& value) = 0;
     virtual nlohmann::json get_all_params() = 0;  // 加载全部参数
     virtual bool pull_params() = 0;
+    virtual void send_rtcm_data(const uint8_t* data, size_t size) = 0;
 
     // 获取实际的数据
     template <typename Type>

@@ -2,6 +2,8 @@
 
 #include "Eigen/Dense"
 #include "core/global_config.hpp"
+#include "features/control/events.hpp"
+#include "robot_context.hpp"
 #include "states/ground_state.hpp"
 #include "states/hover_state.hpp"
 #include "states/init_state.hpp"
@@ -13,7 +15,8 @@
 #include "utils/fixed_string64.hpp"
 
 // ---------- 成员函数实现 ----------
-void ControlEventListener::on_event(dk::TickEvent event, RobotContext& ctx) {
+void ControlEventListener::on_event(const dk::TickEvent& event,
+                                    RobotContext& ctx) {
     bool on_ground = ctx.engine->is_active_state<GroundState>() ||
                      ctx.engine->is_active_state<InitState>() ||
                      ctx.engine->is_active_state<TakeoffState>() ||
@@ -32,7 +35,16 @@ void ControlEventListener::on_event(dk::TickEvent event, RobotContext& ctx) {
     }
 }
 
-void ControlEventListener::on_event(SetPosVelEvent event, RobotContext& ctx) {
+void ControlEventListener::on_event(const StatusTextEvent& event,
+                                    RobotContext& ctx) {
+    if (event.should_report) {
+        ctx.ws_manager->publish_reliable(
+            nlohmann::json{{"type", "error"}, {"error", event.text}});
+    }
+}
+
+void ControlEventListener::on_event(const SetPosVelEvent& event,
+                                    RobotContext& ctx) {
     if (ctx.engine->is_active_state<PosVelState>()) {
         //  不重复进入PosVelState，由自己handle
         event.resolve({"success", "OK"});
@@ -89,7 +101,8 @@ dk::Future<bool> prearm_check(RobotContext& ctx) {
     return p->get_future();
 }
 
-void ControlEventListener::on_event(PrearmEvent event, RobotContext& ctx) {
+void ControlEventListener::on_event(const PrearmEvent& event,
+                                    RobotContext& ctx) {
     prearm_check(ctx)
         .then([event](bool res) {
             if (res) event.resolve({"success", nlohmann::json{{"arm", true}}});
@@ -108,7 +121,8 @@ void ControlEventListener::on_event(PrearmEvent event, RobotContext& ctx) {
         });
 }
 
-void ControlEventListener::on_event(TakeoffEvent event, RobotContext& ctx) {
+void ControlEventListener::on_event(const TakeoffEvent& event,
+                                    RobotContext& ctx) {
     if (ctx.engine->is_active_state<InitState>()) {
         event.reject("初始状态无法起飞!");
         return;
@@ -121,12 +135,13 @@ void ControlEventListener::on_event(TakeoffEvent event, RobotContext& ctx) {
         std::tuple(std::move(event)), std::tuple<>());
 }
 
-void ControlEventListener::on_event(dk::StateChangeEvent event,
+void ControlEventListener::on_event(const dk::StateChangeEvent& event,
                                     RobotContext& ctx) {
     spdlog::info("State change {} -> {}", event.prev, event.cur);
 }
 
-void ControlEventListener::on_event(SetWaypointEvent event, RobotContext& ctx) {
+void ControlEventListener::on_event(const SetWaypointEvent& event,
+                                    RobotContext& ctx) {
     bool is_init = ctx.engine->is_active_state<InitState>();
     bool is_ground = ctx.engine->is_active_state<GroundState>();
     bool wp_empty = event.waypoint.empty();

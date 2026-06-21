@@ -17,6 +17,8 @@ MavsdkDrone::MavsdkDrone(std::shared_ptr<mavsdk::System> system)
     param_ = std::make_shared<mavsdk::Param>(system_);
     telemetry_ = std::make_shared<mavsdk::Telemetry>(system_);
     passthrough_ = std::make_shared<mavsdk::MavlinkPassthrough>(system_);
+    rtk_ = std::make_shared<mavsdk::Rtk>(system_);
+
     load_pdef(
         get_config_dir(GlobalConfig.GetConfig().pdef_path.get()).string());
 }
@@ -333,4 +335,20 @@ bool MavsdkDrone::cmd_vel(Eigen::Vector4d vel) {
         result = offboard_->set_velocity_body(cmd);
     }
     return result == mavsdk::Offboard::Result::Success;
+}
+
+void MavsdkDrone::send_rtcm_data(const uint8_t* data, size_t size) {
+    // 180 字节防爆切片逻辑
+    const size_t MAX_CHUNK = 180;
+    for (size_t i = 0; i < size; i += MAX_CHUNK) {
+        size_t chunk_size = std::min(MAX_CHUNK, size - i);
+
+        mavsdk::Rtk::RtcmData rtcm_data;
+        // 将 uint8_t 转换为 MAVSDK 需要的 std::string
+        rtcm_data.data_base64.assign(reinterpret_cast<const char*>(data + i),
+                                     chunk_size);
+
+        // 最终调用！将切片后的差分数据发给飞控
+        rtk_->send_rtcm_data(rtcm_data);
+    }
 }

@@ -104,6 +104,10 @@ class IRobot : public ITrackerRuntime {
 
     bool pull_params() { return mavlink_->pull_params(); }
 
+    void send_rtcm_data(const uint8_t* data, size_t size) {
+        mavlink_->send_rtcm_data(data, size);
+    }
+
     nlohmann::json get_all_params() { return mavlink_->get_all_params(); }
 
     bool set_param(std::string name, ApmParam value) {

@@ -9,7 +9,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # 编译时使用: cmake .. -DBUILD_WITH_ROS=OFF (关闭ROS) 或 cmake .. -DBUILD_WITH_ROS=ON (开启ROS)
 # 如果在 catkin_make 中，可以这样传参: catkin_make -DBUILD_WITH_ROS=ON
 # ==============================================================================
-option(BUILD_WITH_ROS "Build with ROS support" OFF)
+option(BUILD_WITH_ROS "Build with ROS support" ON)
 
 if(BUILD_WITH_ROS)
     message(STATUS "ROS Support is ENABLED")

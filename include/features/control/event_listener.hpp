@@ -3,6 +3,7 @@
 #include <array>
 #include <chrono>
 #include <exception>
+#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <tuple>
@@ -26,14 +27,14 @@ class ControlEventListener
                    SetWaypointEvent, SetModeEvent, SetPosVelEvent,
                    dk::TickEvent, RebootFcuEvent, GetWpEvent, GetGpsEvent,
                    GetParamEvent, SetParamEvent, FcuConnectedEvent, DisarmEvent,
-                   RestartEvent>;
+                   RestartEvent, StatusTextEvent>;
 
-    void on_event(dk::TickEvent event, RobotContext& ctx);
-    void on_event(SetPosVelEvent event, RobotContext& ctx);
-    void on_event(PrearmEvent event, RobotContext& ctx);
-    void on_event(TakeoffEvent event, RobotContext& ctx);
-    void on_event(dk::StateChangeEvent event, RobotContext& ctx);
-    void on_event(SetWaypointEvent event, RobotContext& ctx);
+    void on_event(const dk::TickEvent& event, RobotContext& ctx);
+    void on_event(const SetPosVelEvent& event, RobotContext& ctx);
+    void on_event(const PrearmEvent& event, RobotContext& ctx);
+    void on_event(const TakeoffEvent& event, RobotContext& ctx);
+    void on_event(const dk::StateChangeEvent& event, RobotContext& ctx);
+    void on_event(const SetWaypointEvent& event, RobotContext& ctx);
     void on_event(const SetModeEvent& event, RobotContext& ctx);
     void on_event(const RebootFcuEvent& event, RobotContext& ctx);
     void on_event(const GetWpEvent& event, RobotContext& ctx);
@@ -43,4 +44,5 @@ class ControlEventListener
     void on_event(const SetParamEvent& event, RobotContext& ctx);
     void on_event(const DisarmEvent& event, RobotContext& ctx);
     void on_event(const RestartEvent& event, RobotContext& ctx);
+    void on_event(const StatusTextEvent& event, RobotContext& ctx);
 };

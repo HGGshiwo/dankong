@@ -46,7 +46,7 @@ class IThreadRunner {
     virtual void on_start() {}
     virtual void on_stop() {}
     virtual void on_step(double dt) {}
-
+    bool is_running() { return is_running_; }
     void start(int hz) {
         if (is_running_.load()) return;
 

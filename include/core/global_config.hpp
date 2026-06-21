@@ -4,6 +4,7 @@
 #include <fstream>
 #include <iostream>
 #include <mutex>
+#include <nlohmann/json.hpp>
 #include <shared_mutex>
 #include <string>
 
@@ -31,7 +32,7 @@ class ConfigManager {
         std::unique_lock<std::shared_mutex> lock(rw_mutex_);
         try {
             YAML::Node final_yaml = YamlHelper::load_with_base(filepath);
-            json final_json = YamlHelper::yaml_to_json(final_yaml);
+            nlohmann::json final_json = YamlHelper::yaml_to_json(final_yaml);
             data_ = final_json.get<AppConfigData>();
             last_filepath_ = filepath;
             return true;

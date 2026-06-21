@@ -296,7 +296,35 @@ class ControlFeature {
         adapter->bind_telemetry_event(
             &mavsdk::Telemetry::subscribe_status_text,
             [](mavsdk::Telemetry::StatusText status_text) -> StatusTextEvent {
-                return StatusTextEvent{status_text.text};
+                bool should_report = false;
+                switch (status_text.type) {
+                    case mavsdk::Telemetry::StatusTextType::Error:
+                        spdlog::error("[ERROR] FCU: {}", status_text.text);
+                        should_report = true;
+                        break;
+
+                    case mavsdk::Telemetry::StatusTextType::Warning:
+                        spdlog::error("[WARN] FCU: {}", status_text.text);
+                        should_report = true;
+                        break;
+
+                    case mavsdk::Telemetry::StatusTextType::Info:
+                        spdlog::info("[INFO] FCU: {}", status_text.text);
+                        break;
+
+                    case mavsdk::Telemetry::StatusTextType::Critical:
+                    case mavsdk::Telemetry::StatusTextType::Emergency:
+                    case mavsdk::Telemetry::StatusTextType::Alert:
+                        spdlog::error("[EMERGENCY] FCU: {}", status_text.text);
+                        should_report = true;
+                        break;
+                    default:
+                        // 覆盖 Notice, Debug 等级别
+                        spdlog::info("[OTHER] FCU: {}", status_text.text);
+                        break;
+                }
+
+                return StatusTextEvent{status_text.text, should_report};
             });
     }
 

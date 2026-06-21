@@ -4,9 +4,9 @@
 // 引入你需要的 Feature
 #include "features/control/config.hpp"
 #include "features/drone/config.hpp"
+#include "features/ntrip/config.hpp"
 #include "features/system/config.hpp"
 #include "features/tracker/config.hpp"
-
 #ifdef USE_ROS
 #include "features/algo/config.hpp"
 #include "features/pland/config.hpp"
@@ -19,4 +19,4 @@ using RobotConfig = ConfigGenerator<
 #ifdef USE_ROS
     AlgoConfig, PlandConfig,
 #endif
-    SystemConfig, ControlConfig, DroneConfig, TrackerConfig>;
+    SystemConfig, ControlConfig, DroneConfig, TrackerConfig, NtripConfig>;
