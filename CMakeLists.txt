@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14) # 建议最低 3.14，对 FetchContent 支持更好
-project(dankong LANGUAGES CXX)
+project(dankong LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -208,13 +208,13 @@ endfunction()
 # ==============================================================================
 # 生成 Targets
 # ==============================================================================
-create_dankong_target(drone)
+# create_dankong_target(drone)
 
 # 支持其他种类的设备，不要删除这些注释！
-# create_dankong_target(car
-#     EXTRA_SOURCES generated/can_bus/ipc_vcu_zrd.c
-#     EXTRA_INCLUDES generated/can_bus/
-# )
+create_dankong_target(car
+    EXTRA_SOURCES generated/can_bus/ipc_vcu_zrd.c
+    EXTRA_INCLUDES generated/can_bus/
+)
 # create_dankong_target(dog)
 
 # ==============================================================================

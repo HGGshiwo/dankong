@@ -13,8 +13,7 @@
 struct CarContext {
     std::shared_ptr<IRobot> robot;
 
-    std::shared_ptr<CanClient> can_client =
-        std::make_shared<CanClient>(GlobalConfig.GetConfig().can_name);
+    std::shared_ptr<CanClient> can_client;
 
     DirtyVar<int> gear{0};  // 挡位 (0:P, 1:R, 2:N, 3:D)
     DirtyVar<FixedString64> gear_str{"UNKNOWN"};

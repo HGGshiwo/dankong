@@ -59,6 +59,8 @@ FixedString64 car_state_to_str(int car_state) {
 
 struct CarFeature {
     static void setup(TagInit, RobotContext& ctx) {
+        ctx.can_client =
+            std::make_shared<CanClient>(GlobalConfig.GetConfig().can_name);
         ctx.robot = std::make_shared<Car>(
             std::make_shared<MavsdkDrone>(
                 ctx.engine->get_context().mavsdk_system),

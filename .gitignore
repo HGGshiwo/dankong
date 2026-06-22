@@ -2,10 +2,10 @@
 __pycache__/
 config.json
 test_log/**
-config/drone-real-config.yaml
 build_standalone/
 deploy_pkg
 sh/eeprom.bin
 sh/logs/*
 .gitignore
 sh/terrain/*
+config/*-real-config.yaml
