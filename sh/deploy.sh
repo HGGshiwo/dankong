@@ -51,12 +51,15 @@ if [ -d "$PROJECT_DIR/dk/frontend/dist" ]; then
 fi
 
 echo "🔍 [4/5] 扫描并拷贝动态依赖库 (.so)..."
-# 使用 ldd 工具列出所有依赖的动态库，并把它们全盘拷贝到 libs 目录
-# 过滤掉系统底层的虚拟库(linux-vdso) 和当前不存在的路径
-ldd "$EXEC_PATH" | awk '{print $3}' | grep -v "^(" | grep "^/" | while read -r lib_path; do
+
+# 使用 ldd 列出依赖，并设置黑名单，剔除操作系统核心底层库
+ldd "$EXEC_PATH" | awk '{print $3}' | grep -v "^(" | grep "^/" | \
+grep -vE "/libc\.so|/libm\.so|/libdl\.so|/libpthread\.so|/libresolv\.so|/librt\.so|/libgcc_s\.so|/libstdc\+\+\.so|/ld-linux" | \
+while read -r lib_path; do
     cp "$lib_path" "$DEPLOY_DIR/libs/"
 done
-echo "  -> 动态依赖库提取完毕！"
+
+echo "  -> 动态依赖库提取完毕！(已安全跳过底层系统库)"
 
 echo "📜 [5/5] 生成绿色版启动脚本..."
 # 创建一个名为 run.sh 的启动脚本
