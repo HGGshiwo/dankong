@@ -1,3 +1,4 @@
+mavsdk_url: tcp://127.0.0.1:5760
 ui_config: car-ui.yaml
 can_name: vcan0
 is_omnidirectional: false

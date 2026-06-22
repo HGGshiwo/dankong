@@ -1,5 +1,4 @@
 #pragma once
-
 #include <mavsdk/mavsdk.h>
 #include <mavsdk/plugins/action/action.h>
 #include <mavsdk/plugins/mavlink_passthrough/mavlink_passthrough.h>
@@ -12,6 +11,7 @@
 #include <memory>
 #include <nlohmann/json.hpp>
 
+#include "dk/adapters/mavsdk.hpp"
 #include "imavlink.hpp"
 
 class MavsdkDrone : public IMavlink {
@@ -24,11 +24,13 @@ class MavsdkDrone : public IMavlink {
     std::shared_ptr<mavsdk::MavlinkPassthrough> passthrough_;
     std::shared_ptr<mavsdk::Rtk> rtk_;
     nlohmann::json pdef_;
+    VehicleType vehicle_type_ = VehicleType::Unknown;
 
     void load_pdef(const std::string& path);
 
    public:
     MavsdkDrone(std::shared_ptr<mavsdk::System> system);
+    void set_target_type(VehicleType type) override { vehicle_type_ = type; }
     bool arm() override;
     bool disarm() override;
     bool takeoff(double alt) override;

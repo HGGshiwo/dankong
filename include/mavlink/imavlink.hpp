@@ -6,6 +6,7 @@
 #include <string>
 #include <variant>
 
+#include "dk/adapters/mavsdk.hpp"
 #include "utils/fixed_string64.hpp"
 
 using ApmParam = std::variant<int, double, std::string>;
@@ -28,7 +29,7 @@ class IMavlink {
     virtual nlohmann::json get_all_params() = 0;  // 加载全部参数
     virtual bool pull_params() = 0;
     virtual void send_rtcm_data(const uint8_t* data, size_t size) = 0;
-
+    virtual void set_target_type(VehicleType type) = 0;
     // 获取实际的数据
     template <typename Type>
     static Type unpack(const ApmParam& param) {

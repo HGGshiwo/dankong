@@ -64,20 +64,42 @@ bool MavsdkDrone::set_mode(const FixedString64& mode) {
         {"RTL", 6.0f},       {"CIRCLE", 7.0f}, {"LAND", 9.0f},
         {"POSHOLD", 16.0f},  {"BRAKE", 17.0f}};
 
+    // APM 车/船 (ArduRover) 模式枚举映射
+    static const std::unordered_map<std::string, float> apm_rover_modes = {
+        {"MANUAL", 0.0f},     {"ACRO", 1.0f},    {"STEERING", 3.0f},
+        {"HOLD", 4.0f},       {"LOITER", 5.0f},  {"FOLLOW", 6.0f},
+        {"SIMPLE", 7.0f},     {"AUTO", 10.0f},   {"RTL", 11.0f},
+        {"SMART_RTL", 12.0f}, {"GUIDED", 15.0f}, {"INITIALIZING", 16.0f}};
+
+    // 优先处理 MAVSDK 封装好的标准动作
     if (mode_str == "RTL" || mode_str == "RETURN_TO_LAUNCH") {
         return action_->return_to_launch() == mavsdk::Action::Result::Success;
     } else if (mode_str == "LAND") {
+        // 注：Rover 通常不支持
+        // LAND，但如果上层统一调用，这里可直接拦截或交给底层处理
         return action_->land() == mavsdk::Action::Result::Success;
     }
 
-    auto it = apm_copter_modes.find(mode_str);
-    if (it != apm_copter_modes.end()) {
+    // 根据当前机型选择对应的模式字典指针
+    const std::unordered_map<std::string, float>* target_mode_map =
+        &apm_copter_modes;
+    if (this->vehicle_type_ == VehicleType::Rover) {
+        target_mode_map = &apm_rover_modes;
+    }
+
+    // 查找并下发 Custom Mode
+    auto it = target_mode_map->find(mode_str);
+    if (it != target_mode_map->end()) {
         float custom_mode = it->second;
 
         // 构建 MAVLink 模式切换指令 (MAV_CMD_DO_SET_MODE)
         mavsdk::MavlinkPassthrough::CommandLong cmd{};
-        cmd.target_sysid = passthrough_->get_our_sysid();
-        cmd.target_compid = 0;
+
+        // 修正：应发送给 target_sysid (无人机/小车)，而不是 our_sysid
+        // (地面站/上位机)
+        cmd.target_sysid = passthrough_->get_target_sysid();
+        cmd.target_compid = passthrough_->get_target_compid();
+
         cmd.command = 176;  // 176 = MAV_CMD_DO_SET_MODE
         cmd.param1 = 1.0f;  // MAV_MODE_FLAG_CUSTOM_MODE_ENABLED
         cmd.param2 = custom_mode;
@@ -92,7 +114,8 @@ bool MavsdkDrone::set_mode(const FixedString64& mode) {
         return true;
     }
 
-    spdlog::error("Unsupported APM flight mode: {}", mode_str);
+    spdlog::error("Unsupported APM flight mode '{}' for current vehicle type",
+                  mode_str);
     return false;
 }
 

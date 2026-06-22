@@ -153,6 +153,9 @@ class CoreNode {
             AssemblerType::template setup<TagListeners>(engine_);
         }
 
+        engine_->get_context().robot->set_target_type(
+            mavsdk_adapter_->get_target_type());
+
         // 3. 启动引擎
         engine_->start<InitState>(std::chrono::milliseconds(50));
 

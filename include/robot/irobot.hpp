@@ -79,6 +79,7 @@ class IRobot : public ITrackerRuntime {
     bool set_mode(const FixedString64& mode) {
         return mavlink_->set_mode(mode);
     }
+    void set_target_type(VehicleType type) { mavlink_->set_target_type(type); }
 
     template <typename T>
     T get_param(std::string name, T value) {
