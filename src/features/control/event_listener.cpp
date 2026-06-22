@@ -328,3 +328,9 @@ void ControlEventListener::on_event(const RestartEvent& event,
     ctx.fcu_connected.store(false);
     ctx.engine->step<InitState>();
 }
+
+void ControlEventListener::on_event(const JoystickEvent& event,
+                                    RobotContext& ctx) {
+    ctx.robot->cmd_vel(Eigen::Vector4d{event.x, event.y, event.z, event.w});
+    event.resolve({"success", "OK"});
+}

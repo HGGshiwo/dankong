@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/event_result.hpp"
 #ifdef USE_ROS
 #include <geometry_msgs/TwistStamped.h>
 #include <nav_msgs/Odometry.h>
@@ -387,6 +388,12 @@ class ControlFeature {
 
         web->template register_route<SetPosVelEvent, EventResult>(
             boost::beast::http::verb::post, "/set_posvel", 5000);
+
+        web->template register_route<JoystickEvent, EventResult>(
+            boost::beast::http::verb::post, "/cmd_vel", 5000);
+
+        web->template register_route<EnableJoystickEvent, EventResult>(
+            boost::beast::http::verb::post, "/joystick/enable", 5000);
     }
 
     static void setup(TagListeners, const std::shared_ptr<Engine>& engine);

@@ -64,6 +64,19 @@ struct SetPosVelEvent : dk::AsyncEvent<EventResult> {
 // @JSON_ENABLE
 struct DisarmEvent : dk::AsyncEvent<EventResult> {};
 
+// @JSON_ENABLE
+struct JoystickEvent : dk::AsyncEvent<EventResult> {
+    double x = 0;
+    double y = 0;
+    double z = 0;
+    double w = 0;
+};
+
+// @JSON_ENABLE
+struct EnableJoystickEvent : dk::AsyncEvent<EventResult> {
+    bool enable = false;
+};
+
 struct RestartEvent {};
 
 struct FcuConnectedEvent {

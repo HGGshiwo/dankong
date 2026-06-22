@@ -241,6 +241,7 @@ struct ControlContext {
     std::atomic<bool> odom_ok{false};
     std::atomic<double> current_battery{-1.0};
     std::atomic<double> voltage_battery{-1.0};
+    std::atomic<bool> enable_joystick{false};  // 是否开启摇杆
 
     std::atomic<int> sensor_health{0};
     std::atomic<double> yaw_enu{0.0};
