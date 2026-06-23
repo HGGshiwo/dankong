@@ -370,119 +370,144 @@ class ThreadedTracker : public IThreadRunner {
         double dx = target_pose.x() - current_pose.x();
         double dy = target_pose.y() - current_pose.y();
         double dz = target_pose.z() - current_pose.z();
-        double dyaw = ctrl_yaw ? angle_ctrl_.get_distance(current_pose.w(),
-                                                          target_pose.w())
-                               : 0.0;
-
         double current_yaw = current_pose.w();
 
-        double speed_scale = 1.0;
-        if ((!config_.is_omnidirectional.get() || auto_heading_) &&
-            std::hypot(dx, dy) >= config_.pos_tolerance_m.get()) {
-            double yaw_diff = std::abs(dyaw);
-            if (yaw_diff >= config_.yaw_zero_speed_tol.get()) {
-                speed_scale = 0.0;
-            } else if (yaw_diff > config_.yaw_full_speed_tol.get()) {
-                speed_scale =
-                    1.0 - (yaw_diff - config_.yaw_full_speed_tol.get()) /
-                              (config_.yaw_zero_speed_tol.get() -
-                               config_.yaw_full_speed_tol.get());
-            }
-        }
-
-        double kp_xy_active = config_.kp_xy.get() * gamma.x();
-        double ki_xy = config_.ki_xy.get();
-        double kd_xy = config_.kd_xy.get();
-        double max_i_xy = config_.max_i_xy.get();
-
+        // ==========================================
+        // 1. Z轴高度控制 (全向与阿克曼通用)
+        // ==========================================
         double kp_z_active = config_.kp_z.get() * gamma.y();
-        double ki_z = config_.ki_z.get();
-        double kd_z = config_.kd_z.get();
-        double max_i_z = config_.max_i_z.get();
-
-        double kp_yaw_active = config_.kp_yaw.get() * gamma.z();
-        double ki_yaw = config_.ki_yaw.get();
-        double kd_yaw = config_.kd_yaw.get();
-        double max_i_yaw = config_.max_i_yaw.get();
-
-        bool enable_xy_i = (speed_scale > 1e-3);
-
-        double pid_enu_x = calculate_pid(dx, pid_x_, kp_xy_active, ki_xy, kd_xy,
-                                         max_i_xy, dt, enable_xy_i);
-        double pid_enu_y = calculate_pid(dy, pid_y_, kp_xy_active, ki_xy, kd_xy,
-                                         max_i_xy, dt, enable_xy_i);
-
-        double fb_x = std::cos(current_yaw) * pid_enu_x +
-                      std::sin(current_yaw) * pid_enu_y;
-        double fb_y = -std::sin(current_yaw) * pid_enu_x +
-                      std::cos(current_yaw) * pid_enu_y;
-
-        double fb_z = calculate_pid(dz, pid_z_, kp_z_active, ki_z, kd_z,
-                                    max_i_z, dt, true);
-        double fb_yaw = calculate_pid(dyaw, pid_yaw_, kp_yaw_active, ki_yaw,
-                                      kd_yaw, max_i_yaw, dt, true);
-
-        double fb_speed_xy = std::hypot(fb_x, fb_y);
-        if (fb_speed_xy > limit_fb_vel_xy && fb_speed_xy > 1e-4) {
-            fb_x = (fb_x / fb_speed_xy) * limit_fb_vel_xy;
-            fb_y = (fb_y / fb_speed_xy) * limit_fb_vel_xy;
-            fb_speed_xy = limit_fb_vel_xy;
-        }
-        fb_yaw = std::clamp(fb_yaw, -limit_fb_vel_yaw, limit_fb_vel_yaw);
+        double fb_z =
+            calculate_pid(dz, pid_z_, kp_z_active, config_.ki_z.get(),
+                          config_.kd_z.get(), config_.max_i_z.get(), dt, true);
         fb_z = std::clamp(fb_z, -limit_fb_vel_z, limit_fb_vel_z);
 
-        double dist_xy = std::hypot(dx, dy);
-        if (dist_xy > 1e-4) {
-            double max_v_brake_xy = std::sqrt(
-                2.0 * max_decel_xy_.value_or(config_.max_decel_xy.get()) *
-                dist_xy);
-            if (fb_speed_xy > max_v_brake_xy) {
-                fb_x = (fb_x / fb_speed_xy) * max_v_brake_xy;
-                fb_y = (fb_y / fb_speed_xy) * max_v_brake_xy;
-            }
-        }
-
-        if (config_.is_omnidirectional.get()) {
-            cmd.x() = fb_x + ff_vel_body.x();
-            cmd.y() = fb_y + ff_vel_body.y();
-            cmd.z() = fb_z + ff_vel_body.z();
-            cmd.w() = fb_yaw + ff_vel_body.w();
-        } else {
-            cmd.y() = 0.0;
-            cmd.z() = fb_z + ff_vel_body.z();
-            cmd.x() = ff_vel_body.x() * std::cos(dyaw) + fb_x;
-
-            if (ff_vel_body.norm() < 1e-3) {
-                if (dist_xy > config_.pos_tolerance_m.get()) {
-                    cmd.x() = fb_x;
-                    cmd.w() = fb_yaw;
-                } else {
-                    cmd.x() = 0.0;
-                    cmd.w() = ctrl_yaw ? fb_yaw : 0.0;
-                }
-            } else {
-                double e_body_y =
-                    -std::sin(current_yaw) * dx + std::cos(current_yaw) * dy;
-                cmd.w() = ff_vel_body.w() +
-                          std::abs(cmd.x()) * kp_xy_active * e_body_y;
-                if (ctrl_yaw)
-                    cmd.w() += fb_yaw * std::sin(dyaw) / kp_yaw_active;
-            }
-        }
-
+        cmd.z() = fb_z + ff_vel_body.z();
         double max_v_brake_z =
             std::sqrt(2.0 * config_.max_decel_z.get() * std::abs(dz));
         cmd.z() = std::clamp(cmd.z(), -max_v_brake_z, max_v_brake_z);
 
-        if (ctrl_yaw) {
-            double max_v_brake_yaw =
-                std::sqrt(2.0 * config_.max_acc_yaw.get() * std::abs(dyaw));
-            cmd.w() = std::clamp(cmd.w(), -max_v_brake_yaw, max_v_brake_yaw);
+        // ==========================================
+        // 2. 平面控制 (按车型分支)
+        // ==========================================
+        if (config_.is_omnidirectional.get()) {
+            // --- 全向车独立 PID 控制逻辑 ---
+            double dyaw = ctrl_yaw ? angle_ctrl_.get_distance(current_yaw,
+                                                              target_pose.w())
+                                   : 0.0;
+
+            // 航向误差过大时的降速逻辑
+            double speed_scale = 1.0;
+            if (auto_heading_ &&
+                std::hypot(dx, dy) >= config_.pos_tolerance_m.get()) {
+                double yaw_diff = std::abs(dyaw);
+                if (yaw_diff >= config_.yaw_zero_speed_tol.get()) {
+                    speed_scale = 0.0;
+                } else if (yaw_diff > config_.yaw_full_speed_tol.get()) {
+                    speed_scale =
+                        1.0 - (yaw_diff - config_.yaw_full_speed_tol.get()) /
+                                  (config_.yaw_zero_speed_tol.get() -
+                                   config_.yaw_full_speed_tol.get());
+                }
+            }
+
+            double kp_xy_active = config_.kp_xy.get() * gamma.x();
+            bool enable_xy_i = (speed_scale > 1e-3);
+            double pid_enu_x = calculate_pid(
+                dx, pid_x_, kp_xy_active, config_.ki_xy.get(),
+                config_.kd_xy.get(), config_.max_i_xy.get(), dt, enable_xy_i);
+            double pid_enu_y = calculate_pid(
+                dy, pid_y_, kp_xy_active, config_.ki_xy.get(),
+                config_.kd_xy.get(), config_.max_i_xy.get(), dt, enable_xy_i);
+
+            double fb_x = std::cos(current_yaw) * pid_enu_x +
+                          std::sin(current_yaw) * pid_enu_y;
+            double fb_y = -std::sin(current_yaw) * pid_enu_x +
+                          std::cos(current_yaw) * pid_enu_y;
+
+            double fb_speed_xy = std::hypot(fb_x, fb_y);
+            if (fb_speed_xy > limit_fb_vel_xy && fb_speed_xy > 1e-4) {
+                fb_x = (fb_x / fb_speed_xy) * limit_fb_vel_xy;
+                fb_y = (fb_y / fb_speed_xy) * limit_fb_vel_xy;
+                fb_speed_xy = limit_fb_vel_xy;
+            }
+
+            double dist_xy = std::hypot(dx, dy);
+            if (dist_xy > 1e-4) {
+                double max_v_brake_xy = std::sqrt(
+                    2.0 * max_decel_xy_.value_or(config_.max_decel_xy.get()) *
+                    dist_xy);
+                if (fb_speed_xy > max_v_brake_xy) {
+                    fb_x = (fb_x / fb_speed_xy) * max_v_brake_xy;
+                    fb_y = (fb_y / fb_speed_xy) * max_v_brake_xy;
+                }
+            }
+
+            double kp_yaw_active = config_.kp_yaw.get() * gamma.z();
+            double fb_yaw = calculate_pid(
+                dyaw, pid_yaw_, kp_yaw_active, config_.ki_yaw.get(),
+                config_.kd_yaw.get(), config_.max_i_yaw.get(), dt, true);
+            fb_yaw = std::clamp(fb_yaw, -limit_fb_vel_yaw, limit_fb_vel_yaw);
+
+            cmd.x() = (fb_x + ff_vel_body.x()) * speed_scale;
+            cmd.y() = (fb_y + ff_vel_body.y()) * speed_scale;
+            cmd.w() = fb_yaw + ff_vel_body.w();
+
+            // 全向车的 Yaw 刹车限幅
+            if (ctrl_yaw) {
+                double max_v_brake_yaw =
+                    std::sqrt(2.0 * config_.max_acc_yaw.get() * std::abs(dyaw));
+                cmd.w() =
+                    std::clamp(cmd.w(), -max_v_brake_yaw, max_v_brake_yaw);
+            }
+
+        } else {
+            // --- 阿克曼车纯追踪 (Pure Pursuit) 逻辑 ---
+            double dist_to_target = std::hypot(dx, dy);
+
+            // 1. 计算线速度 vx (距离越近速度越慢，平滑停车)
+            double target_v = config_.kp_xy.get() * dist_to_target;
+            target_v = std::clamp(target_v, -limit_fb_vel_xy, limit_fb_vel_xy);
+
+            if (dist_to_target < config_.pos_tolerance_m.get()) {
+                target_v = 0.0;
+                cmd.w() = 0.0;
+
+                // 【进阶优化】如果已经到达终点，且要求控制
+                // Yaw，此时原地调整最终航向
+                if (ctrl_yaw) {
+                    double dyaw =
+                        angle_ctrl_.get_distance(current_yaw, target_pose.w());
+                    double kp_yaw_active = config_.kp_yaw.get() * gamma.z();
+                    cmd.w() = calculate_pid(dyaw, pid_yaw_, kp_yaw_active,
+                                            config_.ki_yaw.get(),
+                                            config_.kd_yaw.get(),
+                                            config_.max_i_yaw.get(), dt, true);
+                    cmd.w() = std::clamp(cmd.w(), -limit_fb_vel_yaw,
+                                         limit_fb_vel_yaw);
+                    double max_v_brake_yaw = std::sqrt(
+                        2.0 * config_.max_acc_yaw.get() * std::abs(dyaw));
+                    cmd.w() =
+                        std::clamp(cmd.w(), -max_v_brake_yaw, max_v_brake_yaw);
+                }
+            } else {
+                // 2. 纯追踪角速度计算
+                // 建议：min_lookahead 不要太小，否则靠近目标点时转角会剧烈震荡
+                double min_lookahead = config_.min_lookahead.get();
+                double Ld = std::max(dist_to_target, min_lookahead);
+
+                double target_angle = std::atan2(dy, dx);
+                double alpha =
+                    state_utils::norm_yaw(target_angle - current_yaw);
+
+                double target_w = (2.0 * target_v * std::sin(alpha)) / Ld;
+                cmd.w() =
+                    std::clamp(target_w, -limit_fb_vel_yaw, limit_fb_vel_yaw);
+            }
+
+            cmd.x() = target_v + ff_vel_body.x();
+            cmd.y() = 0.0;
+            cmd.w() += ff_vel_body.w();
         }
-
-        cmd.x() *= speed_scale;
-        cmd.y() *= speed_scale;
-
         return cmd;
     }
 

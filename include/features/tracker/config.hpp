@@ -56,4 +56,7 @@ struct TrackerConfig {
         INIT_PARAM("yaw_full_speed_tol", 0.17, "在此偏差内允许满速移动(rad)");
     dk::Param<double> yaw_zero_speed_tol = INIT_PARAM(
         "yaw_zero_speed_tol", 0.78, "偏差超过此值时完全停车原地转(rad)");
+
+    dk::Param<double> min_lookahead =
+        INIT_PARAM("min_lookahead", 0.5, "最小前视距离");
 };
