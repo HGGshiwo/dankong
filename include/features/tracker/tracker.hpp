@@ -540,7 +540,9 @@ class ThreadedTracker : public IThreadRunner {
                     target_v = std::clamp(target_v, 0.0, limit_fb_vel_xy);
 
                     double min_lookahead = config_.min_lookahead.get();
-                    double Ld = std::max(dist_to_target, min_lookahead);
+                    double max_lookahead = config_.max_lookahead.get();
+                    double Ld = std::clamp(dist_to_target, min_lookahead,
+                                           max_lookahead);
 
                     // 纯追踪计算角速度
                     double target_w = (2.0 * target_v * std::sin(alpha)) / Ld;

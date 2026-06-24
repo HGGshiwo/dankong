@@ -59,4 +59,7 @@ struct TrackerConfig {
 
     dk::Param<double> min_lookahead =
         INIT_PARAM("min_lookahead", 0.5, "最小前视距离");
+
+    dk::Param<double> max_lookahead =
+        INIT_PARAM("max_lookahead", 2.5, "最大前视距离");
 };
