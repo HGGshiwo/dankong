@@ -145,27 +145,26 @@ class Car : public IRobot, public IThreadRunner {
 
             // 检查是否超过了物理最大转角
             if (std::abs(wheel_angle_deg) > MAX_ANGLE) {
-                // 【优雅处理】：超过极限转角时，不急刹掉头。
-                // 而是将角度限制在最大值，同时为了满足上层的 yaw_rate
-                // 意图，等比例降低线速度。 根据公式: v = omega * R_min = omega
-                // * (L / tan(MAX_ANGLE))
-
-                cmd_210_.target_angle =
+                // 【优雅处理】：超过极限转角时，限制在最大物理角度，并等比例降低线速度
+                wheel_angle_deg =
                     (wheel_angle_deg > 0) ? MAX_ANGLE : -MAX_ANGLE;
 
                 // 计算当前最大打角下的最小物理转弯半径
                 double min_radius =
                     WHEELBASE / std::tan(MAX_ANGLE * M_PI / 180.0);
-
                 // 重新计算能够匹配期望 yaw_rate 的安全线速度
                 double safe_speed_ms = std::abs(yaw_rate) * min_radius;
-
-                // 取下发的期望速度和安全速度的较小值，避免加速
+                // 取较小值，避免加速
                 speed_ms = std::min(speed_ms, safe_speed_ms);
-            } else {
-                // 在物理能力范围内，正常下发角度
-                cmd_210_.target_angle = static_cast<int16_t>(wheel_angle_deg);
             }
+
+            // 将物理角度 wheel_angle_deg 线性映射到底盘指令区间 [-300, 300]
+            double target_angle_cmd = (wheel_angle_deg / MAX_ANGLE) * 300.0;
+
+            // 限幅防越界并强转
+            cmd_210_.target_angle = static_cast<int16_t>(
+                std::clamp(target_angle_cmd, -300.0, 300.0));
+
         } else {
             cmd_210_.target_angle = 0;
         }
