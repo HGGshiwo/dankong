@@ -28,8 +28,8 @@ class Car : public IRobot, public IThreadRunner {
    private:
     // 车辆物理参数常量 (需根据实际底盘尺寸修改)
     double WHEELBASE = GlobalConfig.GetConfig().wheelbase.get();  // 轴距 (米)
-    double MAX_ANGLE = 25;                        // 轮胎最大角度(度)
-    static constexpr double MAX_SPEED_KMH = 2.0;  // 限制最高车速
+    double MAX_ANGLE = 25;  // 轮胎最大角度(度)
+
     static constexpr double TANK_TURN_SPEED = 5.0;  // 原地掉头时的默认旋转车速
     std::shared_ptr<CanClient> can_client_;
     Throttle t_{50};
@@ -171,7 +171,9 @@ class Car : public IRobot, public IThreadRunner {
 
         // 统一处理速度下发（经过上述可能的降速削减后）
         cmd_210_.target_speed =
-            to_uint16(std::min(speed_ms * 3.6, MAX_SPEED_KMH), 0.1);
+            to_uint16(std::min(speed_ms * 3.6,
+                               GlobalConfig.GetConfig().max_speed_kmh.get()),
+                      0.1);
 
         return true;
     }
