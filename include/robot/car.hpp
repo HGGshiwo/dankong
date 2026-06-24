@@ -114,73 +114,66 @@ class Car : public IRobot, public IThreadRunner {
 
         std::lock_guard<std::mutex> lock(cmd_mutex_);
         if (!inner_check_hover(cmd_210_.target_gear)) {
-            return false;  // 停止状态，不允许挂除了前进或者后退的档位
+            return false;
         }
 
         cmd_210_.ipc_en = 1;
         cmd_210_.brake_en = 0;
 
-        // 1. 计算前向合速度
         double speed_ms = std::hypot(vx, vy);
+        cmd_210_.target_gear = (vx < -0.05) ? 1 : 3;
 
-        // 2. 挡位判断：依据前向速度 vx 的正负号
-        if (vx < -0.05) {
-            cmd_210_.target_gear = 1;  // 1 = R 挡 (倒车)
-        } else {
-            cmd_210_.target_gear = 3;  // 3 = D 挡 (前进)
-        }
-
-        // 3. 转向模式与角度计算
+        // 1. 纯原地旋转判定 (线速度极小，只有角速度)
         if (speed_ms < 0.05 && std::abs(yaw_rate) > 0.05) {
-            // ==========================================
-            // 【状态 A：原地掉头】 (Steering Mode = 1)
-            // ==========================================
             cmd_210_.steering_mode = 1;
-
-            // 此时 target_speed 作为纵向驱动可能被底层忽略，但稳妥起见设为 0
             cmd_210_.target_speed = 0;
-
-            // 引入你所说的映射逻辑：Target_Angle [-300, 300] 对应电机转速。
-            // 为了将 ROS 下发的 yaw_rate (rad/s) 映射到 0~300 的指令值，
-            // 这里需要定义一个底盘的最大期望自转角速度
-            // (需根据实车标定测试，比如 1.0 rad/s)
             const double MAX_YAW_RATE_RAD_S = 1.0;
-
-            // 线性映射：将当前 yaw_rate 映射到 [-300.0, 300.0] 的指令区间
             double turn_cmd_val = (yaw_rate / MAX_YAW_RATE_RAD_S) * 300.0;
-
-            // 限幅并强转为 int16_t (C++ 底层会自动将其转为 0xFFB0
-            // 这种正确的补码形式)
             cmd_210_.target_angle =
                 static_cast<int16_t>(std::clamp(turn_cmd_val, -300.0, 300.0));
-
-        } else {
-            // ==========================================
-            // 【状态 B：阿克曼正常转向】 (Steering Mode = 0)
-            // ==========================================
-            cmd_210_.steering_mode = 0;
-
-            // 正常行驶时的速度下发
-            cmd_210_.target_speed =
-                to_uint16(std::min(speed_ms * 3.6, MAX_SPEED_KMH), 0.1);
-
-            if (speed_ms >= 0.05) {
-                // 自行车模型计算纯前轮偏角 (弧度)
-                // 根据规格书，三轴车轴距取前轴到中轴距离 0.82m
-                double tire_angle_rad =
-                    std::atan((WHEELBASE * yaw_rate) / speed_ms);
-
-                // 弧度转角度 (不再乘方向盘转角比)
-                double wheel_angle_deg = tire_angle_rad * 180.0 / M_PI;
-
-                // 根据规格书：外轮最大转角 25°，内轮
-                // 30°。稳妥起见，物理极值限幅 ±25°
-                cmd_210_.target_angle = static_cast<int16_t>(
-                    std::clamp(wheel_angle_deg, -MAX_ANGLE, MAX_ANGLE));
-            } else {
-                cmd_210_.target_angle = 0;
-            }
+            return true;
         }
+
+        // 2. 正常行驶状态 (存在线速度)
+        cmd_210_.steering_mode = 0;
+
+        if (speed_ms >= 0.05) {
+            // 计算理论需要的纯前轮偏角 (弧度)
+            double tire_angle_rad =
+                std::atan((WHEELBASE * yaw_rate) / speed_ms);
+            double wheel_angle_deg = tire_angle_rad * 180.0 / M_PI;
+
+            // 检查是否超过了物理最大转角
+            if (std::abs(wheel_angle_deg) > MAX_ANGLE) {
+                // 【优雅处理】：超过极限转角时，不急刹掉头。
+                // 而是将角度限制在最大值，同时为了满足上层的 yaw_rate
+                // 意图，等比例降低线速度。 根据公式: v = omega * R_min = omega
+                // * (L / tan(MAX_ANGLE))
+
+                cmd_210_.target_angle =
+                    (wheel_angle_deg > 0) ? MAX_ANGLE : -MAX_ANGLE;
+
+                // 计算当前最大打角下的最小物理转弯半径
+                double min_radius =
+                    WHEELBASE / std::tan(MAX_ANGLE * M_PI / 180.0);
+
+                // 重新计算能够匹配期望 yaw_rate 的安全线速度
+                double safe_speed_ms = std::abs(yaw_rate) * min_radius;
+
+                // 取下发的期望速度和安全速度的较小值，避免加速
+                speed_ms = std::min(speed_ms, safe_speed_ms);
+            } else {
+                // 在物理能力范围内，正常下发角度
+                cmd_210_.target_angle = static_cast<int16_t>(wheel_angle_deg);
+            }
+        } else {
+            cmd_210_.target_angle = 0;
+        }
+
+        // 统一处理速度下发（经过上述可能的降速削减后）
+        cmd_210_.target_speed =
+            to_uint16(std::min(speed_ms * 3.6, MAX_SPEED_KMH), 0.1);
+
         return true;
     }
 
