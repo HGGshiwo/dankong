@@ -4,7 +4,11 @@
 
 //@JSON_ENABLE
 struct LightEvent : dk::AsyncEvent<EventResult> {
-    bool far = false;
+    bool far = false;      // 远光
+    bool dipped = false;   // 近光
+    bool alarm = false;    // 双闪
+    bool outline = false;  // 小灯
+    int turn = 1;          // 转向
 };
 
 //@JSON_ENABLE

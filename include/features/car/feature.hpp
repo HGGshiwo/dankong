@@ -106,8 +106,7 @@ struct CarFeature {
                 ipc_vcu_zrd_ipc_203_unpack(&unpacked_data, data.data(),
                                            data.size());
 
-                ctx.battery_level.store((double)(unpacked_data.soc) / 255.0 *
-                                        100);
+                ctx.battery_level.store((double)(unpacked_data.soc));
             });
 
         can->bind_context(

@@ -187,12 +187,11 @@ class Car : public IRobot, public IThreadRunner {
     void set_light(const LightEvent& event) {
         std::lock_guard<std::mutex> lock(cmd_mutex_);
         cmd_210_.ipc_en = 1;
-        // cmd_210_.turn_lamp = event.turn;
-        // cmd_210_.dipped_lamp = event.dipped ? 1 : 0;
+        cmd_210_.turn_lamp = event.turn;
+        cmd_210_.dipped_lamp = event.dipped ? 1 : 0;
         cmd_210_.far_lamp = event.far ? 1 : 0;
-        // cmd_210_.out_line_lamp = event.outline ? 1 : 0;
-        // cmd_210_.alarm_lamp = event.alarm ? 1 : 0;  // 双闪
-        // cmd_210_.horn = event.horn ? 1 : 0;
+        cmd_210_.out_line_lamp = event.outline ? 1 : 0;
+        cmd_210_.alarm_lamp = event.alarm ? 1 : 0;  // 双闪
     }
 
     void set_horn(const HornEvent& event) {
