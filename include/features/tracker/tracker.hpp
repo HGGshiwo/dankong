@@ -104,6 +104,8 @@ class ThreadedTracker : public IThreadRunner {
 
     std::shared_ptr<dk::ITimeProvider> time_provider_;
 
+    bool is_pivoting_ = false;  // 用于记忆当前是否处于原地转向状态
+
    public:
     ThreadedTracker(const TrackerConfig& config, ITrackerRuntime* runtime,
                     DirtyVar<Eigen::Vector3d>& pos_enu,
@@ -272,6 +274,7 @@ class ThreadedTracker : public IThreadRunner {
         pid_y_.reset();
         pid_z_.reset();
         pid_yaw_.reset();
+        is_pivoting_ = false;
     }
 
     double calculate_pid(double error, PIDState& state, double kp, double ki,
@@ -464,16 +467,12 @@ class ThreadedTracker : public IThreadRunner {
             // --- 阿克曼车纯追踪 (Pure Pursuit) 逻辑 ---
             double dist_to_target = std::hypot(dx, dy);
 
-            // 1. 计算线速度 vx (距离越近速度越慢，平滑停车)
-            double target_v = config_.kp_xy.get() * dist_to_target;
-            target_v = std::clamp(target_v, -limit_fb_vel_xy, limit_fb_vel_xy);
-
             if (dist_to_target < config_.pos_tolerance_m.get()) {
-                target_v = 0.0;
+                // --- 1. 已到达目标点位置，平滑停车 ---
+                cmd.x() = ff_vel_body.x();
                 cmd.w() = 0.0;
+                is_pivoting_ = false;  // 到达终点，重置状态
 
-                // 【进阶优化】如果已经到达终点，且要求控制
-                // Yaw，此时原地调整最终航向
                 if (ctrl_yaw) {
                     double dyaw =
                         angle_ctrl_.get_distance(current_yaw, target_pose.w());
@@ -484,27 +483,76 @@ class ThreadedTracker : public IThreadRunner {
                                             config_.max_i_yaw.get(), dt, true);
                     cmd.w() = std::clamp(cmd.w(), -limit_fb_vel_yaw,
                                          limit_fb_vel_yaw);
+
                     double max_v_brake_yaw = std::sqrt(
                         2.0 * config_.max_acc_yaw.get() * std::abs(dyaw));
                     cmd.w() =
                         std::clamp(cmd.w(), -max_v_brake_yaw, max_v_brake_yaw);
                 }
             } else {
-                // 2. 纯追踪角速度计算
-                // 建议：min_lookahead 不要太小，否则靠近目标点时转角会剧烈震荡
-                double min_lookahead = config_.min_lookahead.get();
-                double Ld = std::max(dist_to_target, min_lookahead);
-
+                // --- 2. 未到达目标点，计算运动学 ---
                 double target_angle = std::atan2(dy, dx);
+
+                // 【修复1：规范化角度到 0~2pi】
                 double alpha =
                     state_utils::norm_yaw(target_angle - current_yaw);
 
-                double target_w = (2.0 * target_v * std::sin(alpha)) / Ld;
-                cmd.w() =
-                    std::clamp(target_w, -limit_fb_vel_yaw, limit_fb_vel_yaw);
+                // 【修复2：强制转换到 -pi ~ pi，获取最短转角误差】
+                if (alpha > M_PI) {
+                    alpha -= 2.0 * M_PI;
+                }
+
+                // ==========================================
+                // 【双阈值滞回状态机：只处理前进与原地转向】
+                // ==========================================
+                const double PIVOT_ENTER_TOL =
+                    30.0 * M_PI / 180.0;  // 误差 > 30度，进入原地转向
+                const double PIVOT_EXIT_TOL =
+                    5.0 * M_PI / 180.0;  // 误差 < 5度，退出原地转向，开始直行
+
+                if (!is_pivoting_ && std::abs(alpha) > PIVOT_ENTER_TOL) {
+                    is_pivoting_ = true;
+                } else if (is_pivoting_ && std::abs(alpha) < PIVOT_EXIT_TOL) {
+                    is_pivoting_ = false;
+                }
+
+                if (is_pivoting_) {
+                    // ==========================================
+                    // 状态 A：原地转向对齐目标
+                    // ==========================================
+                    cmd.x() = 0.0;  // 线速度死锁为0，触发底层 steering_mode = 1
+
+                    double kp_yaw_active = config_.kp_yaw.get() * gamma.z();
+                    // 此时 alpha 已经是正确的 [-pi, pi] 误差，直接送入 PID
+                    cmd.w() = calculate_pid(alpha, pid_yaw_, kp_yaw_active,
+                                            config_.ki_yaw.get(),
+                                            config_.kd_yaw.get(),
+                                            config_.max_i_yaw.get(), dt, true);
+                    cmd.w() = std::clamp(cmd.w(), -limit_fb_vel_yaw,
+                                         limit_fb_vel_yaw);
+
+                } else {
+                    // ==========================================
+                    // 状态 B：纯追踪前行 (此时 abs(alpha) 必定 < 30 度)
+                    // ==========================================
+                    double target_v = config_.kp_xy.get() * dist_to_target;
+                    // 取消倒车逻辑，强制速度下限为 0.0
+                    target_v = std::clamp(target_v, 0.0, limit_fb_vel_xy);
+
+                    double min_lookahead = config_.min_lookahead.get();
+                    double Ld = std::max(dist_to_target, min_lookahead);
+
+                    // 纯追踪计算角速度
+                    double target_w = (2.0 * target_v * std::sin(alpha)) / Ld;
+
+                    cmd.x() = target_v;
+                    cmd.w() = std::clamp(target_w, -limit_fb_vel_yaw,
+                                         limit_fb_vel_yaw);
+                }
+
+                cmd.x() += ff_vel_body.x();
             }
 
-            cmd.x() = target_v + ff_vel_body.x();
             cmd.y() = 0.0;
             cmd.w() += ff_vel_body.w();
         }

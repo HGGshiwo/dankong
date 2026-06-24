@@ -127,7 +127,7 @@ double yaw_ned_to_enu(double yaw_ned) {
     return heading;
 }
 
-// 规范化到0~pi之间
+// 规范化到0~2pi之间
 double norm_yaw(double yaw) {
     while (yaw < 0) yaw += M_PI * 2;
     while (yaw >= 2 * M_PI) yaw -= M_PI * 2;
