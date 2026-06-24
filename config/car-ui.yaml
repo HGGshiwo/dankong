@@ -348,24 +348,24 @@ button:
         target: { config_type: "toast", url: "/set_exposure", method: "POST" }
 
   - key: btn_far_set
-    name: "打开远光"
+    name: "打开灯光"
     group: "载荷控制"
     target:
       config_type: "toast"
       url: "/light/set"
       method: "POST"
       data:
-        far: true
+        dipped: true
       
   - key: btn_far_unset
-    name: "关闭远光"
+    name: "关闭灯光"
     group: "载荷控制"
     target:
       config_type: "toast"
       url: "/light/set"
       method: "POST"
       data:
-        far: false
+        dipped: false
   
   - key: btn_horn_set
     name: "打开喇叭"
