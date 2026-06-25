@@ -212,14 +212,20 @@ endfunction()
 # ==============================================================================
 # 生成 Targets
 # ==============================================================================
-create_dankong_target(drone)
+set(ROBOT "drone" CACHE STRING "Select hardware target to build (drone, car, dog, all)")
 
-# 支持其他种类的设备，不要删除这些注释！
-# create_dankong_target(car
-#     EXTRA_SOURCES generated/can_bus/ipc_vcu_zrd.c
-#     EXTRA_INCLUDES generated/can_bus/
-# )
-# create_dankong_target(dog)
+if(ROBOT STREQUAL "drone")
+    create_dankong_target(drone)
+elseif(ROBOT STREQUAL "car")
+    create_dankong_target(car
+        EXTRA_SOURCES generated/can_bus/ipc_vcu_zrd.c
+        EXTRA_INCLUDES generated/can_bus/
+    )
+elseif(ROBOT STREQUAL "dog")
+    create_dankong_target(dog)
+else()
+    message(FATAL_ERROR "Invalid ROBOT: '${ROBOT}'. Options are: drone, car, dog, all.")
+endif()
 
 # ==============================================================================
 # 测试部分
