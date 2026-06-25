@@ -17,7 +17,7 @@ class ILandingDetector;
 struct PlandContext {
    public:
     DirtyVar<cv::Mat> pland_image;
-    DirtyVar<int> land_target_id{-1};
+    DirtyVar<bool> do_pland{false};
     DirtyVar<double> pland_image_stamp{-1.0};
     DirtyVar<std::optional<double>> gimbal_roll{std::nullopt};
     DirtyVar<std::optional<double>> gimbal_pitch{std::nullopt};
@@ -29,6 +29,6 @@ struct PlandContext {
     std::shared_ptr<ILandingController> land_controller;
 
     explicit PlandContext(StateRegistry& reg) {
-        reg.bind("land_target", land_target_id, 2.0);
+        reg.bind("do_pland", do_pland, 2.0);
     }
 };

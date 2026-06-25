@@ -30,6 +30,8 @@ class IMavlink {
     virtual bool pull_params() = 0;
     virtual void send_rtcm_data(const uint8_t* data, size_t size) = 0;
     virtual void set_target_type(VehicleType type) = 0;
+    virtual bool is_prearm_msg(const std::string& text) = 0;
+    virtual bool check_sensor_health(uint32_t sensor_health) = 0;
     // 获取实际的数据
     template <typename Type>
     static Type unpack(const ApmParam& param) {

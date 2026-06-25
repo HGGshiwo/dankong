@@ -45,4 +45,6 @@ class MavsdkDrone : public IMavlink {
     bool reboot_fcu() override;
     bool cmd_vel(Eigen::Vector4d vel) override;
     void send_rtcm_data(const uint8_t* data, size_t size) override;
+    bool is_prearm_msg(const std::string& text) override;
+    bool check_sensor_health(uint32_t sensor_health) override;
 };

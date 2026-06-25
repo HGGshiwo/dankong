@@ -15,11 +15,10 @@ class MultiArrayTagsPattern : public ITargetPattern {
     // 存储阵列中每个 Tag 的 3D 物理坐标 (从 Python 脚本的输出中获取)
     // 键为 Tag ID，值为 4 个角点的 3D 坐标 (顺序: 左下, 右下, 右上, 左上)
     LayoutMap tag_3d_layout_;
-    int base_id_;  // 假设 9 个 Tag 的 ID 连续，这是第一个 ID
 
    public:
-    MultiArrayTagsPattern(int base_id, const LayoutMap& tag_3d_layout)
-        : base_id_(base_id), tag_3d_layout_(tag_3d_layout) {
+    MultiArrayTagsPattern(const LayoutMap& tag_3d_layout)
+        : tag_3d_layout_(tag_3d_layout) {
         if (tag_3d_layout_.empty()) {
             throw std::runtime_error("[Pland] no config found!");
         }

@@ -81,10 +81,14 @@ include_directories(${GLOBAL_INCLUDE_DIRS})
 
 set(BASE_STATE_SRC src/states/ground_state.cpp src/states/hover_state.cpp src/states/init_state.cpp src/states/land_state.cpp src/states/state_utils.cpp src/states/takeoff_state.cpp src/states/waypoint_state.cpp)
 if(BUILD_WITH_ROS)
-    set(FEATURES_SRC src/features/algo/event_listener.cpp src/features/control/event_listener.cpp)
+    set(FEATURES_SRC 
+        src/features/algo/event_listener.cpp 
+        src/features/control/event_listener.cpp 
+        src/features/mavlink/event_listener.cpp)
 else()
-
-    set(FEATURES_SRC src/features/control/event_listener.cpp)
+    set(FEATURES_SRC 
+        src/features/control/event_listener.cpp 
+        src/features/mavlink/event_listener.cpp)
 endif()
 
 set(BASE_MAVLINK_SRC src/mavlink/mavsdk_drone.cpp)
@@ -208,13 +212,13 @@ endfunction()
 # ==============================================================================
 # 生成 Targets
 # ==============================================================================
-# create_dankong_target(drone)
+create_dankong_target(drone)
 
 # 支持其他种类的设备，不要删除这些注释！
-create_dankong_target(car
-    EXTRA_SOURCES generated/can_bus/ipc_vcu_zrd.c
-    EXTRA_INCLUDES generated/can_bus/
-)
+# create_dankong_target(car
+#     EXTRA_SOURCES generated/can_bus/ipc_vcu_zrd.c
+#     EXTRA_INCLUDES generated/can_bus/
+# )
 # create_dankong_target(dog)
 
 # ==============================================================================

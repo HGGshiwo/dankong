@@ -18,6 +18,7 @@
 #include "dk/adapters/web.hpp"
 #include "dk/adapters/web/adapter.hpp"
 #include "features/dog/command.hpp"
+#include "features/mavlink/events.hpp"
 #include "robot_context.hpp"
 #include "states/init_state.hpp"
 #include "utils/get_executable_path.hpp"
@@ -159,9 +160,11 @@ class CoreNode {
         // 3. 启动引擎
         engine_->start<InitState>(std::chrono::milliseconds(50));
 
-        bool is_connected = mavsdk_system_->is_connected();
-        engine_->get_context().fcu_connected.store(is_connected);
-        engine_->dispatch_internal(FcuConnectedEvent{is_connected});
+        if constexpr (AssemblerType::template has_feature_for<TagMavsdk>) {
+            bool is_connected = mavsdk_system_->is_connected();
+            engine_->get_context().fcu_connected.store(is_connected);
+            engine_->dispatch_internal(FcuConnectedEvent{is_connected});
+        }
 
 #ifdef USE_ROS
         asio_thread_ = std::thread([this]() {

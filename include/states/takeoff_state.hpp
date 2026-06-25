@@ -5,6 +5,7 @@
 
 #include "core/global_config.hpp"
 #include "features/control/events.hpp"
+#include "features/mavlink/events.hpp"
 #include "ground_state.hpp"
 #include "hover_state.hpp"
 #include "robot_context.hpp"

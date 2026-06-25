@@ -120,6 +120,7 @@ bool MavsdkDrone::set_mode(const FixedString64& mode) {
 }
 
 bool MavsdkDrone::run_prearm_checks() {
+    set_mode("GUIDED");
     if (!passthrough_) {
         spdlog::error("MavlinkPassthrough plugin is not initialized.");
         return false;
@@ -374,4 +375,17 @@ void MavsdkDrone::send_rtcm_data(const uint8_t* data, size_t size) {
         // 最终调用！将切片后的差分数据发给飞控
         rtk_->send_rtcm_data(rtcm_data);
     }
+}
+
+bool MavsdkDrone::is_prearm_msg(const std::string& text) {
+    return text.rfind("PreArm: ", 0) == 0 || text.rfind("Arm: ", 0) == 0;
+}
+
+bool MavsdkDrone::check_sensor_health(uint32_t sensor_health) {
+    int bits = 0x10000000;
+    if ((sensor_health & bits) == bits) {
+        spdlog::info("prearm_check: sensor_health check pass!");
+        return true;
+    }
+    return false;
 }

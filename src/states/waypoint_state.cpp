@@ -19,7 +19,7 @@ WaypointState::WaypointState(SetWaypointEvent e)
       wp_idx_(0),
       action_(e.finish_action),
       node_event_list_(e.nodeEventList),
-      land_target_id_(e.land_target_id),
+      do_pland_(e.do_pland),
       target_vel_(e.speed) {}
 
 void WaypointState::on_enter(RobotContext& ctx) {
@@ -32,7 +32,7 @@ void WaypointState::on_enter(RobotContext& ctx) {
     if (wp_list_.size() == 0) {
         // 直接执行剩余命令
         if (action_ == FinishAction::LAND) {
-            ctx.engine->step<LandState>(std::tuple(land_target_id_));
+            ctx.engine->step<LandState>(std::tuple(do_pland_));
         } else if (action_ == FinishAction::HOVER) {
             ctx.engine->step<HoverState>();
         } else {
@@ -187,7 +187,7 @@ StateAction WaypointState::ExcuteState::on_event(const dk::TickEvent& event,
         if (parent()->wp_idx_ >= parent()->wp_list_.size()) {
             parent()->report_task_done(ctx);
             if (parent()->action_ != FinishAction::HOVER)
-                return step<LandState>(std::tuple(parent()->land_target_id_));
+                return step<LandState>(std::tuple(parent()->do_pland_));
             else
                 return step<HoverState>();
         }

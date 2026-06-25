@@ -26,9 +26,8 @@ class ControlEventListener
         std::tuple<PrearmEvent, TakeoffEvent, dk::StateChangeEvent,
                    SetWaypointEvent, SetModeEvent, SetPosVelEvent,
                    dk::TickEvent, RebootFcuEvent, GetWpEvent, GetGpsEvent,
-                   GetParamEvent, SetParamEvent, FcuConnectedEvent, DisarmEvent,
-                   RestartEvent, StatusTextEvent, JoystickEvent,
-                   EnableJoystickEvent>;
+                   GetParamEvent, SetParamEvent, DisarmEvent, RestartEvent,
+                   JoystickEvent, EnableJoystickEvent>;
 
     void on_event(const dk::TickEvent& event, RobotContext& ctx);
     void on_event(const SetPosVelEvent& event, RobotContext& ctx);
@@ -40,12 +39,10 @@ class ControlEventListener
     void on_event(const RebootFcuEvent& event, RobotContext& ctx);
     void on_event(const GetWpEvent& event, RobotContext& ctx);
     void on_event(const GetGpsEvent& event, RobotContext& ctx);
-    void on_event(const FcuConnectedEvent& event, RobotContext& ctx);
     void on_event(const GetParamEvent& event, RobotContext& ctx);
     void on_event(const SetParamEvent& event, RobotContext& ctx);
     void on_event(const DisarmEvent& event, RobotContext& ctx);
     void on_event(const RestartEvent& event, RobotContext& ctx);
-    void on_event(const StatusTextEvent& event, RobotContext& ctx);
     void on_event(const JoystickEvent& event, RobotContext& ctx);
     void on_event(const EnableJoystickEvent& event, RobotContext& ctx) {
         ctx.enable_joystick.store(event.enable);

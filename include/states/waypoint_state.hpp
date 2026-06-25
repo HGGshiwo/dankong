@@ -18,7 +18,7 @@ class WaypointState : public dk::BaseState<RobotContext, WaypointState, void> {
     FinishAction action_;
     std::optional<double> target_vel_;  // 期望的速度
 
-    int land_target_id_;
+    bool do_pland_ = false;
     int wp_idx_;  // 当前点的序号
 
    private:

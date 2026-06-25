@@ -101,7 +101,7 @@ class PlandFeature {
         web->template register_route<SetWaypointEvent, EventResult>(
             boost::beast::http::verb::post, "/pland", 5000,
             [](SetWaypointEvent& event) {
-                event.land_target_id = 0;
+                event.do_pland = true;
                 event.finish_action = FinishAction::LAND;
             });
     }

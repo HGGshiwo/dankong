@@ -27,6 +27,10 @@ state_bool:
     name: "RTK"
     collapse: false
 
+  - key: do_pland
+    name: "精准降落"
+    collapse: false
+
 state_value:
   - key: mode
     name: "飞控模式"
@@ -37,10 +41,6 @@ state_value:
     collapse: false
 
 state:
-  - key: land_target
-    name: "精准降落"
-    collapse: false
-    
   - key: gps_nsats
     name: "GPS星数"
     collapse: false
@@ -170,7 +170,7 @@ button:
   - key: btn_pland
     name: "精准降落"
     group: "飞行控制"
-    target: { config_type: "toast", url: "/land", method: "POST", "data": {"land_target_id": 0} }
+    target: { config_type: "toast", url: "/land", method: "POST", "data": {"do_pland": true} }
 
   - key: btn_reboot_fcu
     name: "重启飞控"

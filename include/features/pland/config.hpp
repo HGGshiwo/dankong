@@ -82,8 +82,8 @@ struct PlandConfig {
     dk::Param<bool> use_ff_vel =
         INIT_PARAM("use_ff_vel", true, "是否使用前馈速度");
 
-    dk::Param<LayoutMap> tag_pos_map =
-        INIT_HIDDEN_PARAM("tag_pos_map", LayoutMap{});
+    dk::Param<std::string> tag_pos_map = INIT_PARAM(
+        "tag_pos_map", "config/tag_pos_map.json", "tag 3D位置配置文件路径");
     dk::Param<std::string> tag_famliy =
         INIT_PARAM("tag_famliy", "tag16h5", "tag family");
     dk::Param<double> z_high =

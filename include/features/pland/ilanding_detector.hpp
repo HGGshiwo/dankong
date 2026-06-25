@@ -24,7 +24,6 @@ struct DetectorResult {
 class ILandingDetector {
    public:
     virtual ~ILandingDetector() = default;
-    virtual void set_target_id(int target_id) = 0;
     virtual void start(int hz) = 0;
     virtual void stop() = 0;
 };

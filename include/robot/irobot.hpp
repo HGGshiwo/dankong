@@ -114,4 +114,12 @@ class IRobot : public ITrackerRuntime {
     bool set_param(std::string name, ApmParam value) {
         return mavlink_->set_param(name, value);
     }
+
+    bool is_prearm_msg(const std::string& text) {
+        return mavlink_->is_prearm_msg(text);
+    }
+
+    bool check_sensor_health(uint32_t sensor_health) {
+        return mavlink_->check_sensor_health(sensor_health);
+    }
 };

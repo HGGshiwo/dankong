@@ -19,7 +19,7 @@ struct SetWaypointEvent : dk::AsyncEvent<EventResult> {
     std::vector<Eigen::Vector3d> waypoint;
     std::optional<std::vector<nlohmann::json>> nodeEventList;
     std::optional<double> speed;
-    int land_target_id = -1;
+    bool do_pland = false;
     FinishAction finish_action = FinishAction::HOVER;
 };
 
@@ -79,22 +79,9 @@ struct EnableJoystickEvent : dk::AsyncEvent<EventResult> {
 
 struct RestartEvent {};
 
-struct FcuConnectedEvent {
-    bool connected;
-};
-
 struct FlightModeEvent {
     FixedString64 prev;
     FixedString64 cur;
-};
-
-struct SysStatusEvent {
-    uint32_t data;
-};
-
-struct StatusTextEvent {
-    std::string text;
-    bool should_report = false;
 };
 
 struct ArmEvent {

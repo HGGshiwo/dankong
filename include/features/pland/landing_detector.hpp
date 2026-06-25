@@ -23,6 +23,7 @@
 #include "robot_context.hpp"
 #include "states/state_utils.hpp"
 #include "utils/dirty_var.hpp"
+#include "utils/get_executable_path.hpp"
 #include "utils/thread_runner.hpp"
 #include "utils/throttle.hpp"
 
@@ -41,7 +42,6 @@ class LandingDetector : public IThreadRunner, public ILandingDetector {
 
     // --- 时间戳与缓存 ---
     std::function<void(const DetectorResult &, cv::Mat &)> set_target_;
-    int target_id_ = -1;
 
     Eigen::Matrix3d camera_inner_matrix_;
     double last_ekf_stamp_;
@@ -228,11 +228,12 @@ class LandingDetector : public IThreadRunner, public ILandingDetector {
         camera_inner_matrix_ = config_.camera_inner_matrix.get();
         last_ekf_stamp_ = 0.0;
 
-        // current_pattern_ = std::make_unique<ConcentricTagsPattern>(
-        //     target_id_, config_.inner_tag_size.get(),
-        //     config_.outter_tag_size.get());
-        current_pattern_ = std::make_unique<MultiArrayTagsPattern>(
-            target_id_, config_.tag_pos_map.get());
+        auto cfg_path = get_config_dir(config_.tag_pos_map.get()).string();
+        std::ifstream f(cfg_path);
+        spdlog::info("[Land] load tag pos map from {}", cfg_path);
+        nlohmann::json j = nlohmann::json::parse(f);
+        current_pattern_ =
+            std::make_unique<MultiArrayTagsPattern>(j.get<LayoutMap>());
     }
 
     ~LandingDetector() {}
@@ -492,12 +493,6 @@ class LandingDetector : public IThreadRunner, public ILandingDetector {
         }
 
         return output;
-    }
-
-    void set_target_id(int target_id) override {
-        target_id_ = target_id;
-        current_pattern_ = std::make_unique<MultiArrayTagsPattern>(
-            target_id_, config_.tag_pos_map.get());
     }
 
     void start(int hz) override { IThreadRunner::start(hz); }

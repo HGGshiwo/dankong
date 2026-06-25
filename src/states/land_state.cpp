@@ -13,8 +13,7 @@ struct has_land_target : std::false_type {};
 // 2. 偏特化模板：尝试获取 T 的 name 属性。如果获取成功，匹配此模板并继承
 // true_type
 template <typename T>
-struct has_land_target<T,
-                       std::void_t<decltype(std::declval<T>().land_target_id)>>
+struct has_land_target<T, std::void_t<decltype(std::declval<T>().tag_pos_map)>>
     : std::true_type {};
 
 void LandState::on_exit(RobotContext& ctx) {
@@ -24,16 +23,13 @@ void LandState::on_exit(RobotContext& ctx) {
 
 // 该函数是必须的，否则has_land_target仍然会检查该分支
 template <typename ContextType>
-void set_pland(ContextType& ctx, int land_target_id_, bool& do_pland) {
+bool LandState::setup_pland(ContextType& ctx) {
+    if (!do_pland_) return false;
+    ctx.do_pland.store(true);
     // 1. 修改：必须判断 ContextType，而不是写死 RobotContext
-    if constexpr (has_land_target<ContextType>::value) {
-        ctx.land_target_id.store(land_target_id_);
-        if (land_target_id_ >= 0) {
-            do_pland = true;
-            ctx.land_detector->set_target_id(land_target_id_);
-            ctx.land_detector->start(30);
-            ctx.land_controller->start(50);
-        }
+    if constexpr (has_land_target<decltype(GlobalConfig.GetConfig())>::value) {
+        ctx.land_detector->start(30);
+        ctx.land_controller->start(50);
 
         SetGimbalEvent e1;
         e1.angle = 90.0;
@@ -51,12 +47,13 @@ void set_pland(ContextType& ctx, int land_target_id_, bool& do_pland) {
         }(GlobalConfig);  // 立即调用并传入全局的 GlobalConfig
 
         ctx.engine->dispatch(e1);
+        return true;
     }
+    return false;
 }
 
 void LandState::on_enter(RobotContext& ctx) {
-    bool do_pland = false;
-    set_pland(ctx, land_target_id_, do_pland);
+    bool do_pland = setup_pland(ctx);
 
     if (!do_pland)
         ctx.robot->land();
@@ -65,17 +62,18 @@ void LandState::on_enter(RobotContext& ctx) {
 }
 
 template <typename ContextType>
-void stop_pland(ContextType& ctx, int land_target_id) {
-    if constexpr (has_land_target<ContextType>::value) {
-        if (land_target_id >= 0) {
+void LandState::stop_pland(ContextType& ctx) {
+    if constexpr (has_land_target<decltype(GlobalConfig.GetConfig())>::value) {
+        if (do_pland_) {
             ctx.land_detector->stop();
             ctx.land_controller->stop();
+            ctx.do_pland.store(false);
         }
     }
 }
 StateAction LandState::on_event(const dk::TickEvent& e, RobotContext& ctx) {
     if (ctx.robot->is_landed(ctx)) {
-        stop_pland(ctx, land_target_id_);
+        stop_pland(ctx);
         return step<GroundState>();
     }
     return StateAction::unhandled();

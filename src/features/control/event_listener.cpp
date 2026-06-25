@@ -3,6 +3,7 @@
 #include "Eigen/Dense"
 #include "core/global_config.hpp"
 #include "features/control/events.hpp"
+#include "features/mavlink/events.hpp"
 #include "robot_context.hpp"
 #include "states/ground_state.hpp"
 #include "states/hover_state.hpp"
@@ -23,23 +24,6 @@ void ControlEventListener::on_event(const dk::TickEvent& event,
                      ctx.engine->is_active_state<LandState>();
     if (!on_ground && !ctx.robot->check_hover(ctx)) {
         ctx.engine->template step<GroundState>();
-    }
-    // 405飞控在连接上之前必须一直请求，否则不会主动发送心跳
-    if (rate_.check_and_update(ctx.engine->get_time_provider()->now()) &&
-        !ctx.fcu_connected.load()) {
-        spdlog::info("[Control] call pull param!");
-        ctx.engine->post_background_task<bool>([robot = ctx.robot]() {
-            robot->pull_params();
-            return true;
-        });
-    }
-}
-
-void ControlEventListener::on_event(const StatusTextEvent& event,
-                                    RobotContext& ctx) {
-    if (event.should_report) {
-        ctx.ws_manager->publish_reliable(
-            nlohmann::json{{"type", "error"}, {"error", event.text}});
     }
 }
 
@@ -70,7 +54,7 @@ void ControlEventListener::on_event(const SetPosVelEvent& event,
 dk::Future<bool> prearm_check(RobotContext& ctx) {
     if (!state_utils::should_do_prearm_check(ctx.robot))
         return dk::Promise<bool>::resolve(ctx.engine, true);
-    ctx.robot->set_mode("GUIDED");
+
     // 检查是否已经通过prearm check
     int bits = 0x10000000;
     if ((ctx.sensor_health & bits) == bits) {
@@ -79,18 +63,18 @@ dk::Future<bool> prearm_check(RobotContext& ctx) {
 
     auto p = std::make_shared<dk::Promise<bool>>(ctx.engine);
 
-    // 等待错误信息
+    // 等待错误信息并使用 robot 进行协议无关的健康状态判定
     ctx.engine->wait_for(
         1000,
-        [p](const StatusTextEvent& status_text) -> bool {
-            if (state_utils::is_prearm_msg(status_text.text)) {
+        [p, robot = ctx.robot](const StatusTextEvent& status_text) -> bool {
+            if (robot->is_prearm_msg(status_text.text)) {
                 p->reject(status_text.text);
                 return true;
             }
             return false;
         },
-        [p](const SysStatusEvent& sys_status) -> bool {
-            if (state_utils::check_sensor_health(sys_status.data)) {
+        [p, robot = ctx.robot](const SysStatusEvent& sys_status) -> bool {
+            if (robot->check_sensor_health(sys_status.data)) {
                 p->resolve(true);
                 return true;
             }
@@ -177,7 +161,7 @@ void ControlEventListener::on_event(const SetWaypointEvent& event,
         if (wp_empty && action == FinishAction::LAND) {
             // 空中原地降落（无航点）：直接进入 LandState
             event.resolve({"success", "OK"});
-            ctx.engine->step<LandState>(std::tuple(event.land_target_id));
+            ctx.engine->step<LandState>(std::tuple(event.do_pland));
         } else {
             // 检查是不是半路进入hover，其实没有记录起飞点
             auto takeoff_lon_lat_alt = ctx.takeoff_lon_lat_alt.load();
@@ -262,27 +246,6 @@ void ControlEventListener::on_event(const GetGpsEvent& event,
                                     RobotContext& ctx) {
     auto gps = ctx.lon_lat_alt.load();
     event.resolve({"success", {gps.y(), gps.x(), gps.z()}});
-}
-
-void ControlEventListener::on_event(const FcuConnectedEvent& event,
-                                    RobotContext& ctx) {
-    if (event.connected) {
-        ctx.engine->post_background_task<bool>([robot = ctx.robot]() {
-            robot->pull_params();
-            return true;
-        });
-        ctx.engine->get_context().robot->set_stream_rate(
-            0, GlobalConfig.GetConfig().fcu_data_rate);
-        int msg_interval_rate =
-            GlobalConfig.GetConfig().msg_interval_rate.get();
-        ctx.engine->get_context().robot->set_msg_interval(
-            32, msg_interval_rate);  // position
-        ctx.engine->get_context().robot->set_msg_interval(
-            30, msg_interval_rate);  // attitude
-        ctx.engine->get_context().robot->set_msg_interval(
-            132,
-            msg_interval_rate);  // rangefinder
-    }
 }
 
 void ControlEventListener::on_event(const GetParamEvent& event,

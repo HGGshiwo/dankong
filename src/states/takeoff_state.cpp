@@ -38,7 +38,6 @@ StateAction TakeoffState::on_event(const dk::TickEvent& e, RobotContext& ctx) {
 }
 
 void TakeoffState::PrearmCheckState::on_enter(RobotContext& ctx) {
-    ctx.robot->set_mode("GUIDED");
     if (state_utils::should_do_prearm_check(ctx.robot)) {
         ctx.robot->run_prearm_checks();
     } else {
@@ -48,7 +47,7 @@ void TakeoffState::PrearmCheckState::on_enter(RobotContext& ctx) {
 
 StateAction TakeoffState::PrearmCheckState::on_event(
     const SysStatusEvent& event, RobotContext& ctx) {
-    if (state_utils::check_sensor_health(event.data)) {
+    if (ctx.robot->check_sensor_health(event.data)) {
         return step<TakeoffState::ArmState>();
     }
     return StateAction::unhandled();
@@ -56,7 +55,7 @@ StateAction TakeoffState::PrearmCheckState::on_event(
 
 StateAction TakeoffState::PrearmCheckState::on_event(
     const StatusTextEvent& event, RobotContext& ctx) {
-    if (state_utils::is_prearm_msg(event.text)) {
+    if (ctx.robot->is_prearm_msg(event.text)) {
         std::visit(
             [text = event.text](const auto& obj) { return obj.reject(text); },
             parent()->event_);
@@ -83,7 +82,7 @@ StateAction TakeoffState::ArmState::on_event(const ArmEvent& event,
 
 StateAction TakeoffState::ArmState::on_event(const StatusTextEvent& event,
                                              RobotContext& ctx) {
-    if (state_utils::is_prearm_msg(event.text)) {
+    if (ctx.robot->is_prearm_msg(event.text)) {
         std::visit(
             [text = event.text](const auto& obj) { return obj.reject(text); },
             parent()->event_);

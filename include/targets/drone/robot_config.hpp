@@ -4,6 +4,7 @@
 // 引入你需要的 Feature
 #include "features/control/config.hpp"
 #include "features/drone/config.hpp"
+#include "features/mavlink/config.hpp"
 #include "features/ntrip/config.hpp"
 #include "features/system/config.hpp"
 #include "features/tracker/config.hpp"
@@ -19,4 +20,5 @@ using RobotConfig = ConfigGenerator<
 #ifdef USE_ROS
     AlgoConfig, PlandConfig,
 #endif
-    SystemConfig, ControlConfig, DroneConfig, TrackerConfig, NtripConfig>;
+    SystemConfig, ControlConfig, MavlinkConfig, DroneConfig, TrackerConfig,
+    NtripConfig>;
