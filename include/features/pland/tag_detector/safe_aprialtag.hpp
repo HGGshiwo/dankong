@@ -4,8 +4,11 @@ extern "C" {
 #include "apriltag.h"
 #include "apriltag_pose.h"
 #include "tag16h5.h"
+#include "tag25h9.h"
+#include "tag36h11.h"
 #include "tagCustom48h12.h"
 }
+#include <Eigen/Dense>
 #include <memory>
 #include <opencv2/opencv.hpp>
 #include <stdexcept>
@@ -112,6 +115,10 @@ class SafeAprilTagDetector {
             tf_ = tagCustom48h12_create();
         } else if (tag_name == "tag16h5") {
             tf_ = tag16h5_create();
+        } else if (tag_name == "tag25h9") {
+            tf_ = tag25h9_create();
+        } else if (tag_name == "tag36h11") {
+            tf_ = tag36h11_create();
         } else {
             throw std::runtime_error(tag_name);
         }
@@ -127,6 +134,10 @@ class SafeAprilTagDetector {
                 tagCustom48h12_destroy(tf_);
             } else if (tag_name_ == "tag16h5") {
                 tag16h5_destroy(tf_);
+            } else if (tag_name_ == "tag25h9") {
+                tag25h9_destroy(tf_);
+            } else if (tag_name_ == "tag36h11") {
+                tag36h11_destroy(tf_);
             } else {
                 throw std::runtime_error(tag_name_);
             }
