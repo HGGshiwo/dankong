@@ -84,8 +84,8 @@ struct PlandConfig {
 
     dk::Param<std::string> tag_pos_map = INIT_PARAM(
         "tag_pos_map", "config/tag_pos_map.json", "tag 3D位置配置文件路径");
-    dk::Param<std::string> tag_famliy =
-        INIT_PARAM("tag_famliy", "tag16h5", "tag family");
+    dk::Param<std::string> tag_family =
+        INIT_PARAM("tag_family", "tag16h5", "tag family");
     dk::Param<double> z_high =
         INIT_PARAM("z_high", 10.0, "该高度以上完全使用los");
     dk::Param<double> z_low = INIT_PARAM("z_low", 8.0, "该高度以下完全使用pnp");

@@ -218,7 +218,7 @@ class LandingDetector : public IThreadRunner, public ILandingDetector {
           ctx_(ctx),
           set_target_(set_target) {
         tag_detector_ =
-            std::make_unique<SafeAprilTagDetector>(config_.tag_famliy.get());
+            std::make_unique<SafeAprilTagDetector>(config_.tag_family.get());
 
         kf_xy_ = std::make_shared<KalmanFilterCTRV>();
         kf_yaw_ = std::make_shared<KalmanFilterYaw>();
