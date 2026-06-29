@@ -149,13 +149,16 @@ void WaypointState::ExcuteState::on_enter(RobotContext& ctx) {
     auto wp = parent()->get_cur_wp();
     wp_goal_ =
         state_utils::gps_to_enu(ctx.lon_lat_alt.load(), ctx.pos_enu.load(), wp);
+    bool send_pos = true;
 #ifdef USE_ROS
-    if (!ctx.planner_enable.load()) {
+    send_pos = !ctx.planner_enable.load();
+#endif
+    if (send_pos) {
         ctx.tracker->send_pos_cmd(wp_goal_, std::nullopt, std::nullopt,
                                   std::nullopt, parent()->target_vel_,
                                   std::nullopt, std::nullopt, CmdFrame::ENU);
     }
-#endif
+
     if (parent()->node_event_list_.has_value()) {
         auto events = parent()->node_event_list_.value().at(parent()->wp_idx_);
         spdlog::info("run event: {}", events.dump());

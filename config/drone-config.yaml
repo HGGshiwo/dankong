@@ -1,4 +1,4 @@
-ntrip_running: true
+ntrip_running: false
 ntrip_nstats: 10
 ntrip_ip: 120.253.239.161
 ntrip_port: 8002

@@ -206,9 +206,6 @@ void ControlEventListener::on_event(const SetModeEvent& event,
     }
 
     // 3. 处理 event 回调
-    // 注意：这里 [event] 进行了值拷贝。
-    // 请确保 SetModeEvent 的拷贝构造函数是安全的，并且副本的 resolve
-    // 能够真正响应到客户端。
     future
         .then([event](bool res) mutable {
             if (res)

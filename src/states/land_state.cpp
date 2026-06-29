@@ -25,9 +25,9 @@ void LandState::on_exit(RobotContext& ctx) {
 template <typename ContextType>
 bool LandState::setup_pland(ContextType& ctx) {
     if (!do_pland_) return false;
-    ctx.do_pland.store(true);
     // 1. 修改：必须判断 ContextType，而不是写死 RobotContext
     if constexpr (has_land_target<decltype(GlobalConfig.GetConfig())>::value) {
+        ctx.do_pland.store(true);
         ctx.land_detector->start(30);
         ctx.land_controller->start(50);
 

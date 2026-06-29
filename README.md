@@ -1,3 +1,11 @@
+- 单控：[https://github.com/HGGshiwo/dankong.git](https://github.com/HGGshiwo/dankong.git)
+
+- 事件引擎：[https://github.com/HGGshiwo/dk](https://github.com/HGGshiwo/dk)
+
+- 前端：[https://github.com/HGGshiwo/dk/tree/main/frontend](https://github.com/HGGshiwo/dk/tree/main/frontend)
+
+- 仿真：[https://github.com/HGGshiwo/gazebo_sim](https://github.com/HGGshiwo/gazebo_sim)
+
 # Dankong 机器人控制系统 - 架构与开发指南
 
 `dankong` 是一个基于 `dk` 框架构建的工程化机器人应用。机器人系统的代码极易因为硬件接口、算法逻辑和外部通信的相互交织而变成“屎山”。

@@ -10,16 +10,20 @@
 
 int main(int argc, char** argv) {
     CLI::App app{"dk"};
-    std::string config_path;
+    CLIArgs args;
 
     app.allow_extras(true);
-    app.add_option("-c,--config", config_path, "config file path");
+    app.add_option("-c,--config", args.config_path, "config file path");
+    app.add_option("-p,--port", args.port, "web server port");
+    app.add_option("--camera_port", args.camera_port, "camera port");
+    app.add_option("--mavsdk_url", args.mavsdk_url, "fcu url");
+
     // 解析，如果传入了 -h 或 --help，会自动打印帮助并退出
     CLI11_PARSE(app, argc, argv);
 #ifdef USE_ROS
     ros::init(argc, argv, "dk_node");
 #endif
-    CoreNode<RobotAssembler, RobotContext> node{config_path};
+    CoreNode<RobotAssembler, RobotContext> node{args};
 
 #ifdef USE_ROS
     // 启动 ROS 异步线程池 (处理网络 IO)

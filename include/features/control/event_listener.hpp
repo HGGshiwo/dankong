@@ -27,7 +27,7 @@ class ControlEventListener
                    SetWaypointEvent, SetModeEvent, SetPosVelEvent,
                    dk::TickEvent, RebootFcuEvent, GetWpEvent, GetGpsEvent,
                    GetParamEvent, SetParamEvent, DisarmEvent, RestartEvent,
-                   JoystickEvent, EnableJoystickEvent>;
+                   JoystickEvent, EnableJoystickEvent, TestEvent>;
 
     void on_event(const dk::TickEvent& event, RobotContext& ctx);
     void on_event(const SetPosVelEvent& event, RobotContext& ctx);
@@ -47,5 +47,12 @@ class ControlEventListener
     void on_event(const EnableJoystickEvent& event, RobotContext& ctx) {
         ctx.enable_joystick.store(event.enable);
         event.resolve({"success", "OK"});
+    }
+
+    void on_event(const TestEvent& event, RobotContext& ctx) {
+        // ctx.engine->wait_for(1000, [event](const dk::TickEvent& e) {
+        //     event.resolve({"success", "OK"});
+        //     return true;
+        // });
     }
 };

@@ -4,6 +4,7 @@
 #include <boost/filesystem/operations.hpp>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <thread>
 
@@ -30,6 +31,13 @@
 #include "dk/adapters/ros.hpp"
 #include "ros/node_handle.h"
 #endif
+
+struct CLIArgs {
+    std::string config_path;
+    std::optional<unsigned int> port = std::nullopt;
+    std::optional<unsigned int> camera_port = std::nullopt;
+    std::optional<std::string> mavsdk_url = std::nullopt;
+};
 
 template <typename AssemblerType, typename ContextType>
 class CoreNode {
@@ -59,14 +67,14 @@ class CoreNode {
     std::shared_ptr<mavsdk::System> mavsdk_system_;
 
    public:
-    CoreNode(const std::string config_path) {
+    CoreNode(CLIArgs args) {
 #ifdef USE_ROS
         time_provider_ = std::make_shared<dk::RosTimeProvider>(nh_, global_io_);
 #else
         time_provider_ = std::make_shared<dk::AsioTimeProvider>(global_io_);
 #endif
 
-        GlobalConfig.load(get_config_dir(config_path));
+        GlobalConfig.load(get_config_dir(args.config_path));
 
         auto& cfg = GlobalConfig.GetConfig();
         init_logger();
@@ -75,8 +83,10 @@ class CoreNode {
         mavsdk::Mavsdk::Configuration config(
             mavsdk::ComponentType::GroundStation);
         mavsdk_ = std::make_shared<mavsdk::Mavsdk>(config);
+
+        std::string mavsdk_url = args.mavsdk_url.value_or(cfg.mavsdk_url.get());
         mavsdk::ConnectionResult connection_result =
-            mavsdk_->add_any_connection(cfg.mavsdk_url.get());
+            mavsdk_->add_any_connection(mavsdk_url);
         if (connection_result != mavsdk::ConnectionResult::Success) {
             throw std::runtime_error(
                 "Connection failed: " +
@@ -88,7 +98,8 @@ class CoreNode {
                                      GlobalConfig.GetConfig().fcu_timeout.get())
                                  .value_or(nullptr);
             if (mavsdk_system_ == nullptr) {
-                throw std::runtime_error("connect to fcu failed!");
+                throw std::runtime_error("connect to fcu failed: " +
+                                         mavsdk_url);
             }
         }
 
@@ -98,7 +109,7 @@ class CoreNode {
         engine_->get_context().mavsdk_system = mavsdk_system_;
 
         boost::filesystem::path config_dir =
-            get_config_dir(config_path).parent_path();
+            get_config_dir(args.config_path).parent_path();
         // 生成配置文件 (供前端使用)
         auto yaml_cfg =
             YamlHelper::load_with_base(config_dir / cfg.ui_config.get());
@@ -107,8 +118,8 @@ class CoreNode {
         YamlHelper::save(json_cfg, get_config_dir(cfg.json_path.get()));
 
         // 创建适配器
-        web_adapter_ =
-            std::make_shared<WebAdapterType>(engine_, cfg.server_port);
+        unsigned int server_port = args.port.value_or(cfg.server_port);
+        web_adapter_ = std::make_shared<WebAdapterType>(engine_, server_port);
         engine_->get_context().ws_manager = web_adapter_->get_manager();
 
         // 2. 调用装配工厂，一键注册全部路由和回调！

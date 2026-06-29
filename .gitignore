@@ -9,3 +9,4 @@ sh/logs/*
 .gitignore
 sh/terrain/*
 config/*-real-config.yaml
+.clangd

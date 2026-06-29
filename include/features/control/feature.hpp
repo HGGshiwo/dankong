@@ -81,6 +81,9 @@ class ControlFeature {
                 event.finish_action = FinishAction::LAND;
             });
 
+        web->template register_route<TestEvent, EventResult>(
+            boost::beast::http::verb::post, "/test", 5000);
+
         web->template register_route<RebootFcuEvent, EventResult>(
             boost::beast::http::verb::post, "/reboot_fcu");
 

@@ -51,6 +51,9 @@ struct SetModeEvent : dk::AsyncEvent<EventResult> {
 };
 
 // @JSON_ENABLE
+struct TestEvent : dk::AsyncEvent<EventResult> {};
+
+// @JSON_ENABLE
 struct PrearmEvent : dk::AsyncEvent<EventResult> {};
 
 // @JSON_ENABLE
