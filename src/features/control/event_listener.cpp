@@ -182,23 +182,23 @@ void ControlEventListener::on_event(const SetWaypointEvent& event,
 void ControlEventListener::on_event(const SetModeEvent& event,
                                     RobotContext& ctx) {
     using Promise = dk::Promise<bool>;
-    Promise p(ctx.engine);
+    auto p = std::make_shared<Promise>(ctx.engine);
 
     // 1. 提前获取 Future，避免后续 Promise 被 move 后无法获取
-    auto future = p.get_future();
+    auto future = p->get_future();
 
     if (ctx.mode.load() == event.mode) {
         // 同步完成的情况，直接 resolve，局部变量 p 会随函数结束正常销毁
-        p.resolve(true);
+        p->resolve(true);
     } else {
         ctx.robot->set_mode(event.mode);
 
         // 2. 将 promise 移动 (Move) 进 Lambda 中
         // 这样 p 的生命周期就交给了引擎的事件队列，执行完后自动释放
-        auto shared_p = std::make_shared<Promise>(std::move(p));
+
         ctx.engine->wait_for(2000,
-                             [mode = FixedString64(event.mode), p = shared_p](
-                                 const FlightModeEvent& e) mutable -> bool {
+                             [mode = FixedString64(event.mode),
+                              p](const FlightModeEvent& e) mutable -> bool {
                                  if (mode != e.cur) return false;
                                  p->resolve(true);
                                  return true;
