@@ -41,6 +41,8 @@ class IRobot : public ITrackerRuntime {
             return inner_check_hover(ctx.arm.load(), ctx.throttle.load());
         } else if constexpr (robot_type == "CAR") {
             return inner_check_hover(ctx.gear.load());
+        } else if constexpr (robot_type == "GO2") {
+            return inner_check_hover();
         } else {
             return false;
         }
@@ -56,6 +58,8 @@ class IRobot : public ITrackerRuntime {
                                    ctx.rangefinder_alt.load());
         } else if constexpr (robot_type == "CAR") {
             return inner_is_landed(ctx.gear.load());
+        } else if constexpr (robot_type == "GO2") {
+            return inner_is_landed();
         } else {
             return false;
         }
@@ -66,6 +70,10 @@ class IRobot : public ITrackerRuntime {
     virtual bool inner_check_hover(unsigned int state) { return false; };
 
     virtual bool inner_check_hover(int gear) { return false; };
+
+    virtual bool inner_check_hover() { return false; };
+
+    virtual bool inner_is_landed() { return false; };
 
     virtual bool inner_is_landed(unsigned int state) { return false; };
 
@@ -87,39 +95,41 @@ class IRobot : public ITrackerRuntime {
         return IMavlink::unpack<T>(data);
     }
 
-    bool set_stream_rate(int stream_id, int rate) {
+    virtual bool set_stream_rate(int stream_id, int rate) {
         return mavlink_->set_stream_rate(stream_id, rate);
     }
 
-    bool set_msg_interval(int stream_id, int rate) {
+    virtual bool set_msg_interval(int stream_id, int rate) {
         return mavlink_->set_msg_interval(stream_id, rate);
     }
 
-    bool arm() { return mavlink_->arm(); }
+    virtual bool arm() { return mavlink_->arm(); }
 
-    bool disarm() { return mavlink_->disarm(); }
+    virtual bool disarm() { return mavlink_->disarm(); }
 
-    bool reboot_fcu() { return mavlink_->reboot_fcu(); }
+    virtual bool reboot_fcu() { return mavlink_->reboot_fcu(); }
 
-    bool run_prearm_checks() { return mavlink_->run_prearm_checks(); }
+    virtual bool run_prearm_checks() { return mavlink_->run_prearm_checks(); }
 
-    bool pull_params() { return mavlink_->pull_params(); }
+    virtual bool pull_params() { return mavlink_->pull_params(); }
 
-    void send_rtcm_data(const uint8_t* data, size_t size) {
+    virtual void send_rtcm_data(const uint8_t* data, size_t size) {
         mavlink_->send_rtcm_data(data, size);
     }
 
-    nlohmann::json get_all_params() { return mavlink_->get_all_params(); }
+    virtual nlohmann::json get_all_params() {
+        return mavlink_->get_all_params();
+    }
 
-    bool set_param(std::string name, ApmParam value) {
+    virtual bool set_param(std::string name, ApmParam value) {
         return mavlink_->set_param(name, value);
     }
 
-    bool is_prearm_msg(const std::string& text) {
+    virtual bool is_prearm_msg(const std::string& text) {
         return mavlink_->is_prearm_msg(text);
     }
 
-    bool check_sensor_health(uint32_t sensor_health) {
+    virtual bool check_sensor_health(uint32_t sensor_health) {
         return mavlink_->check_sensor_health(sensor_health);
     }
 };

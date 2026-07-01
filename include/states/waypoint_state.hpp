@@ -81,7 +81,7 @@ class WaypointState::ExcuteState
    public:
     double wp_dist_;           // 到下一个目标的距离
     Eigen::Vector3d wp_goal_;  // 点在enu坐标系下的目标
-    using AllowedEvents = std::tuple<dk::TickEvent>;
+    using AllowedEvents = std::tuple<dk::TickEvent, WpArriveEvent>;
 
     void run_wp_event(RobotContext& ctx, const nlohmann::json& event_list);
 
@@ -93,6 +93,10 @@ class WaypointState::ExcuteState
     bool check_arrive(RobotContext& ctx);
 
     StateAction on_event(const dk::TickEvent& event, RobotContext& ctx);
+
+    StateAction on_event(const WpArriveEvent& event, RobotContext& ctx);
+
+    StateAction on_arrive(RobotContext&);
 
     void on_enter(RobotContext& ctx);
 };

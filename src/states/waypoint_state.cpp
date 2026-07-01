@@ -7,6 +7,8 @@
 
 #include "features/tracker/tracker.hpp"
 #include "mavlink/imavlink.hpp"
+#include "robot_context.hpp"
+#include "spdlog/spdlog.h"
 #include "states/ground_state.hpp"
 #include "states/hover_state.hpp"
 #include "states/state_common.hpp"
@@ -147,16 +149,26 @@ bool WaypointState::ExcuteState::check_arrive(RobotContext& ctx) {
 // 执行当前wp_idx指向的航点
 void WaypointState::ExcuteState::on_enter(RobotContext& ctx) {
     auto wp = parent()->get_cur_wp();
-    wp_goal_ =
-        state_utils::gps_to_enu(ctx.lon_lat_alt.load(), ctx.pos_enu.load(), wp);
-    bool send_pos = true;
-#ifdef USE_ROS
-    send_pos = !ctx.planner_enable.load();
-#endif
-    if (send_pos) {
+    auto datum = ctx.datum.getReliableDatum();
+    Eigen::Vector3d lon_lat_alt = ctx.lon_lat_alt.load();
+    Eigen::Vector3d pos_enu = ctx.pos_enu.load();
+
+    if (!datum.has_value()) {
+        // 理论上不会出现退化到当前值
+        spdlog::error(
+            "[Waypoint] can not get reliable datum, this may never happen!");
+    } else {
+        lon_lat_alt = datum->gps;
+        pos_enu = datum->enu;
+    }
+
+    wp_goal_ = state_utils::gps_to_enu(lon_lat_alt, pos_enu, wp);
+    if (!ctx.set_waypoint_goal.has_value()) {
         ctx.tracker->send_pos_cmd(wp_goal_, std::nullopt, std::nullopt,
                                   std::nullopt, parent()->target_vel_,
                                   std::nullopt, std::nullopt, CmdFrame::ENU);
+    } else {
+        ctx.set_waypoint_goal.value()(wp_goal_, parent()->target_vel_);
     }
 
     if (parent()->node_event_list_.has_value()) {
@@ -172,31 +184,40 @@ void WaypointState::ExcuteState::on_enter(RobotContext& ctx) {
     }
 }
 
+StateAction WaypointState::ExcuteState::on_arrive(RobotContext& ctx) {
+    parent()->wp_idx_ += 1;
+    ctx.wp_idx.store(parent()->wp_idx_);
+
+    // 发布数据
+    json j = json{{"total", parent()->wp_list_.size()},
+                  {"cur", ctx.wp_idx.load()},
+                  {"type", "event"},
+                  {"event", "progress"}};
+    ctx.ws_manager->publish_state("progress", j);
+
+    if (parent()->wp_idx_ >= parent()->wp_list_.size()) {
+        parent()->report_task_done(ctx);
+        if (parent()->action_ != FinishAction::HOVER)
+            return step<LandState>(std::tuple(parent()->do_pland_));
+        else
+            return step<HoverState>();
+    }
+    return step<WaypointState::LiftingState>();
+}
+
 StateAction WaypointState::ExcuteState::on_event(const dk::TickEvent& event,
                                                  RobotContext& ctx) {
     // 如果到达了目标点
     auto arrive = check_arrive(ctx);
     if (arrive) {
-        parent()->wp_idx_ += 1;
-        ctx.wp_idx.store(parent()->wp_idx_);
-
-        // 发布数据
-        json j = json{{"total", parent()->wp_list_.size()},
-                      {"cur", ctx.wp_idx.load()},
-                      {"type", "event"},
-                      {"event", "progress"}};
-        ctx.ws_manager->publish_state("progress", j);
-
-        if (parent()->wp_idx_ >= parent()->wp_list_.size()) {
-            parent()->report_task_done(ctx);
-            if (parent()->action_ != FinishAction::HOVER)
-                return step<LandState>(std::tuple(parent()->do_pland_));
-            else
-                return step<HoverState>();
-        }
-        return step<WaypointState::LiftingState>();
+        return on_arrive(ctx);
     }
     return StateAction::unhandled();
+}
+
+StateAction WaypointState::ExcuteState::on_event(const WpArriveEvent& event,
+                                                 RobotContext& ctx) {
+    return on_arrive(ctx);
 }
 
 void WaypointState::ExcuteState::run_wp_event(RobotContext& ctx,

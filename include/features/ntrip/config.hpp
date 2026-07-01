@@ -17,5 +17,5 @@ struct NtripConfig {
     dk::Param<std::string> ntrip_password =
         INIT_PARAM("ntrip_password", "", "ntrip密码");
     dk::Param<bool> ntrip_enable =
-        INIT_PARAM("ntrip_enable", true, "开启ntrip");
+        INIT_PARAM("ntrip_enable", false, "开启ntrip");
 };

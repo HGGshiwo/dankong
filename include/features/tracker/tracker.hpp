@@ -268,6 +268,15 @@ class ThreadedTracker : public IThreadRunner {
         runtime_->cmd_vel(safe_cmd);
     }
 
+    void send_zero_velocity() {
+        Eigen::Vector4d zero_cmd = Eigen::Vector4d::Zero();
+        runtime_->cmd_vel(zero_cmd);
+        last_cmd_vel_ = zero_cmd;
+        last_cmd_acc_ = Eigen::Vector3d::Zero();  // [新增]
+        last_yaw_ = yaw_enu_.load();
+        reset_all_pids();
+    }
+
    private:
     void reset_all_pids() {
         pid_x_.reset();
@@ -686,14 +695,5 @@ class ThreadedTracker : public IThreadRunner {
 
         last_cmd_vel_ = raw_cmd;
         return raw_cmd;
-    }
-
-    void send_zero_velocity() {
-        Eigen::Vector4d zero_cmd = Eigen::Vector4d::Zero();
-        runtime_->cmd_vel(zero_cmd);
-        last_cmd_vel_ = zero_cmd;
-        last_cmd_acc_ = Eigen::Vector3d::Zero();  // [新增]
-        last_yaw_ = yaw_enu_.load();
-        reset_all_pids();
     }
 };

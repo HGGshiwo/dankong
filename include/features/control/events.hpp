@@ -101,3 +101,5 @@ struct GlobalPositionEvent {
 struct GlobalPositionAltEvent {
     double alt;
 };
+
+struct WpArriveEvent {};

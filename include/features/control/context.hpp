@@ -5,9 +5,12 @@
 #include <chrono>
 #include <cmath>
 #include <deque>
+#include <functional>
 #include <mutex>
+#include <optional>
 
 #include "Eigen/src/Geometry/Quaternion.h"
+#include "utils/datum_synchronizer.hpp"
 #include "utils/dirty_var.hpp"
 #include "utils/fixed_string64.hpp"
 #include "utils/state_registry.hpp"
@@ -248,7 +251,12 @@ struct ControlContext {
     DirtyVar<double> roll;
     DirtyVar<double> pitch;
 
+    std::optional<std::function<void(Eigen::Vector3d, std::optional<double>)>>
+        set_waypoint_goal = std::nullopt;
+
     PoseHistory pose_history;
+
+    DatumSynchronizer datum;
 
    public:
     // =========================================================================

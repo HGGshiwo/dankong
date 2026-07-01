@@ -123,6 +123,9 @@ class MavlinkFeature {
 
                 ctx.pos_enu.emplace(enu_x, enu_y, enu_z);
 
+                ctx.datum.pushENU({enu_x, enu_y, enu_z},
+                                  ctx.engine->get_time_provider()->now());
+
                 double vel_enu_x = pos_vel.velocity.east_m_s;
                 double vel_enu_y = pos_vel.velocity.north_m_s;
                 double vel_enu_z = -pos_vel.velocity.down_m_s;
@@ -205,6 +208,9 @@ class MavlinkFeature {
                                                   // 通常是相对于 home 点
                 });
                 ctx.odom_ok = true;
+                ctx.datum.pushGPS({pos.longitude_deg, pos.latitude_deg,
+                                   pos.relative_altitude_m},
+                                  ctx.engine->get_time_provider()->now());
             });
 
         adapter->bind_telemetry_context(
