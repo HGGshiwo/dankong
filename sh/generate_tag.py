@@ -301,9 +301,10 @@ def main():
             print("  [跳过] 由于图片获取失败，跳过此标签生成。")
             continue
 
-        with Image.open(outer_path, "r") as outer_im, Image.open(
-            inner_path, "r"
-        ) as inner_im:
+        with (
+            Image.open(outer_path, "r") as outer_im,
+            Image.open(inner_path, "r") as inner_im,
+        ):
 
             # --- 开始自动计算内外侧标称尺寸 ---
             out_w, out_h = outer_im.size  # 外层一定是 10

@@ -33,6 +33,7 @@ class MavlinkFeature {
         adapter->bind_telemetry_context(
             &mavsdk::Telemetry::subscribe_armed,
             [](bool is_armed, RobotContext& ctx) -> void {
+                if (!ctx.use_fcu_enu.load()) return;
                 auto armed = ctx.arm.load();
                 if (armed != is_armed) {
                     ctx.arm.store(is_armed);
@@ -113,6 +114,7 @@ class MavlinkFeature {
             &mavsdk::Telemetry::subscribe_position_velocity_ned,
             [](mavsdk::Telemetry::PositionVelocityNed pos_vel,
                RobotContext& ctx) -> void {
+                if (!ctx.use_fcu_enu.load()) return;
                 // NED 转 ENU 坐标系映射规则:
                 // ENU X (East)  = NED Y (East)
                 // ENU Y (North) = NED X (North)
@@ -148,6 +150,7 @@ class MavlinkFeature {
         adapter->bind_telemetry_context(
             &mavsdk::Telemetry::subscribe_attitude_euler,  // 订阅欧拉角
             [](mavsdk::Telemetry::EulerAngle euler, RobotContext& ctx) -> void {
+                if (!ctx.use_fcu_enu.load()) return;
                 // 1. MAVSDK 返回的是角度 (deg)，先转换为弧度 (rad)
                 // 注意：此时这三个角属于 NED 导航系 和 FRD 机体系
                 double roll_ned_frd = euler.roll_deg * (M_PI / 180.0);
@@ -200,6 +203,7 @@ class MavlinkFeature {
         adapter->bind_telemetry_context(
             &mavsdk::Telemetry::subscribe_position,
             [](mavsdk::Telemetry::Position pos, RobotContext& ctx) -> void {
+                if (ctx.gps_fix_type.load() < 3) return;
                 ctx.lon_lat_alt.write([&pos](Eigen::Vector3d& data) {
                     data.x() = pos.longitude_deg;
                     data.y() = pos.latitude_deg;

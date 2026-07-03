@@ -1,16 +1,17 @@
 #pragma once
-#include <bitset>
 #include <boost/beast/http/verb.hpp>
 #include <memory>
 #include <optional>
+#include <string>
 
+#include "core/engine.hpp"
 #include "dk/adapters/udp/udp_client.hpp"
 #include "dk/future.hpp"
 #include "features/dog/command.hpp"
 #include "features/tracker/tracker.hpp"
+#include "nlohmann/json.hpp"
 #include "robot/irobot.hpp"
 #include "robot_context.hpp"
-#include "spdlog/fmt/bundled/format.h"
 #include "utils/fixed_string64.hpp"
 #include "utils/request.hpp"
 
@@ -21,18 +22,24 @@ class Go2 : public IRobot {
     std::atomic<bool> standing_{false};
 
    public:
-    Go2(RobotContext& ctx) : IRobot(nullptr), ctx_(ctx) {
-        ctx.set_waypoint_goal = [engine = ctx.engine](
-                                    Eigen::Vector3d target_enu,
-                                    std::optional<double> vel) {
-            std::string url = fmt::format("/push_message?x={}&y={}",
-                                          target_enu.x(), target_enu.y());
-            send_request(engine, http::verb::get, "127.0.0.1", url, 8444)
-                .then([](HttpResponse res) {
-                    spdlog::info("success={}, data={}, error={}", res.success(),
-                                 res.body, res.error_msg);
-                });
+    Go2(std::shared_ptr<IMavlink> mavlink, RobotContext& ctx)
+        : IRobot(mavlink), ctx_(ctx) {
+        ctx.set_waypoint_goal = [this](Eigen::Vector3d target_enu,
+                                       std::optional<double> vel) {
+            this->push_message(fmt::format("前往地图点{}米{}米", target_enu.x(),
+                                           target_enu.y()));
         };
+    }
+
+    void push_message(std::string msg) {
+        send_request(
+            ctx_.engine, http::verb::post, "127.0.0.1", "/api/push", 8444,
+            nlohmann::json{
+                {"content", msg}, {"sender", "user"}, {"target", "legacy"}})
+            .then([](HttpResponse res) {
+                spdlog::info("success={}, data={}, error={}", res.success(),
+                             res.body, res.error_msg);
+            });
     }
 
     // 计算目标距离（无人机与机器狗在 Z 轴上的处理不同）
@@ -42,7 +49,8 @@ class Go2 : public IRobot {
 
     // 降落（无人机切换 LAND 模式，机器狗发送蹲下指令）
     bool land() {
-        // 可能也是一个http
+        push_message("趴下");
+        standing_.store(false);
         return true;
     };
 
@@ -53,7 +61,8 @@ class Go2 : public IRobot {
     bool loiter() { return true; };
 
     bool takeoff(double alt) {
-        // 可能也是一个http
+        push_message("站起来");
+        standing_.store(true);
         return true;
     };
 
@@ -61,34 +70,25 @@ class Go2 : public IRobot {
         return true;  // 不支持
     };
 
-    bool inner_check_hover() { return standing_; };
+    bool inner_check_hover() {
+        bool a = standing_.load();
+        return a;
+    };
 
     bool inner_is_landed() { return !inner_check_hover(); };
 
-    bool set_mode(const FixedString64& mode) { return true; }
-    void set_target_type(VehicleType type) {}
+    bool arm() {
+        push_message("解锁");
+        ctx_.arm.store(true);
+        ctx_.engine->dispatch_internal(ArmEvent{true});
 
-    bool set_stream_rate(int stream_id, int rate) { return true; }
+        return true;
+    }
 
-    bool set_msg_interval(int stream_id, int rate) { return true; }
-
-    bool arm() { return true; }
-
-    bool disarm() { return true; }
-
-    bool reboot_fcu() { return true; }
-
-    bool run_prearm_checks() { return true; }
-
-    bool pull_params() { return true; }
-
-    void send_rtcm_data(const uint8_t* data, size_t size) {}
-
-    nlohmann::json get_all_params() { return {}; }
-
-    bool set_param(std::string name, ApmParam value) { return true; }
-
-    bool is_prearm_msg(const std::string& text) { return false; }
-
-    bool check_sensor_health(uint32_t sensor_health) { return false; }
+    bool disarm() {
+        push_message("锁定");
+        ctx_.arm.store(false);
+        ctx_.engine->dispatch_internal(ArmEvent{false});
+        return true;
+    }
 };

@@ -130,11 +130,11 @@ StateAction TakeoffState::TakingoffState::on_event(const dk::TickEvent& e,
 
     // 如果支持高度的，要求等待高度达到指定值
     // 如果不支持高度，只需要在空中即可
+    bool a = ctx.robot->check_hover(ctx);
     bool arrive = ctx.robot->is_alt_enable()
                       ? std::fabs(ctx.pos_enu.load().z() - parent()->alt_) <
                             cfg.z_tolerance
-                      : ctx.robot->check_hover(ctx);
-
+                      : a;
     if (!arrive && !is_stall) {
         return StateAction::unhandled();
     }

@@ -29,7 +29,9 @@
 #ifdef USE_ROS
 #include "dk/RosTimeProvider.hpp"
 #include "dk/adapters/ros.hpp"
+#ifdef USE_ROS1
 #include "ros/node_handle.h"
+#endif
 #endif
 
 struct CLIArgs {
@@ -55,7 +57,11 @@ class CoreNode {
     std::shared_ptr<Engine> engine_;
 
 #ifdef USE_ROS
+#ifdef USE_ROS1
     ros::NodeHandle nh_;
+#elif defined(USE_ROS2)
+    std::shared_ptr<rclcpp::Node> nh_;
+#endif
     std::shared_ptr<RosAdapterType> ros_adapter_;
     std::thread asio_thread_;
 #endif
@@ -69,6 +75,9 @@ class CoreNode {
    public:
     CoreNode(CLIArgs args) {
 #ifdef USE_ROS
+#ifdef USE_ROS2
+        nh_ = std::make_shared<rclcpp::Node>("dk_node");
+#endif
         time_provider_ = std::make_shared<dk::RosTimeProvider>(nh_, global_io_);
 #else
         time_provider_ = std::make_shared<dk::AsioTimeProvider>(global_io_);
@@ -107,6 +116,13 @@ class CoreNode {
         engine_ = std::make_shared<Engine>(global_io_, time_provider_);
         engine_->get_context().engine = engine_;
         engine_->get_context().mavsdk_system = mavsdk_system_;
+#ifdef USE_ROS
+#ifdef USE_ROS1
+        engine_->get_context().nh = nh_;
+#elif defined(USE_ROS2)
+        engine_->get_context().node = nh_;
+#endif
+#endif
 
         boost::filesystem::path config_dir =
             get_config_dir(args.config_path).parent_path();
@@ -186,6 +202,10 @@ class CoreNode {
         global_io_.run();
 #endif
     }
+
+#ifdef USE_ROS2
+    std::shared_ptr<rclcpp::Node> get_node() const { return nh_; }
+#endif
 
     ~CoreNode() {
 #ifdef USE_ROS

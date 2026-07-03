@@ -3,19 +3,40 @@ project(dankong LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # ==============================================================================
-# 0. 自定义编译开关 (核心修改)
-# 编译时使用: cmake .. -DBUILD_WITH_ROS=OFF (关闭ROS) 或 cmake .. -DBUILD_WITH_ROS=ON (开启ROS)
-# 如果在 catkin_make 中，可以这样传参: catkin_make -DBUILD_WITH_ROS=ON
+# 0. 自定义编译开关 (支持 非ROS, ROS1, ROS2)
+# 编译时使用: 
+#   非ROS: cmake .. -DROS_SUPPORT=NONE
+#   ROS 1: catkin_make -DROS_SUPPORT=ROS1 (或 cmake .. -DROS_SUPPORT=ROS1)
+#   ROS 2: colcon build --cmake-args -DROS_SUPPORT=ROS2
 # ==============================================================================
-option(BUILD_WITH_ROS "Build with ROS support" ON)
+set(ROS_SUPPORT "AUTO" CACHE STRING "Set ROS support level: AUTO, NONE, ROS1, ROS2")
 
-if(BUILD_WITH_ROS)
-    message(STATUS "ROS Support is ENABLED")
-    add_compile_definitions(USE_ROS)
+# 如果设置为 AUTO，则通过环境变量自动检测
+if(ROS_SUPPORT STREQUAL "AUTO")
+    if(DEFINED ENV{ROS_VERSION})
+        if("$ENV{ROS_VERSION}" STREQUAL "1")
+            set(ROS_SUPPORT "ROS1")
+        elseif("$ENV{ROS_VERSION}" STREQUAL "2")
+            set(ROS_SUPPORT "ROS2")
+        else()
+            set(ROS_SUPPORT "NONE")
+        endif()
+    else()
+        set(ROS_SUPPORT "NONE")
+    endif()
+endif()
+
+if(ROS_SUPPORT STREQUAL "ROS1")
+    message(STATUS "ROS Support is ENABLED [ROS 1]")
+    add_compile_definitions(USE_ROS USE_ROS1)
+elseif(ROS_SUPPORT STREQUAL "ROS2")
+    message(STATUS "ROS Support is ENABLED [ROS 2]")
+    add_compile_definitions(USE_ROS USE_ROS2)
 else()
-    message(STATUS "ROS Support is DISABLED")
+    message(STATUS "ROS Support is DISABLED [Non-ROS]")
+    set(ROS_SUPPORT "NONE")
 endif()
 
 # 将 FetchContent 的下载目录移到当前工作空间根目录下的 .deps 文件夹中
@@ -24,6 +45,18 @@ set(FETCHCONTENT_BASE_DIR ${CMAKE_SOURCE_DIR}/../.deps CACHE PATH "Directory for
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Release")
     set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG -march=native")
+endif()
+
+# 1. 在进入第三方库之前，主动接管 spdlog 的寻找
+if(ROS_SUPPORT STREQUAL "ROS2")
+    find_package(spdlog REQUIRED)
+    
+    set(DUMMY_SPDLOG_DIR "${CMAKE_CURRENT_BINARY_DIR}/dummy_spdlog")
+    file(MAKE_DIRECTORY "${DUMMY_SPDLOG_DIR}")
+    file(WRITE "${DUMMY_SPDLOG_DIR}/CMakeLists.txt" "project(dummy_spdlog)\n")
+    
+    # 3. 官方重定向：强制告诉 FetchContent "别去网上拉代码了，读取我这个空工程就行"
+    set(FETCHCONTENT_SOURCE_DIR_SPDLOG "${DUMMY_SPDLOG_DIR}" CACHE PATH "Bypass FetchContent for spdlog" FORCE)
 endif()
 
 add_subdirectory(dk)
@@ -35,18 +68,25 @@ dk_create_json_library(my_json_lib "${CMAKE_CURRENT_SOURCE_DIR}")
 # ------------------------------------------------------------------------------
 # 1. 系统级与 ROS 依赖
 # ------------------------------------------------------------------------------
-if(BUILD_WITH_ROS)
+if(ROS_SUPPORT STREQUAL "ROS1")
     find_package(catkin REQUIRED COMPONENTS 
         roscpp
         rsos_msgs
         cv_bridge
     )
+elseif(ROS_SUPPORT STREQUAL "ROS2")
+    find_package(ament_cmake REQUIRED)
+    find_package(rclcpp REQUIRED)
+    find_package(cv_bridge REQUIRED)
+    find_package(nav_msgs REQUIRED)
+    find_package(geometry_msgs REQUIRED)
 endif()
 
-# OpenCV 体积过于庞大，源码编译耗时极长，强烈建议保留 find_package
 find_package(OpenCV REQUIRED)
 find_package(Boost REQUIRED COMPONENTS system filesystem)
 find_package(MAVSDK REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(GeographicLib REQUIRED geographiclib)
 # ------------------------------------------------------------------------------
 # 2. 第三方依赖 (FetchContent)
 # ------------------------------------------------------------------------------
@@ -64,23 +104,41 @@ set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build static libraries" FORCE)
 set(BUILD_TESTS OFF CACHE BOOL "Disable tests" FORCE)
 set(BUILD_BACKEND OFF CACHE BOOL "Disable gRPC backend server" FORCE) 
 
-# 一次性生成并引入所有声明的库
-FetchContent_MakeAvailable(cli11 eigen tinyxml2 apriltag yaml-cpp)
+set(YAML_CPP_INSTALL OFF CACHE BOOL "Disable yaml-cpp install" FORCE)
+set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "Disable yaml-cpp tests" FORCE)
+
+# 2. 正常生成除了 Eigen 之外的其他库
+FetchContent_MakeAvailable(cli11 tinyxml2 apriltag yaml-cpp)
+
+# 3. 单独处理 Eigen (因为它是 Header-Only，直接拉取并提取路径，不执行其 CMakeLists)
+FetchContent_GetProperties(eigen)
+if(NOT eigen_POPULATED)
+    FetchContent_Populate(eigen)
+    
+    # 模拟出一个名为 Eigen3::Eigen 的目标，完美兼容你下方的 target_link_libraries
+    add_library(Eigen3::Eigen INTERFACE IMPORTED)
+    target_include_directories(Eigen3::Eigen INTERFACE ${eigen_SOURCE_DIR})
+endif()
 
 # ------------------------------------------------------------------------------
-if(BUILD_WITH_ROS)
+# ROS Package 配置 (在生成 Target 之前)
+# ------------------------------------------------------------------------------
+if(ROS_SUPPORT STREQUAL "ROS1")
     catkin_package()
 endif()
 
 # 全局的 include 目录
-set(GLOBAL_INCLUDE_DIRS include ${OpenCV_INCLUDE_DIRS})
-if(BUILD_WITH_ROS)
+set(GLOBAL_INCLUDE_DIRS include ${OpenCV_INCLUDE_DIRS} ${GeographicLib_INCLUDE_DIRS})
+
+if(ROS_SUPPORT STREQUAL "ROS1")
     list(APPEND GLOBAL_INCLUDE_DIRS ${catkin_INCLUDE_DIRS})
 endif()
+# ROS 2 通常通过 ament_target_dependencies 管理 include，无需加入全局
 include_directories(${GLOBAL_INCLUDE_DIRS})
 
 set(BASE_STATE_SRC src/states/ground_state.cpp src/states/hover_state.cpp src/states/init_state.cpp src/states/land_state.cpp src/states/state_utils.cpp src/states/takeoff_state.cpp src/states/waypoint_state.cpp)
-if(BUILD_WITH_ROS)
+
+if(ROS_SUPPORT STREQUAL "ROS1")
     set(FEATURES_SRC 
         src/features/algo/event_listener.cpp 
         src/features/control/event_listener.cpp 
@@ -95,7 +153,7 @@ set(BASE_MAVLINK_SRC src/mavlink/mavsdk_drone.cpp)
 set(BASE_NODE_SRC src/dankong_node.cpp)
 
 # ==============================================================================
-# 文件/目录拷贝工具函数
+# 文件/目录拷贝工具函数 (保持不变)
 # ==============================================================================
 function(target_copy_post_build TARGET_NAME)
     set(ALL_ARGS ${ARGN})
@@ -173,10 +231,10 @@ function(create_dankong_target TARGET_TYPE)
         ${PARSED_ARGS_EXTRA_INCLUDES}
     )
 
-    target_link_libraries(${TARGET_NAME} PRIVATE
+    target_link_libraries(${TARGET_NAME}
         dk              
         my_json_lib     
-        Geographic
+        ${GeographicLib_LIBRARIES}
         atomic  
         Eigen3::Eigen    
         apriltag         
@@ -191,10 +249,26 @@ function(create_dankong_target TARGET_TYPE)
         ${PARSED_ARGS_EXTRA_LIBS}
     )
 
-    # 如果启用了 ROS，则链接 ROS 库并添加依赖
-    if(BUILD_WITH_ROS)
-        target_link_libraries(${TARGET_NAME} PRIVATE ${catkin_LIBRARIES})
+    # 针对不同 ROS 版本的依赖注入
+    if(ROS_SUPPORT STREQUAL "ROS1")
+        target_link_libraries(${TARGET_NAME} ${catkin_LIBRARIES})
         add_dependencies(${TARGET_NAME} ${catkin_EXPORTED_TARGETS})
+    elseif(ROS_SUPPORT STREQUAL "ROS2")
+        ament_target_dependencies(${TARGET_NAME}
+            rclcpp
+            cv_bridge
+            nav_msgs
+            geometry_msgs
+        )
+        # ROS 2 需要显式的 install 规则才能在 colcon workspace 中找到它
+        install(TARGETS ${TARGET_NAME}
+            DESTINATION lib/${PROJECT_NAME}
+        )
+        install(DIRECTORY 
+            ${CMAKE_CURRENT_SOURCE_DIR}/config
+            ${CMAKE_CURRENT_SOURCE_DIR}/dk/frontend/dist
+            DESTINATION lib/${PROJECT_NAME}
+        )
     endif()
 
     string(TOUPPER "BUILD_${TARGET_TYPE}" DEFAULT_DEF)
@@ -223,35 +297,29 @@ elseif(ROBOT STREQUAL "car")
     )
 elseif(ROBOT STREQUAL "dog")
     create_dankong_target(dog)
+elseif(ROBOT STREQUAL "go2")
+    create_dankong_target(go2)
 else()
     message(FATAL_ERROR "Invalid ROBOT: '${ROBOT}'. Options are: drone, car, dog, all.")
 endif()
 
 # ==============================================================================
-# 测试部分
+# ROS 2 Package 声明 (必须在所有 install 生成结束后)
 # ==============================================================================
-if(BUILD_WITH_ROS AND CATKIN_ENABLE_TESTING)
-  find_package(rostest REQUIRED)
-  
-  add_rostest(test/test_follow.test)
-  add_rostest(test/test_posvel_drone.test)
-  add_rostest(test/test_waypoint_drone.test)
+if(ROS_SUPPORT STREQUAL "ROS2")
+    ament_package()
 endif()
 
-# add_executable(test_tracker_sim 
-#     test/tracker/test_tracker.cpp 
-#     src/states/state_utils.cpp   
-# )
-# target_include_directories(test_tracker_sim PRIVATE include)
-
-# target_link_libraries(test_tracker_sim PRIVATE
-#     dk
-#     Eigen3::Eigen
-#     yaml-cpp
-#     pthread
-#     my_json_lib
-# )
-
-# if(BUILD_WITH_ROS)
-#     target_link_libraries(test_tracker_sim PRIVATE ${catkin_LIBRARIES})
-# endif()
+# ==============================================================================
+# 测试部分
+# ==============================================================================
+if(ROS_SUPPORT STREQUAL "ROS1" AND CATKIN_ENABLE_TESTING)
+    # find_package(rostest REQUIRED)
+    # add_rostest(test/test_follow.test)
+    # add_rostest(test/test_posvel_drone.test)
+    # add_rostest(test/test_waypoint_drone.test)
+elseif(ROS_SUPPORT STREQUAL "ROS2" AND BUILD_TESTING)
+    # 如果未来需要添加 ROS 2 对应的测试，可以在这里补充 (例如 ament_add_gtest 或 launch_testing)
+    # find_package(ament_cmake_gtest REQUIRED)
+    # ament_add_gtest(...)
+endif()

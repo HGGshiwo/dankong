@@ -1,24 +1,19 @@
 #pragma once
-
 #include "core/event_result.hpp"
-#ifdef USE_ROS
-#include <geometry_msgs/TwistStamped.h>
-#include <nav_msgs/Odometry.h>
-#include <rsos_msgs/PointObj.h>
-#include <sensor_msgs/NavSatFix.h>
-#include <sensor_msgs/Range.h>
-#include <std_msgs/Float64.h>
-#include <std_msgs/String.h>
-#include <std_msgs/UInt32.h>
 
+#ifdef USE_ROS
 #include "dk/adapters/ros.hpp"
+#endif
+
+#ifdef USE_ROS1
+#include <rsos_msgs/PointObj.h>
+#include <std_msgs/String.h>
 #endif
 
 #include <Eigen/Dense>
 #include <memory>
 
 #include "./context.hpp"
-#include "Eigen/src/Geometry/Quaternion.h"
 #include "core/engine.hpp"
 #include "core/tag.hpp"
 #include "dk/adapters/web/adapter.hpp"
@@ -31,6 +26,7 @@ class ControlFeature {
 #ifdef USE_ROS
     static void setup(
         TagRos, std::shared_ptr<dk::RosAdapter<RobotContext, Engine>>& ros) {
+#ifdef USE_ROS1
         ros->bind_event(
             "/restart",
             [](std_msgs::String::ConstPtr data) -> RestartEvent { return {}; });
@@ -47,6 +43,8 @@ class ControlFeature {
                             e.cmd_vel.z() = msg->velocity.z;
                             return e;
                         });
+
+#endif
     }
 #endif
 

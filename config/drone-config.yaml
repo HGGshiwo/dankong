@@ -8,7 +8,7 @@
 
 tag_family: tag36h11
 
-mavsdk_url: tcp://127.0.0.1:5760
+mavsdk_url: tcp://127.0.0.1:5761
 pland_use_disarm: true
 auto_heading_enable_dist_m: 1
 camera_inner_matrix:

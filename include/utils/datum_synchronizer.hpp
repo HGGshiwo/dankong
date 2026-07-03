@@ -39,24 +39,25 @@ class DatumSynchronizer {
         if (enu_buffer_.size() > 200) {
             enu_buffer_.pop_front();
         }
+
+        // 每次有新的 ENU 数据到来，尝试唤醒并处理积压的 GPS 数据
+        trySync();
     }
 
     // ---------------------------------------------------------
-    // 回调入口 2：推入 GPS 数据并触发同步 (低频)
+    // 回调入口 2：推入 GPS 数据 (高/低频均可)
     // ---------------------------------------------------------
     void pushGPS(const Eigen::Vector3d& gps, double time) {
         std::lock_guard<std::mutex> lock(mutex_);
+        gps_buffer_.push_back({time, gps});
 
-        // 1. 尝试将高频 ENU 插值对齐到当前 GPS 的时间戳
-        std::optional<Eigen::Vector3d> synced_enu = interpolateENU(time);
-
-        if (synced_enu.has_value()) {
-            // 2. 如果插值成功，压入滑动窗口
-            synced_window_.push_back({time, synced_enu.value(), gps});
-            if (synced_window_.size() > window_size_) {
-                synced_window_.pop_front();
-            }
+        // 维持 GPS Buffer 大小
+        if (gps_buffer_.size() > 50) {
+            gps_buffer_.pop_front();
         }
+
+        // 尝试同步
+        trySync();
     }
 
     // ---------------------------------------------------------
@@ -78,22 +79,61 @@ class DatumSynchronizer {
     }
 
    private:
-    // 基于时间戳的线性插值
-    std::optional<Eigen::Vector3d> interpolateENU(double target_time) {
-        if (enu_buffer_.size() < 2) return std::nullopt;
+    // 核心同步逻辑 (调用前必须已加锁)
+    void trySync() {
+        while (!gps_buffer_.empty()) {
+            double target_gps_time = gps_buffer_.front().time;
 
-        // 如果目标时间比我们拥有的最老数据还老，或者比最新数据还新很多，抛弃
-        if (target_time < enu_buffer_.front().time ||
-            target_time > enu_buffer_.back().time + max_time_diff_) {
-            return std::nullopt;
+            if (enu_buffer_.size() < 2) {
+                break;  // ENU 数据不足，继续等待
+            }
+
+            // 情况 1: GPS 数据太老了，已经被最老的 ENU
+            // 甩在后面，无法插值，直接丢弃
+            if (target_gps_time < enu_buffer_.front().time) {
+                gps_buffer_.pop_front();
+                continue;
+            }
+
+            // 情况 2: GPS 数据比目前最新的 ENU 还要新。
+            // 解决你的 Bug 的关键：不要丢弃，直接 break 等待未来的 ENU 到来！
+            if (target_gps_time > enu_buffer_.back().time) {
+                break;
+            }
+
+            // 情况 3: GPS 时间戳正好落在 ENU
+            // 队列的时间范围内，完美包夹，进行插值
+            std::optional<Eigen::Vector3d> synced_enu =
+                interpolateENU(target_gps_time);
+
+            if (synced_enu.has_value()) {
+                synced_window_.push_back({target_gps_time, synced_enu.value(),
+                                          gps_buffer_.front().lon_lat_alt});
+                if (synced_window_.size() > window_size_) {
+                    synced_window_.pop_front();
+                }
+            }
+
+            // 无论插值是否成功（可能因为 max_time_diff_ 限制失败），这个 GPS
+            // 已经处理完毕
+            gps_buffer_.pop_front();
         }
+    }
 
+    // 基于时间戳的线性插值 (调用前已确保 target_time 在 enu_buffer_ 范围内)
+    std::optional<Eigen::Vector3d> interpolateENU(double target_time) {
         // 寻找目标时间前后的两个 ENU 帧
         for (size_t i = 0; i < enu_buffer_.size() - 1; ++i) {
             const auto& enu_1 = enu_buffer_[i];
             const auto& enu_2 = enu_buffer_[i + 1];
 
             if (target_time >= enu_1.time && target_time <= enu_2.time) {
+                // 如果相邻两个 ENU 帧的时间跨度过大
+                // (比如传感器掉线)，拒绝插值以防飞车
+                if ((enu_2.time - enu_1.time) > max_time_diff_) {
+                    return std::nullopt;
+                }
+
                 // 计算插值权重
                 double dt = enu_2.time - enu_1.time;
                 if (dt < 1e-6) return enu_1.position;  // 避免除以 0
@@ -109,18 +149,8 @@ class DatumSynchronizer {
         return std::nullopt;
     }
 
-    // 可靠性校验逻辑
+    // 可靠性校验逻辑 (保持原样即可)
     bool isWindowReliable() {
-        // 核心思想：在短时间窗口内，机器人 ENU 的相对位移，应该与 GPS
-        // 的相对位移在物理学上是一致的。 如果 GPS
-        // 发生了室内多径漂移，其局部方差会急剧上升。
-
-        // 注意：这里为了保持代码不依赖第三方库，采用了一个简化的启发式稳态校验。
-        // 严谨的做法是：在这里调用你已有的 GeographicLib，将 synced_window_
-        // 中的 gps 转换为局部 XYZ， 然后计算 (ENU_Delta - GPS_XYZ_Delta)
-        // 的均方根误差 (RMSE)。如果 RMSE 小于阈值，则认为可靠。
-
-        // 简化版稳态检测（仅检测高程和水平震荡）：
         Eigen::Vector3d enu_mean = Eigen::Vector3d::Zero();
         for (const auto& pair : synced_window_) {
             enu_mean += pair.enu;
@@ -133,9 +163,7 @@ class DatumSynchronizer {
         }
         enu_variance /= synced_window_.size();
 
-        // 阈值需要根据你的建图算法输出尺度和 GPS 噪声级别进行整定 (Tuning)
         double max_allowed_variance = 5.0;
-
         return enu_variance < max_allowed_variance;
     }
 
@@ -144,5 +172,6 @@ class DatumSynchronizer {
     size_t window_size_;
 
     std::deque<StampedENU> enu_buffer_;
+    std::deque<StampedGPS> gps_buffer_;  // 新增 GPS 缓存队列
     std::deque<SyncedPair> synced_window_;
 };
