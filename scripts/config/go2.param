@@ -1,4 +1,0 @@
-# 启用 MAVLink 外部虚拟 GPS 注入模式
-GPS1_TYPE 14
-
-ARMING_CHECK 0

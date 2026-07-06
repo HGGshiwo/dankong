@@ -1,8 +1,9 @@
 #pragma once
+#include <nav_msgs/Odometry.h>
+#include <std_msgs/String.h>
+
 #include <cstdint>
 #include <memory>
-#include <nav_msgs/msg/odometry.hpp>
-#include <std_msgs/msg/string.hpp>
 #include <unordered_map>
 #include <vector>
 
@@ -36,7 +37,7 @@ class Go2Feature {
         TagRos, std::shared_ptr<dk::RosAdapter<RobotContext, Engine>>& ros) {
         ros->bind_context(
             "/loc_base",
-            [](const nav_msgs::msg::Odometry::SharedPtr msg,
+            [](const nav_msgs::Odometry::ConstPtr& msg,
                RobotContext& ctx) -> void {
                 // 0. 统一获取当前时间戳
                 auto now = ctx.engine->get_time_provider()->now();
@@ -107,7 +108,7 @@ class Go2Feature {
 
         ros->bind_event(
             "/task/feedback",
-            [](const std_msgs::msg::String::SharedPtr msg) -> WpArriveEvent {
+            [](const std_msgs::String::ConstPtr& msg) -> WpArriveEvent {
                 return WpArriveEvent{};
             });
     };

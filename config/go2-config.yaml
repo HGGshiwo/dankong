@@ -1,0 +1,97 @@
+# ntrip_running: false
+# ntrip_nstats: 10
+# ntrip_ip: 120.253.239.161
+# ntrip_port: 8002
+# ntrip_mountpoint: RTCM33_GRC
+# ntrip_username: cwpm11417
+# ntrip_password: cfuejdyk
+
+tag_family: tag36h11
+
+mavsdk_url: tcp://127.0.0.1:5761
+pland_use_disarm: true
+auto_heading_enable_dist_m: 1
+camera_inner_matrix:
+  - 554.38271282264407
+  - 0
+  - 320.5
+  - 0
+  - 554.38271282264407
+  - 240.5
+  - 0
+  - 0
+  - 1
+command_timeout_sec: 0.5
+fcu_data_rate: 10
+fix_yaw_dist: 1
+follow_timeout: 1
+gimbal_pitch_topic: /gimbal/current_pitch
+gimbal_roll_topic: /gimbal/roll
+gimbal_yaw_topic: /gimbal/yaw
+inner_tag_size: 0.90000000000000002
+is_omnidirectional: true
+json_path: config/config.json
+kd_xy: 0.10000000000000001
+kd_yaw: 0.10000000000000001
+kd_z: 0.10000000000000001
+ki_xy: 0.01
+ki_yaw: 0.01
+ki_z: 0.01
+kp_xy: 1.5
+kp_yaw: 2
+kp_z: 1
+log_dir: logs/my_log.txt
+loop_rate_hz: 50
+lost_target_alt: 15
+max_acc_xy: 1
+max_acc_yaw: 2
+max_acc_z: 0.80000000000000004
+max_decel_xy: 1
+max_decel_z: 0.80000000000000004
+max_i_xy: 1
+max_i_yaw: 1
+max_i_z: 1
+max_vel_xy: 3
+max_vel_yaw: 1.5
+max_vel_z: 1
+offset_x: 0
+offset_y: 0
+offset_z: 0.085000000000000006
+outter_tag_size: 0.192
+pdef_path: config/apm.pdef.xml
+pland_blind_drop_alt: 0.29999999999999999
+pland_cruise_speed_xy: 3
+pland_decay_start_z: 3
+pland_detect_topic: /pland/detect
+pland_gamma: 0.25
+pland_gamma_yaw: 0.20000000000000001
+pland_gamma_z: 0.5
+pland_gimbal_abs: true
+pland_image_topic: /roscam/cam/image_raw
+pland_limit_start_z: 3
+pland_max_acc_xy: 1
+pland_max_devel_xy: 1
+pland_max_vel_z: 1
+pland_min_cruise_speed: 0.40000000000000002
+pland_min_gamma: 0.10000000000000001
+platform_height: 0
+pos_tolerance: 1
+pos_tolerance_m: 0.050000000000000003
+posvel_timeout: 3
+prearm_timeout: 3
+server_port: 8000
+static_dir: dist
+takeoff_timeout: 100
+throttle_thresh: 0.10000000000000001
+touchdown_velocity: 0.40000000000000002
+touchdown_z_thresh: 0.29999999999999999
+udp_server_port: 9111
+ui_config: drone-ui.yaml
+velocity_deadzone: 0.20000000000000001
+xy_align_thresh: 0.45000000000000001
+yaw_align_thresh: 0.20000000000000001
+yaw_full_speed_tol: 0.17000000000000001
+yaw_tolerance: 0.080000000000000002
+yaw_tolerance_rad: 0.050000000000000003
+yaw_zero_speed_tol: 0.78000000000000003
+z_tolerance: 1

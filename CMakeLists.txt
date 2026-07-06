@@ -139,10 +139,16 @@ include_directories(${GLOBAL_INCLUDE_DIRS})
 set(BASE_STATE_SRC src/states/ground_state.cpp src/states/hover_state.cpp src/states/init_state.cpp src/states/land_state.cpp src/states/state_utils.cpp src/states/takeoff_state.cpp src/states/waypoint_state.cpp)
 
 if(ROS_SUPPORT STREQUAL "ROS1")
-    set(FEATURES_SRC 
-        src/features/algo/event_listener.cpp 
-        src/features/control/event_listener.cpp 
-        src/features/mavlink/event_listener.cpp)
+    if(ROBOT_TYPE STREQUAL "drone")
+        set(FEATURES_SRC 
+            src/features/algo/event_listener.cpp 
+            src/features/control/event_listener.cpp 
+            src/features/mavlink/event_listener.cpp)
+    else()
+        set(FEATURES_SRC 
+            src/features/control/event_listener.cpp 
+            src/features/mavlink/event_listener.cpp)
+    endif()
 else()
     set(FEATURES_SRC 
         src/features/control/event_listener.cpp 
