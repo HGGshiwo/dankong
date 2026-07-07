@@ -5,6 +5,7 @@
 #include <string>
 
 #include "core/engine.hpp"
+#include "core/global_config.hpp"
 #include "dk/adapters/udp/udp_client.hpp"
 #include "dk/future.hpp"
 #include "features/dog/command.hpp"
@@ -12,6 +13,7 @@
 #include "nlohmann/json.hpp"
 #include "robot/irobot.hpp"
 #include "robot_context.hpp"
+#include "utils/exception.hpp"
 #include "utils/fixed_string64.hpp"
 #include "utils/request.hpp"
 
@@ -32,13 +34,19 @@ class Go2 : public IRobot {
     }
 
     void push_message(std::string msg) {
-        send_request(
-            ctx_.engine, http::verb::post, "127.0.0.1", "/api/push", 8444,
+        auto future = send_request(
+            ctx_.engine, http::verb::post,
+            GlobalConfig.GetConfig().go2_server_url.get(),
             nlohmann::json{
-                {"content", msg}, {"sender", "user"}, {"target", "legacy"}})
+                {"content", msg}, {"sender", "user"}, {"target", "legacy"}},
+            true);
+        future
             .then([](HttpResponse res) {
-                spdlog::info("success={}, data={}, error={}", res.success(),
-                             res.body, res.error_msg);
+                spdlog::info("[Push message] success={}, data={}, error={}",
+                             res.success(), res.body, res.error_msg);
+            })
+            .catch_error([](std::exception_ptr exp) {
+                spdlog::error("[Push message]: {}", get_error_message(exp));
             });
     }
 

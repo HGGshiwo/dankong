@@ -85,6 +85,8 @@ endif()
 find_package(OpenCV REQUIRED)
 find_package(Boost REQUIRED COMPONENTS system filesystem)
 find_package(MAVSDK REQUIRED)
+find_package(OpenSSL REQUIRED)
+
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GeographicLib REQUIRED geographiclib)
 # ------------------------------------------------------------------------------
@@ -251,6 +253,8 @@ function(create_dankong_target TARGET_TYPE)
         Boost::system
         Boost::filesystem
         pthread
+        OpenSSL::SSL      # 链接 SSL 库 (负责 TLS/SSL 协议层)
+        OpenSSL::Crypto   # 链接 Crypto 库 (负责底层的加密算法)
         ${OpenCV_LIBS}
         ${PARSED_ARGS_EXTRA_LIBS}
     )
