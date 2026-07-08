@@ -141,7 +141,7 @@ include_directories(${GLOBAL_INCLUDE_DIRS})
 set(BASE_STATE_SRC src/states/ground_state.cpp src/states/hover_state.cpp src/states/init_state.cpp src/states/land_state.cpp src/states/state_utils.cpp src/states/takeoff_state.cpp src/states/waypoint_state.cpp)
 
 if(ROS_SUPPORT STREQUAL "ROS1")
-    if(ROBOT_TYPE STREQUAL "drone")
+    if(ROBOT STREQUAL "drone")
         set(FEATURES_SRC 
             src/features/algo/event_listener.cpp 
             src/features/control/event_listener.cpp 

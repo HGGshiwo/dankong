@@ -4,6 +4,7 @@
 // 引入你需要的 Feature
 #include "features/control/context.hpp"
 #include "features/drone/context.hpp"
+#include "features/mavlink/context.hpp"
 #include "features/ntrip/context.hpp"
 #include "features/tracker/context.hpp"
 #ifdef USE_ROS
@@ -18,4 +19,4 @@ using RobotContext = ContextGenerator<
 #ifdef USE_ROS
     AlgoContext, PlandContext,
 #endif
-    ControlContext, DroneContext, TrackerContext, NtripContext>;
+    ControlContext, DroneContext, TrackerContext, NtripContext, MavlinkContext>;
