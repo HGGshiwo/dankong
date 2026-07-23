@@ -13,6 +13,7 @@ class ReportEventListener
     using AllowedEvents = std::tuple<dk::TickEvent, dk::WsOpenEvent>;
 
     std::shared_ptr<dk::ConnectionManager> manager_;
+    double last_send_time_ = 0.0;
 
     ReportEventListener(std::shared_ptr<dk::ConnectionManager> manager)
         : manager_(manager) {}
@@ -36,15 +37,31 @@ class ReportEventListener
         nlohmann::json j;
         double now = ctx.engine->get_time_provider()->now();
         ctx.state_registry.report_all(j, now);
-        // 如果没有任何数据改变或达到频率条件，j 将是空的，直接 return
+
+        bool is_heartbeat = false;
         if (j.empty()) {
+            double hz = GlobalConfig.GetConfig().heartbeat_hz.get();
+            if (hz > 0) {
+                double interval = 1.0 / hz;
+                if (last_send_time_ <= 0.0) {
+                    last_send_time_ = now;
+                } else if (now - last_send_time_ >= interval) {
+                    is_heartbeat = true;
+                }
+            }
+        }
+
+        // 如果没有任何数据改变且不需要心跳，直接 return
+        if (j.empty() && !is_heartbeat) {
             return;
         }
+
         // 补充动态的基本状态
         j["type"] = "state";
-        if (ctx.engine) {
-            j["state"] = ctx.engine->get_state_name();
-        }
+        // if (ctx.engine) {
+        //     j["state"] = ctx.engine->get_state_name();
+        // }
         manager_->publish(j);
+        last_send_time_ = now;
     }
 };

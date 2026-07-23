@@ -6,6 +6,7 @@
 #include "features/drone/config.hpp"
 #include "features/mavlink/config.hpp"
 #include "features/ntrip/config.hpp"
+#include "features/report/config.hpp"
 #include "features/system/config.hpp"
 #include "features/tracker/config.hpp"
 #ifdef USE_ROS
@@ -21,4 +22,4 @@ using RobotConfig = ConfigGenerator<
     AlgoConfig, PlandConfig,
 #endif
     SystemConfig, ControlConfig, MavlinkConfig, DroneConfig, TrackerConfig,
-    NtripConfig>;
+    NtripConfig, ReportConfig>;

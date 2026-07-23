@@ -10,6 +10,7 @@
 #include <optional>
 
 #include "Eigen/src/Geometry/Quaternion.h"
+#include "core/global_config.hpp"
 #include "utils/datum_synchronizer.hpp"
 #include "utils/dirty_var.hpp"
 #include "utils/fixed_string64.hpp"
@@ -277,33 +278,84 @@ struct ControlContext {
         reg.bind("yaw_diff", yaw_diff, 5.0);
         reg.bind("wp_idx", wp_idx, 5.0);
 
-        reg.bind("pos_enu", pos_enu, 0.0);
+        reg.bind("pos_enu", pos_enu, 10.0,
+                 [](const Eigen::Vector3d& cur, const Eigen::Vector3d& last) {
+                     double threshold_pos =
+                         GlobalConfig.GetConfig().report_pos_threshold.get();
+                     return (cur - last).norm() > threshold_pos;
+                 });
         reg.bind("takeoff_lon_lat_alt", takeoff_lon_lat_alt, 0.0);
-        reg.bind("yaw", yaw_ned, 10.0);
-        reg.bind("pitch", pitch, 10.0);
-        reg.bind("roll", roll, 10.0);
+        reg.bind("yaw", yaw_ned, 10.0, [](double cur, double last) {
+            double threshold_rad =
+                GlobalConfig.GetConfig().report_ang_threshold.get() * M_PI /
+                180.0;
+            double diff = std::abs(cur - last);
+            if (diff > M_PI) diff = 2.0 * M_PI - diff;
+            return diff > threshold_rad;
+        });
+        reg.bind("pitch", pitch, 10.0, [](double cur, double last) {
+            double threshold_rad =
+                GlobalConfig.GetConfig().report_ang_threshold.get() * M_PI /
+                180.0;
+            double diff = std::abs(cur - last);
+            if (diff > M_PI) diff = 2.0 * M_PI - diff;
+            return diff > threshold_rad;
+        });
+        reg.bind("roll", roll, 10.0, [](double cur, double last) {
+            double threshold_rad =
+                GlobalConfig.GetConfig().report_ang_threshold.get() * M_PI /
+                180.0;
+            double diff = std::abs(cur - last);
+            if (diff > M_PI) diff = 2.0 * M_PI - diff;
+            return diff > threshold_rad;
+        });
         reg.bind("mission_data", mission_data, 10.0);
 
         // --- 2. 复合类型的自定义展开绑定 ---
-        reg.bind_custom(lon_lat_alt, 10.0,
-                        [](nlohmann::json& j, const Eigen::Vector3d& data) {
-                            j["lon"] = data.x();
-                            j["lat"] = data.y();
-                            j["rel_alt"] = data.z();
-                            j["gps"] =
-                                Eigen::Vector3d{data.x(), data.y(), data.z()};
-                        });
+        reg.bind_custom(
+            lon_lat_alt, 10.0,
+            [](nlohmann::json& j, const Eigen::Vector3d& data) {
+                j["lon"] = data.x();
+                j["lat"] = data.y();
+                j["rel_alt"] = data.z();
+                j["gps"] = Eigen::Vector3d{data.x(), data.y(), data.z()};
+            },
+            [](const Eigen::Vector3d& cur, const Eigen::Vector3d& last) {
+                double threshold_pos =
+                    GlobalConfig.GetConfig().report_pos_threshold.get();
+                double threshold_alt =
+                    GlobalConfig.GetConfig().report_alt_threshold.get();
+                // 经纬度 111000.0 米大体对应 1 度。
+                double threshold_deg = threshold_pos / 111000.0;
+                double d_lon = std::abs(cur.x() - last.x());
+                double d_lat = std::abs(cur.y() - last.y());
+                double d_alt = std::abs(cur.z() - last.z());
+                return d_lon > threshold_deg || d_lat > threshold_deg ||
+                       d_alt > threshold_alt;
+            });
 
-        reg.bind_custom(vel_enu, 10.0,
-                        [](nlohmann::json& j, const Eigen::Vector3d& data) {
-                            j["x_vel"] = data.x();
-                            j["y_vel"] = data.y();
-                        });
+        reg.bind_custom(
+            vel_enu, 10.0,
+            [](nlohmann::json& j, const Eigen::Vector3d& data) {
+                j["x_vel"] = data.x();
+                j["y_vel"] = data.y();
+            },
+            [](const Eigen::Vector3d& cur, const Eigen::Vector3d& last) {
+                double threshold_vel =
+                    GlobalConfig.GetConfig().report_vel_threshold.get();
+                return (cur.head<2>() - last.head<2>()).norm() > threshold_vel;
+            });
 
-        reg.bind_custom(vel_body, 10.0,
-                        [](nlohmann::json& j, const Eigen::Vector3d& data) {
-                            j["x_vel_body"] = data.x();
-                            j["y_vel_body"] = data.y();
-                        });
+        reg.bind_custom(
+            vel_body, 10.0,
+            [](nlohmann::json& j, const Eigen::Vector3d& data) {
+                j["x_vel_body"] = data.x();
+                j["y_vel_body"] = data.y();
+            },
+            [](const Eigen::Vector3d& cur, const Eigen::Vector3d& last) {
+                double threshold_vel =
+                    GlobalConfig.GetConfig().report_vel_threshold.get();
+                return (cur.head<2>() - last.head<2>()).norm() > threshold_vel;
+            });
     }
 };
