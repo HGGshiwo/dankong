@@ -5,11 +5,6 @@
 #include "dk/engine.hpp"
 
 //@JSON_ENABLE
-struct ReportEvent {
-    std::string data;
-};  // 用于ros->ws上报
-
-//@JSON_ENABLE
 struct StopFollowEvent : dk::AsyncEvent<EventResult> {};
 
 //@JSON_ENABLE

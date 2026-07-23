@@ -27,6 +27,13 @@ class ControlFeature {
     static void setup(
         TagRos, std::shared_ptr<dk::RosAdapter<RobotContext, Engine>>& ros) {
 #ifdef USE_ROS1
+        ros->bind_event("/mavproxy/ws",
+                        [](std_msgs::String::ConstPtr data) -> ReportEvent {
+                            ReportEvent e;
+                            e.data = data->data;
+                            return e;
+                        });
+
         ros->bind_event(
             "/restart",
             [](std_msgs::String::ConstPtr data) -> RestartEvent { return {}; });

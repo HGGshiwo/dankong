@@ -53,14 +53,7 @@ class AlgoFeature {
     static void setup(TagListeners, const std::shared_ptr<Engine>& engine);
 
     static void setup(
-        TagRos, std::shared_ptr<dk::RosAdapter<RobotContext, Engine>>& ros) {
-        ros->bind_event("/mavproxy/ws",
-                        [](std_msgs::String::ConstPtr data) -> ReportEvent {
-                            ReportEvent e;
-                            e.data = data->data;
-                            return e;
-                        });
-    }
+        TagRos, std::shared_ptr<dk::RosAdapter<RobotContext, Engine>>& ros) {}
 };
 
 #include "./event_listener.hpp"

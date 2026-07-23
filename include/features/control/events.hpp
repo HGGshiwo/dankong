@@ -103,3 +103,8 @@ struct GlobalPositionAltEvent {
 };
 
 struct WpArriveEvent {};
+
+//@JSON_ENABLE
+struct ReportEvent {
+    std::string data;
+};  // 用于ros->ws上报

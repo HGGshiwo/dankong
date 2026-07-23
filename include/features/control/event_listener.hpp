@@ -28,7 +28,7 @@ class ControlEventListener
                    SetWaypointEvent, SetModeEvent, SetPosVelEvent,
                    dk::TickEvent, RebootFcuEvent, GetWpEvent, GetGpsEvent,
                    GetParamEvent, SetParamEvent, DisarmEvent, RestartEvent,
-                   JoystickEvent, EnableJoystickEvent, TestEvent>;
+                   JoystickEvent, EnableJoystickEvent, TestEvent, ReportEvent>;
 
     void on_event(const dk::TickEvent& event, RobotContext& ctx);
     void on_event(const SetPosVelEvent& event, RobotContext& ctx);
@@ -55,5 +55,9 @@ class ControlEventListener
         //     event.resolve({"success", "OK"});
         //     return true;
         // });
+    }
+
+    void on_event(const ReportEvent& event, RobotContext& ctx) {
+        ctx.ws_manager->publish_reliable(nlohmann::json::parse(event.data));
     }
 };

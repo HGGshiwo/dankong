@@ -37,7 +37,7 @@ class AlgoEventListener
                    StartRecordEvent, StopRecordEvent, SetGimbalEvent,
                    GetGimbalEvent, GetExposureEvent, SetExposureEvent,
                    DetectEvent, StopFollowEvent, EnablePlannerEvent,
-                   DisablePlannerEvent, ReportEvent>;
+                   DisablePlannerEvent>;
 
     AlgoEventListener();
 
@@ -54,7 +54,4 @@ class AlgoEventListener
     void on_event(const StopFollowEvent& event, RobotContext& ctx);
     void on_event(const EnablePlannerEvent& event, RobotContext& ctx);
     void on_event(const DisablePlannerEvent& event, RobotContext& ctx);
-    void on_event(const ReportEvent& event, RobotContext& ctx) {
-        ctx.ws_manager->publish_reliable(nlohmann::json::parse(event.data));
-    }
 };
