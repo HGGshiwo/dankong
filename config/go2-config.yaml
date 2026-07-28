@@ -7,9 +7,11 @@
 # ntrip_password: cfuejdyk
 
 tag_family: tag36h11
+go2_server_url: http://192.168.100.99:8444/api/push
+#go2_server_url: http://127.0.0.1:8444/api/push
+#mavsdk_url: tcp://127.0.0.1:5760
+mavsdk_url: "serial:///dev/ttyS5:115200"
 
-go2_server_url: http://127.0.0.1:8444/api/push
-mavsdk_url: tcp://127.0.0.1:5760
 pland_use_disarm: true
 auto_heading_enable_dist_m: 1
 camera_inner_matrix:

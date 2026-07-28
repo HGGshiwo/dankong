@@ -1,0 +1,3 @@
+[submodule "dk"]
+	path = dk
+	url = https://github.com/HGGshiwo/dk.git
