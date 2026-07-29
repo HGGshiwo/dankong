@@ -3,6 +3,7 @@
 #include <optional>
 
 #include "core/event_result.hpp"
+#include "core/flight_mode.hpp"
 #include "dk/engine.hpp"
 #include "nlohmann/json.hpp"
 #include "utils/fixed_string64.hpp"
@@ -83,8 +84,8 @@ struct EnableJoystickEvent : dk::AsyncEvent<EventResult> {
 struct RestartEvent {};
 
 struct FlightModeEvent {
-    FixedString64 prev;
-    FixedString64 cur;
+    FlightMode prev;
+    FlightMode cur;
 };
 
 struct ArmEvent {

@@ -23,7 +23,8 @@
 #include "robot_context.hpp"
 #include "states/init_state.hpp"
 #include "utils/get_executable_path.hpp"
-#include "utils/logger.hpp"
+#include "utils/logger/fg_logger.hpp"
+#include "utils/logger/spd_logger.hpp"
 #include "utils/yaml_helper.hpp"
 
 #ifdef USE_ROS
@@ -86,7 +87,11 @@ class CoreNode {
         GlobalConfig.load(get_config_dir(args.config_path));
 
         auto& cfg = GlobalConfig.GetConfig();
-        init_logger();
+        init_spd_logger();
+        init_fg_logger();
+        register_enum_to_fg("DKState",
+                            dk::StateRegistry::get().get_all_states());
+        register_enum_to_fg<mavsdk::Telemetry::FlightMode>("FlightMode");
 
         // Initialize MAVSDK
         mavsdk::Mavsdk::Configuration config(
@@ -208,6 +213,7 @@ class CoreNode {
 #endif
 
     ~CoreNode() {
+        fglog::close();
 #ifdef USE_ROS
         global_io_.stop();
         if (asio_thread_.joinable()) {

@@ -54,57 +54,11 @@ class MavlinkFeature {
         adapter->bind_telemetry_context(
             &mavsdk::Telemetry::subscribe_flight_mode,
             [](mavsdk::Telemetry::FlightMode mode, RobotContext& ctx) -> void {
-                std::string mode_str = "";
-                // 核心修改：将 MAVSDK 映射的通用模式转换为 APM 专属名称
-                switch (mode) {
-                    case mavsdk::Telemetry::FlightMode::Unknown:
-                        mode_str = "UNKNOWN";
-                        break;
-                    case mavsdk::Telemetry::FlightMode::Ready:
-                        mode_str = "READY";
-                        break;
-                    case mavsdk::Telemetry::FlightMode::Takeoff:
-                        mode_str = "GUIDED";
-                        break;  // APM在外部控制起飞时也是 GUIDED
-                    case mavsdk::Telemetry::FlightMode::Hold:
-                        mode_str = "LOITER";
-                        break;  // MAVSDK 会把 APM 的 LOITER 翻译成 Hold
-                    case mavsdk::Telemetry::FlightMode::Mission:
-                        mode_str = "AUTO";
-                        break;  // 航线模式在 APM 叫 AUTO
-                    case mavsdk::Telemetry::FlightMode::ReturnToLaunch:
-                        mode_str = "RTL";
-                        break;
-                    case mavsdk::Telemetry::FlightMode::Land:
-                        mode_str = "LAND";
-                        break;
-                    case mavsdk::Telemetry::FlightMode::Offboard:
-                        mode_str = "GUIDED";
-                        break;  // Offboard 等价于 APM 的 GUIDED 模式
-                    case mavsdk::Telemetry::FlightMode::FollowMe:
-                        mode_str = "FOLLOW";
-                        break;
-                    case mavsdk::Telemetry::FlightMode::Manual:
-                        mode_str = "MANUAL";
-                        break;
-                    case mavsdk::Telemetry::FlightMode::Altctl:
-                        mode_str = "ALT_HOLD";
-                        break;
-                    case mavsdk::Telemetry::FlightMode::Posctl:
-                        mode_str = "POSHOLD";
-                        break;
-                    case mavsdk::Telemetry::FlightMode::Acro:
-                        mode_str = "ACRO";
-                        break;
-                    case mavsdk::Telemetry::FlightMode::Stabilized:
-                        mode_str = "STABILIZE";
-                        break;
-                }
-
-                if (ctx.mode.load() != mode_str) {
+                if (ctx.mode.load() != mode) {
+                    FlightMode flight_mode = FlightMode(mode);
                     ctx.engine->dispatch_internal(
-                        FlightModeEvent{ctx.mode.load(), mode_str});
-                    ctx.mode.store(mode_str);
+                        FlightModeEvent{ctx.mode.load(), flight_mode});
+                    ctx.mode.store(flight_mode);
                 }
             });
 

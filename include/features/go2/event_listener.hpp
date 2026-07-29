@@ -9,9 +9,9 @@
 class Go2EventListener
     : public dk::BaseEventListener<RobotContext, Go2EventListener> {
    public:
-    using AllowedEvents = std::tuple<dk::TickEvent>;
+    using AllowedEvents = std::tuple<>;
 
-    void on_event(const dk::TickEvent& event, RobotContext& ctx) {
+    void on_tick(double dt, RobotContext& ctx) override {
         if (ctx.gps_fix_type.load() < 3) {
             // 根据之前的映射更新gps
             auto datum = ctx.datum.getReliableDatum();

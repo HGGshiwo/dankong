@@ -24,7 +24,7 @@ WaypointState::WaypointState(SetWaypointEvent e)
       do_pland_(e.do_pland),
       target_vel_(e.speed) {}
 
-void WaypointState::on_enter(RobotContext& ctx) {
+StateAction WaypointState::on_enter(RobotContext& ctx) {
     // 现在一定是起飞中了
 
     // return 转为land情况
@@ -34,14 +34,14 @@ void WaypointState::on_enter(RobotContext& ctx) {
     if (wp_list_.size() == 0) {
         // 直接执行剩余命令
         if (action_ == FinishAction::LAND) {
-            ctx.engine->step<LandState>(std::tuple(do_pland_));
+            return StateAction::step<LandState>(std::tuple(do_pland_));
         } else if (action_ == FinishAction::HOVER) {
-            ctx.engine->step<HoverState>();
+            return StateAction::step<HoverState>();
         } else {
             // RETURN至少会有一个点
             throw std::logic_error("invalid finish action!");
         }
-        return;
+        return StateAction::unhandled();
     }
     if (wp_list_.size() == 1) {
         // 偷懒没有传第一个点
@@ -69,6 +69,7 @@ void WaypointState::on_enter(RobotContext& ctx) {
     ctx.mission_data.store(wp_data);
     wp_list_.erase(wp_list_.begin());
     ctx.wp_idx.store(0);
+    return StateAction::unhandled();
 }
 
 void WaypointState::on_exit(RobotContext& ctx) {
@@ -91,7 +92,7 @@ double STALL_TIMEOUT = 3.0;
 WaypointState::LiftingState::LiftingState()
     : start_time_(0.0), checker_(nullptr) {};
 
-void WaypointState::LiftingState::on_enter(RobotContext& ctx) {
+StateAction WaypointState::LiftingState::on_enter(RobotContext& ctx) {
     double now = ctx.engine->get_time_provider()->now();
     start_time_ = now;
     checker_ = std::make_shared<state_utils::StallChecker<2>>(
@@ -104,10 +105,10 @@ void WaypointState::LiftingState::on_enter(RobotContext& ctx) {
     target_yaw_ = diff.head<2>().norm() < CLOSE_THRESH
                       ? ctx.yaw_enu.load()
                       : state_utils::get_heading(diff.x(), diff.y());
+    return StateAction::unhandled();
 }
 
-StateAction WaypointState::LiftingState::on_event(const dk::TickEvent& e,
-                                                  RobotContext& ctx) {
+StateAction WaypointState::LiftingState::on_tick(double dt, RobotContext& ctx) {
     // 达到目标的高度和航向退出
     double yaw_diff = state_utils::get_yaw_diff(target_yaw_, ctx.yaw_enu);
     double alt_diff = fabs(target_alt_ - ctx.lon_lat_alt.load().z());
@@ -147,7 +148,7 @@ bool WaypointState::ExcuteState::check_arrive(RobotContext& ctx) {
 }
 
 // 执行当前wp_idx指向的航点
-void WaypointState::ExcuteState::on_enter(RobotContext& ctx) {
+StateAction WaypointState::ExcuteState::on_enter(RobotContext& ctx) {
     auto wp = parent()->get_cur_wp();
     auto datum = ctx.datum.getReliableDatum();
     Eigen::Vector3d lon_lat_alt = ctx.lon_lat_alt.load();
@@ -182,6 +183,8 @@ void WaypointState::ExcuteState::on_enter(RobotContext& ctx) {
     } else {
         spdlog::info("no event for wp_idx: {}!", parent()->wp_idx_);
     }
+
+    return StateAction::unhandled();
 }
 
 StateAction WaypointState::ExcuteState::on_arrive(RobotContext& ctx) {
@@ -205,8 +208,7 @@ StateAction WaypointState::ExcuteState::on_arrive(RobotContext& ctx) {
     return step<WaypointState::LiftingState>();
 }
 
-StateAction WaypointState::ExcuteState::on_event(const dk::TickEvent& event,
-                                                 RobotContext& ctx) {
+StateAction WaypointState::ExcuteState::on_tick(double dt, RobotContext& ctx) {
     // 如果到达了目标点
     auto arrive = check_arrive(ctx);
     if (arrive) {

@@ -15,14 +15,14 @@ class FollowState : public dk::BaseState<RobotContext, FollowState<ParentState>,
    public:
     double last_time_;
 
-    using AllowedEvents = std::tuple<DetectEvent, dk::TickEvent>;
+    using AllowedEvents = std::tuple<DetectEvent>;
 
     FollowState(const DetectEvent& event, RobotContext& ctx) {
         last_time_ = ctx.engine->get_time_provider()->now();
         on_event(event, ctx);
     }
 
-    StateAction on_event(const dk::TickEvent& event, RobotContext& ctx);
+    StateAction on_tick(double dt, RobotContext& ctx);
 
     StateAction on_event(const DetectEvent& event, RobotContext& ctx);
 
@@ -50,8 +50,7 @@ StateAction FollowState<ParentState>::on_event(const DetectEvent& event,
 }
 
 template <typename ParentState>
-StateAction FollowState<ParentState>::on_event(const dk::TickEvent& event,
-                                               RobotContext& ctx) {
+StateAction FollowState<ParentState>::on_tick(double dt, RobotContext& ctx) {
     double now = ctx.engine->get_time_provider()->now();
     if (state_utils::get_time_span(last_time_, now) >
         GlobalConfig.GetConfig().follow_timeout) {

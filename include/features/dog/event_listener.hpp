@@ -10,13 +10,12 @@
 
 class DogListener : public dk::BaseEventListener<RobotContext, DogListener> {
    public:
-    using AllowedEvents = std::tuple<dk::TickEvent>;
+    using AllowedEvents = std::tuple<>;
 
-    DogListener(RobotContext& ctx)
-        : udp_client_(ctx.udp_client), rate_(RateLimiter(3)) {}
+    DogListener(RobotContext& ctx) : udp_client_(ctx.udp_client) {}
 
-    void on_event(const dk::TickEvent& event, RobotContext& ctx) {
-        if (rate_.check_and_update()) {
+    void on_tick(double dt, RobotContext& ctx) {
+        if (is_hz(3)) {
             auto data = pack_cmd(CommandType::MANUAL_HEARTBEAT);
             udp_client_->send(data);
         }
@@ -24,5 +23,4 @@ class DogListener : public dk::BaseEventListener<RobotContext, DogListener> {
 
    private:
     std::shared_ptr<UdpClient> udp_client_;
-    RateLimiter rate_;
 };

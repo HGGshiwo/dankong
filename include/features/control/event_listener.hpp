@@ -16,21 +16,19 @@
 #include "nlohmann/json.hpp"
 #include "robot_context.hpp"
 #include "spdlog/spdlog.h"
+#include "utils/logger/fg_logger.hpp"
 
 // 和控制相关的事件监听器
 class ControlEventListener
     : public dk::BaseEventListener<RobotContext, ControlEventListener> {
-    RateLimiter rate_{1};
-
    public:
-    using AllowedEvents =
-        std::tuple<PrearmEvent, TakeoffEvent, dk::StateChangeEvent,
-                   SetWaypointEvent, SetModeEvent, SetPosVelEvent,
-                   dk::TickEvent, RebootFcuEvent, GetWpEvent, GetGpsEvent,
-                   GetParamEvent, SetParamEvent, DisarmEvent, RestartEvent,
-                   JoystickEvent, EnableJoystickEvent, TestEvent, ReportEvent>;
+    using AllowedEvents = std::tuple<
+        PrearmEvent, TakeoffEvent, dk::StateChangeEvent, SetWaypointEvent,
+        SetModeEvent, SetPosVelEvent, RebootFcuEvent, GetWpEvent, GetGpsEvent,
+        GetParamEvent, SetParamEvent, DisarmEvent, RestartEvent, JoystickEvent,
+        EnableJoystickEvent, TestEvent, ReportEvent, FlightModeEvent>;
 
-    void on_event(const dk::TickEvent& event, RobotContext& ctx);
+    void on_tick(double dt, RobotContext& ctx);
     void on_event(const SetPosVelEvent& event, RobotContext& ctx);
     void on_event(const PrearmEvent& event, RobotContext& ctx);
     void on_event(const TakeoffEvent& event, RobotContext& ctx);
@@ -50,14 +48,18 @@ class ControlEventListener
         event.resolve({"success", "OK"});
     }
 
-    void on_event(const TestEvent& event, RobotContext& ctx) {
-        // ctx.engine->wait_for(1000, [event](const dk::TickEvent& e) {
-        //     event.resolve({"success", "OK"});
-        //     return true;
-        // });
-    }
+    void on_event(const TestEvent& event, RobotContext& ctx) {}
 
     void on_event(const ReportEvent& event, RobotContext& ctx) {
         ctx.ws_manager->publish_reliable(nlohmann::json::parse(event.data));
+        spdlog::info("[WS] publish: {}", event.data);
+        fglog::publish("WS", event.data);
+    }
+
+    void on_event(const FlightModeEvent& event, RobotContext& ctx) {
+        spdlog::info("Flight mode change: {} -> {}",
+                     std::string(event.prev.mode_str),
+                     std::string(event.cur.mode_str));
+        fglog::publish_enum("FlightMode", event.cur.mode_raw);
     }
 };

@@ -86,6 +86,7 @@ find_package(OpenCV REQUIRED)
 find_package(Boost REQUIRED COMPONENTS system filesystem)
 find_package(MAVSDK REQUIRED)
 find_package(OpenSSL REQUIRED)
+find_package(Protobuf 3.0.0 REQUIRED)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GeographicLib REQUIRED geographiclib)
@@ -100,17 +101,33 @@ FetchContent_Declare(tinyxml2 GIT_REPOSITORY https://github.com/leethomason/tiny
 FetchContent_Declare(apriltag GIT_REPOSITORY https://github.com/AprilRobotics/apriltag.git GIT_TAG v3.3.0)
 FetchContent_Declare(yaml-cpp GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git GIT_TAG 0.8.0)
 
-# MAVSDK 避坑配置：关闭内部不需要的庞大模块，极大加速编译
-set(SUPERBUILD OFF CACHE BOOL "Turn off superbuild" FORCE)
-set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build static libraries" FORCE)
-set(BUILD_TESTS OFF CACHE BOOL "Disable tests" FORCE)
-set(BUILD_BACKEND OFF CACHE BOOL "Disable gRPC backend server" FORCE) 
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86_64|AMD64|amd64)")
+    message(STATUS "Detected x86_64 architecture")
+    set(FOXGLOVE_SDK_URL "https://github.com/foxglove/foxglove-sdk/releases/download/sdk%2Fv0.26.0/foxglove-v0.26.0-cpp-x86_64-unknown-linux-gnu.zip")
+    set(FOXGLOVE_SDK_HASH "SHA256=8fb03b061127788ad708918d186d74d4fdb58718b11cff97c9d605513ab57cc6")
+
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "(aarch64|arm64|ARM64)")
+    message(STATUS "Detected ARM64 architecture")
+    set(FOXGLOVE_SDK_URL "https://github.com/foxglove/foxglove-sdk/releases/download/sdk%2Fv0.26.0/foxglove-v0.26.0-cpp-aarch64-unknown-linux-gnu.zip")
+    set(FOXGLOVE_SDK_HASH "SHA256=0710f2ec5abc3954acf6203b93a96768dccd19d742af9b78fcd8fbbba5f6225a")
+
+else()
+    message(FATAL_ERROR "Unsupported architecture: ${CMAKE_SYSTEM_PROCESSOR}")
+endif()
+
+FetchContent_Declare(
+    foxglove_sdk
+    URL      ${FOXGLOVE_SDK_URL}
+    URL_HASH ${FOXGLOVE_SDK_HASH}
+)
+
+FetchContent_Declare(magic_enum GIT_REPOSITORY https://github.com/Neargye/magic_enum.git GIT_TAG v0.9.5)
 
 set(YAML_CPP_INSTALL OFF CACHE BOOL "Disable yaml-cpp install" FORCE)
 set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "Disable yaml-cpp tests" FORCE)
 
-# 2. 正常生成除了 Eigen 之外的其他库
-FetchContent_MakeAvailable(cli11 tinyxml2 apriltag yaml-cpp)
+# 下载并使得库可用
+FetchContent_MakeAvailable(cli11 tinyxml2 apriltag yaml-cpp foxglove_sdk magic_enum)
 
 # 3. 单独处理 Eigen (因为它是 Header-Only，直接拉取并提取路径，不执行其 CMakeLists)
 FetchContent_GetProperties(eigen)
@@ -121,6 +138,15 @@ if(NOT eigen_POPULATED)
     add_library(Eigen3::Eigen INTERFACE IMPORTED)
     target_include_directories(Eigen3::Eigen INTERFACE ${eigen_SOURCE_DIR})
 endif()
+
+set(foxglove-sdk_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../.deps/foxglove_sdk-src/lib/cmake/foxglove-sdk")
+
+# 2. 【核心黑魔法】：给低版本 CMake 强行注入这个缺失的宏
+# 当 find_package 进到内部执行到第 17 行时，它就会顺利读到这个我们喂给它的路径！
+set(CMAKE_CURRENT_FUNCTION_LIST_DIR "${foxglove-sdk_DIR}")
+
+find_package(foxglove-sdk CONFIG REQUIRED HINTS "${foxglove_sdk_SOURCE_DIR}")
+foxglove_sdk_add_cpp_library(foxglove_cpp TYPE STATIC)
 
 # ------------------------------------------------------------------------------
 # ROS Package 配置 (在生成 Target 之前)
@@ -159,6 +185,17 @@ endif()
 
 set(BASE_MAVLINK_SRC src/mavlink/mavsdk_drone.cpp)
 set(BASE_NODE_SRC src/dankong_node.cpp)
+
+set(FOXGLOVE_PROTO_SRC 
+    generated/foxglove/Log.pb.cc
+    generated/foxglove/Vector2.pb.cc
+    generated/foxglove/Vector3.pb.cc
+    generated/foxglove/Pose.pb.cc
+    generated/foxglove/Quaternion.pb.cc
+    generated/foxglove/LocationFix.pb.cc
+    generated/foxglove/KeyValuePair.pb.cc
+    generated/foxglove/Color.pb.cc
+)
 
 # ==============================================================================
 # 文件/目录拷贝工具函数 (保持不变)
@@ -230,12 +267,15 @@ function(create_dankong_target TARGET_TYPE)
         ${BASE_MAVLINK_SRC} 
         ${BASE_NODE_SRC}
         ${FEATURES_SRC}
+        ${FOXGLOVE_PROTO_SRC}
         ${PARSED_ARGS_EXTRA_SOURCES}
     )
 
     target_include_directories(${TARGET_NAME} BEFORE PRIVATE 
         ${CMAKE_CURRENT_SOURCE_DIR}/include/targets/${TARGET_TYPE}
         include
+        generated
+        ${foxglove_sdk_SOURCE_DIR}/include # 或者 ${foxglove-sdk_INCLUDE_DIRS}
         ${PARSED_ARGS_EXTRA_INCLUDES}
     )
 
@@ -250,8 +290,11 @@ function(create_dankong_target TARGET_TYPE)
         yaml-cpp         
         CLI11::CLI11
         MAVSDK::mavsdk
+        magic_enum::magic_enum
         Boost::system
         Boost::filesystem
+        foxglove_cpp
+        ${Protobuf_LIBRARIES}
         pthread
         OpenSSL::SSL      # 链接 SSL 库 (负责 TLS/SSL 协议层)
         OpenSSL::Crypto   # 链接 Crypto 库 (负责底层的加密算法)

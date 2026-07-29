@@ -15,7 +15,7 @@
 
 class TakeoffState : public dk::BaseState<RobotContext, TakeoffState, void> {
    public:
-    using AllowedEvents = std::tuple<dk::TickEvent>;
+    using AllowedEvents = std::tuple<>;
     using TriggerEvent = std::variant<SetWaypointEvent, TakeoffEvent>;
     double start_time_;
     TriggerEvent event_;
@@ -30,7 +30,8 @@ class TakeoffState : public dk::BaseState<RobotContext, TakeoffState, void> {
     class TakingoffState;
 
     TakeoffState(TakeoffEvent e);
-    void on_enter(RobotContext& ctx);
+    StateAction on_enter(RobotContext& ctx) override;
+    StateAction on_tick(double dt, RobotContext& ctx) override;
 
     TakeoffState(SetWaypointEvent e);
 
@@ -38,8 +39,6 @@ class TakeoffState : public dk::BaseState<RobotContext, TakeoffState, void> {
         ctx.ws_manager->publish_reliable(
             nlohmann::json{{"type", "event"}, {"event", "takeoff"}});
     }
-
-    StateAction on_event(const dk::TickEvent& e, RobotContext& ctx);
 
     static constexpr std::string_view static_name() { return "起飞状态"; }
 };
@@ -49,7 +48,7 @@ class TakeoffState::PrearmCheckState
    public:
     using AllowedEvents = std::tuple<SysStatusEvent, StatusTextEvent>;
 
-    void on_enter(RobotContext& ctx) override;
+    StateAction on_enter(RobotContext& ctx) override;
 
     StateAction on_event(const SysStatusEvent& event, RobotContext& ctx);
 
@@ -63,7 +62,7 @@ class TakeoffState::ArmState
    public:
     using AllowedEvents = std::tuple<ArmEvent, StatusTextEvent>;
 
-    void on_enter(RobotContext& ctx) override;
+    StateAction on_enter(RobotContext& ctx) override;
 
     StateAction on_event(const ArmEvent& event, RobotContext& ctx);
 
@@ -75,15 +74,14 @@ class TakeoffState::ArmState
 class TakeoffState::TakingoffState
     : public dk::BaseState<RobotContext, TakingoffState, TakeoffState> {
    public:
-    using AllowedEvents = std::tuple<dk::TickEvent>;
+    using AllowedEvents = std::tuple<>;
 
     std::shared_ptr<state_utils::StallChecker<1>> checker_;
 
     double start_time_;
 
-    void on_enter(RobotContext& ctx) override;
-
-    StateAction on_event(const dk::TickEvent& e, RobotContext& ctx);
+    StateAction on_enter(RobotContext& ctx) override;
+    StateAction on_tick(double dt, RobotContext& ctx) override;
 
     static constexpr std::string_view static_name() { return "执行起飞"; }
 };

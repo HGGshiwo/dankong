@@ -2,6 +2,7 @@
 #include "dk/event_listener.hpp"
 #include "robot_config.hpp"
 #include "robot_context.hpp"
+#include "utils/logger/fg_logger.hpp"
 
 class SystemEventListener
     : public dk::BaseEventListener<RobotContext, SystemEventListener> {
@@ -16,6 +17,7 @@ class SystemEventListener
 
     void on_event(const LogEvent& event, RobotContext& ctx) {
         spdlog::info("[Log] {}", event.data);
+        fglog::publish("/drone/log", event.data);
         event.resolve({"success", "OK"});
     }
 

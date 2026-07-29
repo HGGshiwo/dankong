@@ -1,10 +1,13 @@
 #include "states/land_state.hpp"
 
+#include <plugins/telemetry/telemetry.h>
+
 #include "core/global_config.hpp"
 #include "features/pland/ilanding_controller.hpp"
 #include "features/pland/ilanding_detector.hpp"
 #include "robot_context.hpp"
 #include "states/ground_state.hpp"
+#include "states/state_common.hpp"
 
 // 1. 基础模板：默认继承 false_type，表示没有该属性
 template <typename T, typename = void>
@@ -52,13 +55,15 @@ bool LandState::setup_pland(ContextType& ctx) {
     return false;
 }
 
-void LandState::on_enter(RobotContext& ctx) {
+StateAction LandState::on_enter(RobotContext& ctx) {
     bool do_pland = setup_pland(ctx);
 
     if (!do_pland)
         ctx.robot->land();
     else
-        ctx.robot->set_mode("GUIDED");  // 精准降落要求GUIDED模式
+        ctx.robot->set_mode(
+            mavsdk::Telemetry::FlightMode::Offboard);  // 精准降落要求GUIDED模式
+    return StateAction::unhandled();
 }
 
 template <typename ContextType>
@@ -71,7 +76,7 @@ void LandState::stop_pland(ContextType& ctx) {
         }
     }
 }
-StateAction LandState::on_event(const dk::TickEvent& e, RobotContext& ctx) {
+StateAction LandState::on_tick(double dt, RobotContext& ctx) {
     if (ctx.robot->is_landed(ctx)) {
         stop_pland(ctx);
         return step<GroundState>();

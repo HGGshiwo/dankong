@@ -38,7 +38,7 @@ class WaypointState : public dk::BaseState<RobotContext, WaypointState, void> {
             json{{"type", "event"}, {"event", "disarm"}});
     }
 
-    void on_enter(RobotContext& ctx) override;
+    StateAction on_enter(RobotContext& ctx) override;
 
     void on_exit(RobotContext& ctx) override;
 
@@ -63,17 +63,16 @@ class WaypointState::LiftingState
     std::shared_ptr<state_utils::StallChecker<2>> checker_;
 
    public:
-    using AllowedEvents = std::tuple<dk::TickEvent>;
+    using AllowedEvents = std::tuple<>;
 
     static constexpr std::string_view static_name() { return "调整高度"; }
 
     LiftingState();
 
-    void on_enter(RobotContext& ctx) override;
+    StateAction on_enter(RobotContext& ctx) override;
+    StateAction on_tick(double dt, RobotContext& ctx) override;
 
     void on_exit(RobotContext& ctx) override;
-
-    StateAction on_event(const dk::TickEvent& e, RobotContext& ctx);
 };
 
 class WaypointState::ExcuteState
@@ -81,7 +80,7 @@ class WaypointState::ExcuteState
    public:
     double wp_dist_;           // 到下一个目标的距离
     Eigen::Vector3d wp_goal_;  // 点在enu坐标系下的目标
-    using AllowedEvents = std::tuple<dk::TickEvent, WpArriveEvent>;
+    using AllowedEvents = std::tuple<WpArriveEvent>;
 
     void run_wp_event(RobotContext& ctx, const nlohmann::json& event_list);
 
@@ -92,11 +91,10 @@ class WaypointState::ExcuteState
 
     bool check_arrive(RobotContext& ctx);
 
-    StateAction on_event(const dk::TickEvent& event, RobotContext& ctx);
+    StateAction on_enter(RobotContext& ctx);
+    StateAction on_tick(double dt, RobotContext& ctx);
 
     StateAction on_event(const WpArriveEvent& event, RobotContext& ctx);
 
     StateAction on_arrive(RobotContext&);
-
-    void on_enter(RobotContext& ctx);
 };

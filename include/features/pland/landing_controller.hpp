@@ -18,6 +18,7 @@
 #include "robot_context.hpp"
 #include "ros/publisher.h"
 #include "spdlog/spdlog.h"
+#include "utils/logger/fg_logger.hpp"
 #include "utils/thread_runner.hpp"
 
 // ==========================================
@@ -409,6 +410,9 @@ class PlandController : public IThreadRunner, public ILandingController {
                 current_mode_ == ServoingMode::GLOBAL_ENU ? "ENU" : "PVS",
                 current_z, is_blind_drop_ ? "YES" : "NO", debug_msg);
         }
+
+        fglog::publish("/drone/pland/blind_drop", is_blind_drop_);
+        fglog::publish("/drone/pland/current_z", current_z);
     }
 
    private:
@@ -732,10 +736,16 @@ class PlandController : public IThreadRunner, public ILandingController {
             CmdFrame::BODY  // ★ 关键：指令参考系为机体坐标系
         );
 
+        double err_yaw_deg = err_yaw * 180.0 / M_PI;
+        fglog::publish("/drone/pland/err_body", err_body.head<2>());
+        fglog::publish("/drone/pland/err_yaw", err_yaw_deg);
+        fglog::publish("/drone/pland/vel_body", vel_cmd_body);
+        fglog::publish("/drone/pland/yaw_rate", omega_z);
+
         return fmt::format(
             "err_body:[{:.2f}, {:.2f}] | vel_body:[{:.2f}, {:.2f}, {:.2f}] | "
             "err_yaw:{:.1f}deg | omega_z:{:.2f}",
             err_body.x(), err_body.y(), vel_cmd_body.x(), vel_cmd_body.y(),
-            vel_cmd_body.z(), err_yaw * 180.0 / M_PI, omega_z);
+            vel_cmd_body.z(), err_yaw_deg, omega_z);
     }
 };

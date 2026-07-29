@@ -10,6 +10,7 @@
 #include <optional>
 
 #include "Eigen/src/Geometry/Quaternion.h"
+#include "core/flight_mode.hpp"
 #include "core/global_config.hpp"
 #include "utils/datum_synchronizer.hpp"
 #include "utils/dirty_var.hpp"
@@ -222,7 +223,7 @@ struct ControlContext {
     DirtyVar<double> battery_remaining{-1.0};
     DirtyVar<double> battery_level{-1.0};
 
-    DirtyVar<FixedString64> mode{FixedString64("未知飞控模式")};
+    DirtyVar<FlightMode> mode;
     DirtyVar<double> dist_to_target{0.0};  // 航点到下一个目标点的距离
     DirtyVar<double> yaw_diff{0.0};        // 偏航误差
     DirtyVar<int> wp_idx{0};               // 当前执行的航点序号
@@ -237,6 +238,8 @@ struct ControlContext {
     DirtyVar<Eigen::Vector3d> vel_enu{Eigen::Vector3d::Zero()};
     DirtyVar<Eigen::Vector3d> vel_body{Eigen::Vector3d::Zero()};
     DirtyVar<Eigen::Vector3d> vel_angular_body{Eigen::Vector3d::Zero()};
+
+    DirtyVar<std::string> dk_state{"未知状态"};
 
     DirtyVar<double> stop_follow_stamp;
 
@@ -267,13 +270,14 @@ struct ControlContext {
     // =========================================================================
     explicit ControlContext(StateRegistry& reg) {
         // --- 1. 标准 JSON 键值对绑定 ---
+        reg.bind("state", dk_state, 5.0);
         reg.bind("arm", arm, 5.0);
         reg.bind("connected", fcu_connected, 2.0);
         reg.bind("gps_fix_type", gps_fix_type, 1.0);
         reg.bind("gps_nsats", gps_nsats, 1.0);
         reg.bind("battery_remaining", battery_remaining, 1.0);
         reg.bind("battery_level", battery_level, 1.0);
-        reg.bind("mode", mode, 5.0);
+
         reg.bind("dist", dist_to_target, 5.0);
         reg.bind("yaw_diff", yaw_diff, 5.0);
         reg.bind("wp_idx", wp_idx, 5.0);
@@ -357,5 +361,10 @@ struct ControlContext {
                     GlobalConfig.GetConfig().report_vel_threshold.get();
                 return (cur.head<2>() - last.head<2>()).norm() > threshold_vel;
             });
+
+        reg.bind_custom(mode, 5.0,
+                        [](nlohmann::json& j, const FlightMode& mode) {
+                            j["mode"] = mode.mode_str;
+                        });
     }
 };

@@ -6,6 +6,7 @@
 #include "core/global_config.hpp"
 #include "dk/utils.hpp"
 #include "mavlink/imavlink.hpp"
+#include "plugins/telemetry/telemetry.h"
 #include "robot/irobot.hpp"
 
 // 无人机硬件逻辑实现
@@ -42,11 +43,12 @@ class Drone : public IRobot {
     bool is_alt_enable() override { return true; }
 
     bool land() override {
-        FixedString64 mode("LAND");
-        return mavlink_->set_mode(mode);
+        return mavlink_->set_mode(mavsdk::Telemetry::FlightMode::Land);
     }
 
-    bool loiter() override { return mavlink_->set_mode("LOITER"); }
+    bool loiter() override {
+        return mavlink_->set_mode(mavsdk::Telemetry::FlightMode::Hold);
+    }
 
     bool takeoff(double alt) override { return mavlink_->takeoff(alt); }
 };

@@ -5,6 +5,7 @@
 #include "core/base_tracker.hpp"
 #include "dk/future.hpp"
 #include "mavlink/imavlink.hpp"
+#include "plugins/telemetry/telemetry.h"
 
 // IRobot: 纯虚接口，不依赖任何 Context 类型
 // 每个具体机器人在构造时注入其专属数据，方法内部直接读取，无需 Context 参数
@@ -84,7 +85,7 @@ class IRobot : public ITrackerRuntime {
         return false;
     };
 
-    bool set_mode(const FixedString64& mode) {
+    bool set_mode(const mavsdk::Telemetry::FlightMode& mode) {
         return mavlink_->set_mode(mode);
     }
     void set_target_type(VehicleType type) { mavlink_->set_target_type(type); }

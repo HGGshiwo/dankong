@@ -2,7 +2,7 @@
 
 #include "features/tracker/tracker.hpp"
 
-void HoverState::on_enter(RobotContext& ctx) {
+StateAction HoverState::on_enter(RobotContext& ctx) {
     ctx.tracker->send_zero_velocity();
-    return;
+    return StateAction::unhandled();
 }

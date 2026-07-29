@@ -1,5 +1,7 @@
 #include "features/control/event_listener.hpp"
 
+#include <exception>
+
 #include "Eigen/Dense"
 #include "core/global_config.hpp"
 #include "features/control/events.hpp"
@@ -14,10 +16,10 @@
 #include "states/takeoff_state.hpp"
 #include "states/waypoint_state.hpp"
 #include "utils/fixed_string64.hpp"
+#include "utils/logger/fg_logger.hpp"
 
 // ---------- 成员函数实现 ----------
-void ControlEventListener::on_event(const dk::TickEvent& event,
-                                    RobotContext& ctx) {
+void ControlEventListener::on_tick(double dt, RobotContext& ctx) {
     bool on_ground = ctx.engine->is_active_state<GroundState>() ||
                      ctx.engine->is_active_state<InitState>() ||
                      ctx.engine->is_active_state<TakeoffState>() ||
@@ -121,7 +123,9 @@ void ControlEventListener::on_event(const TakeoffEvent& event,
 
 void ControlEventListener::on_event(const dk::StateChangeEvent& event,
                                     RobotContext& ctx) {
+    ctx.dk_state.store(std::string(event.cur));
     spdlog::info("State change {} -> {}", event.prev, event.cur);
+    fglog::publish_enum("DKState", event.cur_id);
 }
 
 void ControlEventListener::on_event(const SetWaypointEvent& event,
@@ -181,28 +185,34 @@ void ControlEventListener::on_event(const SetWaypointEvent& event,
 
 void ControlEventListener::on_event(const SetModeEvent& event,
                                     RobotContext& ctx) {
+    std::optional<FlightMode> mode;
+    try {
+        mode = FlightMode::create(event.mode);
+    } catch (const std::exception& e) {
+        event.reject(e.what());
+        return;
+    }
+
     using Promise = dk::Promise<bool>;
     auto p = std::make_shared<Promise>(ctx.engine);
 
     // 1. 提前获取 Future，避免后续 Promise 被 move 后无法获取
     auto future = p->get_future();
 
-    if (ctx.mode.load() == event.mode) {
+    if (ctx.mode.load() == mode) {
         // 同步完成的情况，直接 resolve，局部变量 p 会随函数结束正常销毁
         p->resolve(true);
     } else {
-        ctx.robot->set_mode(event.mode);
+        ctx.robot->set_mode(mode->mode_raw);
 
         // 2. 将 promise 移动 (Move) 进 Lambda 中
         // 这样 p 的生命周期就交给了引擎的事件队列，执行完后自动释放
-
-        ctx.engine->wait_for(2000,
-                             [mode = FixedString64(event.mode),
-                              p](const FlightModeEvent& e) mutable -> bool {
-                                 if (mode != e.cur) return false;
-                                 p->resolve(true);
-                                 return true;
-                             });
+        ctx.engine->wait_for(
+            2000, [mode, p](const FlightModeEvent& e) mutable -> bool {
+                if (mode != e.cur) return false;
+                p->resolve(true);
+                return true;
+            });
     }
 
     // 3. 处理 event 回调

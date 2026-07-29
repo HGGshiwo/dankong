@@ -8,13 +8,9 @@
 class MavlinkEventListener
     : public dk::BaseEventListener<RobotContext, MavlinkEventListener> {
    public:
-    using AllowedEvents =
-        std::tuple<dk::TickEvent, StatusTextEvent, FcuConnectedEvent>;
+    using AllowedEvents = std::tuple<StatusTextEvent, FcuConnectedEvent>;
 
-    void on_event(const dk::TickEvent& event, RobotContext& ctx);
+    void on_tick(double dt, RobotContext& ctx);
     void on_event(const StatusTextEvent& event, RobotContext& ctx);
     void on_event(const FcuConnectedEvent& event, RobotContext& ctx);
-
-   private:
-    RateLimiter rate_{1.0};
 };

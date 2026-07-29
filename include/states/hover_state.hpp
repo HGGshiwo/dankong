@@ -6,7 +6,7 @@ class HoverState : public dk::BaseState<RobotContext, HoverState, void> {
     using AllowedEvents = std::tuple<>;
     using StateAction = dk::StateAction<RobotContext>;
 
-    void on_enter(RobotContext& ctx);
+    StateAction on_enter(RobotContext& ctx);
 
     static constexpr std::string_view static_name() { return "悬停状态"; };
 };

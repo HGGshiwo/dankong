@@ -7,6 +7,7 @@
 #include "robot_context.hpp"
 #include "states/ground_state.hpp"
 #include "states/hover_state.hpp"
+#include "states/state_common.hpp"
 #include "states/state_utils.hpp"
 
 TakeoffState::TakeoffState(TakeoffEvent e)
@@ -17,11 +18,12 @@ TakeoffState::TakeoffState(SetWaypointEvent e)
     alt_ = e.waypoint.at(0).z();
 }
 
-void TakeoffState::on_enter(RobotContext& ctx) {
+StateAction TakeoffState::on_enter(RobotContext& ctx) {
     start_time_ = ctx.engine->get_time_provider()->now();
+    return StateAction::unhandled();
 }
 
-StateAction TakeoffState::on_event(const dk::TickEvent& e, RobotContext& ctx) {
+StateAction TakeoffState::on_tick(double dt, RobotContext& ctx) {
     bool is_settled =
         std::visit([](const auto& obj) { return obj.is_settled(); }, event_);
 
@@ -37,11 +39,12 @@ StateAction TakeoffState::on_event(const dk::TickEvent& e, RobotContext& ctx) {
     return StateAction::unhandled();
 }
 
-void TakeoffState::PrearmCheckState::on_enter(RobotContext& ctx) {
+StateAction TakeoffState::PrearmCheckState::on_enter(RobotContext& ctx) {
     if (state_utils::should_do_prearm_check(ctx.robot)) {
         ctx.robot->run_prearm_checks();
+        return StateAction::unhandled();
     } else {
-        ctx.engine->step<TakeoffState::ArmState>();
+        return StateAction::step<TakeoffState::ArmState>();
     }
 }
 
@@ -64,12 +67,13 @@ StateAction TakeoffState::PrearmCheckState::on_event(
     return StateAction::unhandled();
 }
 
-void TakeoffState::ArmState::on_enter(RobotContext& ctx) {
+StateAction TakeoffState::ArmState::on_enter(RobotContext& ctx) {
     if (ctx.arm.load()) {
-        ctx.engine->step<TakingoffState>();
+        return StateAction::step<TakingoffState>();
     } else {
         ctx.robot->arm();
     }
+    return StateAction::unhandled();
 }
 
 StateAction TakeoffState::ArmState::on_event(const ArmEvent& event,
@@ -91,7 +95,7 @@ StateAction TakeoffState::ArmState::on_event(const StatusTextEvent& event,
     return StateAction::unhandled();
 }
 
-void TakeoffState::TakingoffState::on_enter(RobotContext& ctx) {
+StateAction TakeoffState::TakingoffState::on_enter(RobotContext& ctx) {
     auto& cfg = GlobalConfig.GetConfig();
     double now = ctx.engine->get_time_provider()->now();
     start_time_ = now;
@@ -106,18 +110,19 @@ void TakeoffState::TakingoffState::on_enter(RobotContext& ctx) {
         std::visit(
             [](const auto& obj) { return obj.resolve({"success", "OK"}); },
             parent()->event_);
+        return StateAction::unhandled();
     } else {
         std::visit(
             [this](const auto& obj) {
                 if (!obj.is_settled()) obj.reject("takeoff cmd error");
             },
             parent()->event_);
-        ctx.engine->template step<GroundState>();
+        return StateAction::step<GroundState>();
     }
 }
 
-StateAction TakeoffState::TakingoffState::on_event(const dk::TickEvent& e,
-                                                   RobotContext& ctx) {
+StateAction TakeoffState::TakingoffState::on_tick(double dt,
+                                                  RobotContext& ctx) {
     auto& cfg = GlobalConfig.GetConfig();
     double alt = ctx.pos_enu.load().z();
     double now = ctx.engine->get_time_provider()->now();

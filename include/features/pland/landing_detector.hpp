@@ -8,6 +8,7 @@
 #include <optional>
 
 #include "./config.hpp"
+#include "utils/logger/fg_logger.hpp"
 // #include "./kalman_filter_imm_ukf.hpp"
 // #include "./kalman_filter_imm.hpp"
 // #include "./kalman_filter_ctrv_ukf.hpp"
@@ -475,6 +476,23 @@ class LandingDetector : public IThreadRunner, public ILandingDetector {
                 output.target_vel_enu.z() = yaw_rate;
             }
             // auto prob = kf_xy_->get_prob();
+
+            auto rpy = Eigen::Vector3d{ctx_.roll.load(), ctx_.pitch.load(),
+                                       ctx_.yaw_enu.load()};
+            auto imagexy =
+                Eigen::Vector2d{obs.center_pixel.x, obs.center_pixel.y};
+            double rangefinder = ctx_.rangefinder_alt.load();
+
+            fglog::publish("/drone/pland/pnp_enu", pnp_enu.head<2>());
+            fglog::publish("/drone/pland/los_enu", los_enu.head<2>());
+            fglog::publish("/drone/pland/rpy", rpy);
+            fglog::publish("/drone/pland/target_err", target_err.head<2>());
+            fglog::publish("/drone/pland/imagexy", imagexy);
+            fglog::publish("/drone/pland/vel_enu",
+                           output.target_vel_enu.head<2>());
+            fglog::publish("/drone/pland/rangefinder", rangefinder);
+            fglog::publish("/drone/pland/epsilon", epsilon);
+
             if (throttle.shouldLog()) {
                 spdlog::info(
                     "pnp_enu=[{:.2f}, {:.2f}] los_enu=[{:.2f}, {:.2f}] "
@@ -484,11 +502,10 @@ class LandingDetector : public IThreadRunner, public ILandingDetector {
                     "vel_enu=[{:.2f}, {:.2f}] rangefinder={:.2f} "
                     "epsilon={:.2f}",
                     pnp_enu.x(), pnp_enu.y(), los_enu.x(), los_enu.y(),
-                    pos_enu.x(), pos_enu.y(), pos_enu.z(), ctx_.roll.load(),
-                    ctx_.pitch.load(), ctx_.yaw_enu.load(), target_err.x(),
-                    target_err.y(), obs.center_pixel.x, obs.center_pixel.y,
-                    output.target_vel_enu.x(), output.target_vel_enu.y(),
-                    ctx_.rangefinder_alt.load(), epsilon);
+                    pos_enu.x(), pos_enu.y(), pos_enu.z(), rpy.x(), rpy.y(),
+                    rpy.z(), target_err.x(), target_err.y(), imagexy.x(),
+                    imagexy.y(), output.target_vel_enu.x(),
+                    output.target_vel_enu.y(), rangefinder, epsilon);
             }
         }
 

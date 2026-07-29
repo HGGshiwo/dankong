@@ -4,6 +4,7 @@
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 #include "./dirty_var.hpp"
@@ -29,6 +30,19 @@ class RateLimiter {
     double last_time_;
 };
 
+// 检查类型 T 是否可以直接赋值给 nlohmann::json
+template <typename T, typename = void>
+struct is_json_writable : std::false_type {};
+
+template <typename T>
+struct is_json_writable<
+    T, std::void_t<decltype(std::declval<::nlohmann::json&>()[std::declval<
+                                std::string>()] = std::declval<T>())>>
+    : std::true_type {};
+
+template <typename T>
+inline constexpr bool is_json_writable_v = is_json_writable<T>::value;
+
 // StateRegistry 独立管理上报逻辑
 class StateRegistry {
    private:
@@ -49,7 +63,7 @@ class StateRegistry {
         RateLimiter rate_;
         std::function<void(::nlohmann::json&, const T&)> custom_serializer_;
         std::function<bool(const T&, const T&)> dirty_checker_;
-        T last_reported_val_{};
+        T last_reported_val_;
         bool has_reported_ = false;
 
        public:
@@ -83,7 +97,13 @@ class StateRegistry {
                 if (custom_serializer_) {
                     custom_serializer_(j, val);
                 } else {
-                    j[key_] = val;
+                    if constexpr (is_json_writable_v<T>) {
+                        j[key_] = val;
+                    } else {
+                        throw std::runtime_error(
+                            "No default json serializer available for this "
+                            "type.");
+                    }
                 }
                 last_reported_val_ = val;
                 has_reported_ = true;
@@ -95,7 +115,12 @@ class StateRegistry {
             if (custom_serializer_) {
                 custom_serializer_(j, val);
             } else {
-                j[key_] = val;
+                if constexpr (is_json_writable_v<T>) {
+                    j[key_] = val;
+                } else {
+                    throw std::runtime_error(
+                        "No default json serializer available for this type.");
+                }
             }
             last_reported_val_ = val;
             has_reported_ = true;
