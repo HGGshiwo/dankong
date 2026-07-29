@@ -53,13 +53,13 @@ class ControlEventListener
     void on_event(const ReportEvent& event, RobotContext& ctx) {
         ctx.ws_manager->publish_reliable(nlohmann::json::parse(event.data));
         spdlog::info("[WS] publish: {}", event.data);
-        fglog::publish("WS", event.data);
+        fglog::publish("/drone/ws", event.data);
     }
 
     void on_event(const FlightModeEvent& event, RobotContext& ctx) {
         spdlog::info("Flight mode change: {} -> {}",
                      std::string(event.prev.mode_str),
                      std::string(event.cur.mode_str));
-        fglog::publish_enum("FlightMode", event.cur.mode_raw);
+        fglog::publish("drone/flight_mode", std::string(event.cur.mode_str));
     }
 };

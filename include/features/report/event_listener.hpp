@@ -1,7 +1,6 @@
 #pragma once
-#include <foxglove/LocationFix.pb.h>
-#include <foxglove/Pose.pb.h>
 
+#include <cmath>
 #include <nlohmann/json.hpp>
 
 #include "core/global_config.hpp"
@@ -38,65 +37,26 @@ class ReportEventListener
     }
 
     void publish_pos(RobotContext& ctx) {
-        foxglove::Pose pose_msg;
-
-        // 2. 填充位置 (Vector3)
-        auto* position = pose_msg.mutable_position();
         auto pos_enu = ctx.pos_enu.load();
-        position->set_x(pos_enu.x());
-        position->set_y(pos_enu.y());
-        position->set_z(pos_enu.z());
-
-        // 3. 填充姿态 (Quaternion)
-        auto* orientation = pose_msg.mutable_orientation();
-        auto orient = ctx.orientation.load();
-        orientation->set_x(orient.x());
-        orientation->set_y(orient.y());
-        orientation->set_z(orient.z());
-        orientation->set_w(orient.w());
-
-        // 4. 直接通过泛型接口发布！
+        double px = std::isnan(pos_enu.x()) || std::isinf(pos_enu.x())
+                        ? 0.0
+                        : pos_enu.x();
+        double py = std::isnan(pos_enu.y()) || std::isinf(pos_enu.y())
+                        ? 0.0
+                        : pos_enu.y();
+        double pz = std::isnan(pos_enu.z()) || std::isinf(pos_enu.z())
+                        ? 0.0
+                        : pos_enu.z();
+        nlohmann::json pose_msg = {px, py, pz};
         fglog::publish("/drone/current_pose", pose_msg);
     }
 
     void publish_lla(RobotContext& ctx) {
-        // 1. 创建官方的 LocationFix 消息
-        foxglove::LocationFix gps_msg;
-
         auto lla = ctx.lon_lat_alt.load();
-
-        // 2. 填入经纬度和高度 (强制必须是 double 类型)
-        gps_msg.set_latitude(lla.y());
-        gps_msg.set_longitude(lla.x());
-        gps_msg.set_altitude(lla.z());
-
-        auto* meta_fix = gps_msg.add_metadata();
-        meta_fix->set_key("Fix Type");
-        switch (ctx.gps_fix_type.load()) {
-            case 0:
-                meta_fix->set_value("No Fix");
-                break;
-            case 2:
-                meta_fix->set_value("2D Fix");
-                break;
-            case 3:
-                meta_fix->set_value("3D Fix");
-                break;
-            case 4:
-                meta_fix->set_value("DGPS");
-                break;
-            case 5:
-                meta_fix->set_value("RTK Float");
-                break;
-            case 6:
-                meta_fix->set_value("RTK Fixed");
-                break;
-            default:
-                meta_fix->set_value("Unknown");
-                break;
-        }
-
-        // 3. 极速扔给泛型队列发走
+        double lat = std::isnan(lla.y()) || std::isinf(lla.y()) ? 0.0 : lla.y();
+        double lon = std::isnan(lla.x()) || std::isinf(lla.x()) ? 0.0 : lla.x();
+        double alt = std::isnan(lla.z()) || std::isinf(lla.z()) ? 0.0 : lla.z();
+        nlohmann::json gps_msg = {lat, lon, alt};  // lat, lon, alt
         fglog::publish("/drone/gps/fix", gps_msg);
     }
 

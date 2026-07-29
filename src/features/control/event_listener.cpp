@@ -125,7 +125,7 @@ void ControlEventListener::on_event(const dk::StateChangeEvent& event,
                                     RobotContext& ctx) {
     ctx.dk_state.store(std::string(event.cur));
     spdlog::info("State change {} -> {}", event.prev, event.cur);
-    fglog::publish_enum("DKState", event.cur_id);
+    fglog::publish("/drone/state", std::string(event.cur));
 }
 
 void ControlEventListener::on_event(const SetWaypointEvent& event,

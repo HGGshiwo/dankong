@@ -89,9 +89,6 @@ class CoreNode {
         auto& cfg = GlobalConfig.GetConfig();
         init_spd_logger();
         init_fg_logger();
-        register_enum_to_fg("DKState",
-                            dk::StateRegistry::get().get_all_states());
-        register_enum_to_fg<mavsdk::Telemetry::FlightMode>("FlightMode");
 
         // Initialize MAVSDK
         mavsdk::Mavsdk::Configuration config(
@@ -141,7 +138,25 @@ class CoreNode {
         // 创建适配器
         unsigned int server_port = args.port.value_or(cfg.server_port);
         web_adapter_ = std::make_shared<WebAdapterType>(engine_, server_port);
-        engine_->get_context().ws_manager = web_adapter_->get_manager();
+        auto ws_mgr = web_adapter_->get_manager();
+        engine_->get_context().ws_manager = ws_mgr;
+
+        dk::ConnectionManager::on_conn_removed = [](size_t id) {
+            fglog::fglog_conn_registry::get().disable(id);
+        };
+
+        fglog::set_websocket_sender([ws_mgr](const std::string& msg) {
+            if (ws_mgr) {
+                try {
+                    ws_mgr->publish_fglog(
+                        nlohmann::json::parse(msg), [](size_t id) {
+                            return fglog::fglog_conn_registry::get().is_enabled(
+                                id);
+                        });
+                } catch (...) {
+                }
+            }
+        });
 
         // 2. 调用装配工厂，一键注册全部路由和回调！
         AssemblerType::template setup<TagWeb>(web_adapter_);

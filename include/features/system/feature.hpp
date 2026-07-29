@@ -41,6 +41,44 @@ class SystemFeature {
             boost::beast::http::verb::post, "/log");
 
         // 注册默认 Websocket
-        web->register_managed_ws_route("/ws", [](auto, auto&) {});
+        web->register_managed_ws_route(
+            "/ws",
+            [](std::shared_ptr<dk::WsConnection> conn, const std::string& msg) {
+                try {
+                    auto j = nlohmann::json::parse(msg);
+                    if (j.contains("fglog_enable")) {
+                        bool enable = j["fglog_enable"].get<bool>();
+                        if (enable) {
+                            fglog::fglog_conn_registry::get().enable(
+                                conn->get_id());
+                            spdlog::info(
+                                "[fglog] Enabled for client connection ID: {}",
+                                conn->get_id());
+                        } else {
+                            fglog::fglog_conn_registry::get().disable(
+                                conn->get_id());
+                            spdlog::info(
+                                "[fglog] Disabled for client connection ID: {}",
+                                conn->get_id());
+                        }
+                    }
+                } catch (...) {
+                    if (msg == "fglog_enable: true" ||
+                        msg == "fglog_enable: 1") {
+                        fglog::fglog_conn_registry::get().enable(
+                            conn->get_id());
+                        spdlog::info(
+                            "[fglog] Enabled for client connection ID: {}",
+                            conn->get_id());
+                    } else if (msg == "fglog_enable: false" ||
+                               msg == "fglog_enable: 0") {
+                        fglog::fglog_conn_registry::get().disable(
+                            conn->get_id());
+                        spdlog::info(
+                            "[fglog] Disabled for client connection ID: {}",
+                            conn->get_id());
+                    }
+                }
+            });
     }
 };
