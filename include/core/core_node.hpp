@@ -23,7 +23,7 @@
 #include "robot_context.hpp"
 #include "states/init_state.hpp"
 #include "utils/get_executable_path.hpp"
-#include "utils/logger/fg_logger.hpp"
+#include "utils/logger/fglog.hpp"
 #include "utils/logger/spd_logger.hpp"
 #include "utils/yaml_helper.hpp"
 
@@ -88,7 +88,6 @@ class CoreNode {
 
         auto& cfg = GlobalConfig.GetConfig();
         init_spd_logger();
-        init_fg_logger();
 
         // Initialize MAVSDK
         mavsdk::Mavsdk::Configuration config(
@@ -142,19 +141,16 @@ class CoreNode {
         engine_->get_context().ws_manager = ws_mgr;
 
         dk::ConnectionManager::on_conn_removed = [](size_t id) {
-            fglog::fglog_conn_registry::get().disable(id);
+            fglog::disable_ws_connection(id);
         };
 
-        fglog::set_websocket_sender([ws_mgr](const std::string& msg) {
-            if (ws_mgr) {
-                try {
-                    ws_mgr->publish_fglog(
-                        nlohmann::json::parse(msg), [](size_t id) {
-                            return fglog::fglog_conn_registry::get().is_enabled(
-                                id);
-                        });
-                } catch (...) {
-                }
+        fglog::set_websocket_sender([ws_mgr](const nlohmann::json& msg) {
+            if (!ws_mgr) return;
+            try {
+                ws_mgr->publish_fglog(msg, [](size_t id) {
+                    return fglog::check_ws_connection(id);
+                });
+            } catch (...) {
             }
         });
 
@@ -228,7 +224,6 @@ class CoreNode {
 #endif
 
     ~CoreNode() {
-        fglog::close();
 #ifdef USE_ROS
         global_io_.stop();
         if (asio_thread_.joinable()) {

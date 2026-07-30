@@ -8,6 +8,7 @@
 #include <iostream>
 #include <memory>
 
+#include "fglog.hpp"
 #include "spdlog/async.h"
 #include "spdlog/sinks/basic_file_sink.h"     // 基础文件输出
 #include "spdlog/sinks/daily_file_sink.h"     // 按天轮转的文件输出
@@ -53,6 +54,13 @@ inline void init_spd_logger() {
         spdlog::set_level(spdlog::level::trace);  // 全局最低级别
         spdlog::flush_on(spdlog::level::err);  // 遇到 error 时立即刷新到磁盘
         spdlog::flush_every(std::chrono::seconds(1));
+
+        boost::filesystem::path FG_LOG_DIR =
+            get_config_dir(GlobalConfig.GetConfig().fg_log_dir.get());
+        boost::filesystem::create_directories(FG_LOG_DIR.parent_path());
+
+        fglog::init(FG_LOG_DIR.string());
+
     } catch (const spdlog::spdlog_ex& ex) {
         std::cout << "Log initialization failed: " << ex.what() << std::endl;
     }

@@ -7,7 +7,7 @@
 #include "dk/adapters/web/adapter.hpp"
 #include "dk/event_listener.hpp"
 #include "robot_context.hpp"
-#include "utils/logger/fg_logger.hpp"
+#include "utils/logger/fglog.hpp"
 
 // 和ws事件相关的状态监听器
 class ReportEventListener
@@ -48,7 +48,7 @@ class ReportEventListener
                         ? 0.0
                         : pos_enu.z();
         nlohmann::json pose_msg = {px, py, pz};
-        fglog::publish("/drone/current_pose", pose_msg);
+        fglog::publish_value("/drone/current_pose", pose_msg);
     }
 
     void publish_lla(RobotContext& ctx) {
@@ -57,7 +57,7 @@ class ReportEventListener
         double lon = std::isnan(lla.x()) || std::isinf(lla.x()) ? 0.0 : lla.x();
         double alt = std::isnan(lla.z()) || std::isinf(lla.z()) ? 0.0 : lla.z();
         nlohmann::json gps_msg = {lat, lon, alt};  // lat, lon, alt
-        fglog::publish("/drone/gps/fix", gps_msg);
+        fglog::publish_value("/drone/gps/fix", gps_msg);
     }
 
     void on_tick(double dt, RobotContext& ctx) {

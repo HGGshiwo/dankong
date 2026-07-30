@@ -16,7 +16,7 @@
 #include "states/takeoff_state.hpp"
 #include "states/waypoint_state.hpp"
 #include "utils/fixed_string64.hpp"
-#include "utils/logger/fg_logger.hpp"
+#include "utils/logger/fglog.hpp"
 
 // ---------- 成员函数实现 ----------
 void ControlEventListener::on_tick(double dt, RobotContext& ctx) {
@@ -125,7 +125,7 @@ void ControlEventListener::on_event(const dk::StateChangeEvent& event,
                                     RobotContext& ctx) {
     ctx.dk_state.store(std::string(event.cur));
     spdlog::info("State change {} -> {}", event.prev, event.cur);
-    fglog::publish("/drone/state", std::string(event.cur));
+    fglog::publish_state("/drone/state", std::string(event.cur));
 }
 
 void ControlEventListener::on_event(const SetWaypointEvent& event,

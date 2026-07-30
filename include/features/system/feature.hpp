@@ -1,5 +1,7 @@
 #pragma once
+#include <boost/filesystem/path.hpp>
 #include <memory>
+#include <set>
 
 #include "./event_listener.hpp"
 #include "./events.hpp"
@@ -15,6 +17,19 @@ class SystemFeature {
     static void setup(TagListeners, const std::shared_ptr<Engine>& engine) {
         auto listener = std::make_shared<SystemEventListener>();
         engine->add_listener(listener);
+    }
+
+    static void add_files(boost::filesystem::path dir, std::string ext,
+                          std::set<std::string>& file_set) {
+        if (boost::filesystem::is_directory(dir)) {
+            for (auto& entry : boost::make_iterator_range(
+                     boost::filesystem::directory_iterator(dir), {})) {
+                if (boost::filesystem::is_regular_file(entry.status())) {
+                    if (entry.path().extension() == ext)
+                        file_set.insert(entry.path().string());
+                }
+            }
+        }
     }
 
     static void setup(
@@ -34,6 +49,28 @@ class SystemFeature {
         web->template register_route<GetConfigEvent, EventResult>(
             boost::beast::http::verb::get, "/config/get");
 
+        web->register_safe_file_stream_route(
+            boost::beast::http::verb::get, "/spdlog", []() {
+                auto& cfg = GlobalConfig.GetConfig();
+
+                std::set<std::string> log_files;
+                auto spdlog_dir =
+                    get_config_dir(cfg.log_dir.get()).parent_path();
+                add_files(spdlog_dir, ".txt", log_files);
+                return log_files;
+            });
+
+        web->register_safe_file_stream_route(
+            boost::beast::http::verb::get, "/fglog", []() {
+                auto& cfg = GlobalConfig.GetConfig();
+
+                std::set<std::string> log_files;
+                auto spdlog_dir =
+                    get_config_dir(cfg.fg_log_dir.get()).parent_path();
+                add_files(spdlog_dir, ".jsonl", log_files);
+                return log_files;
+            });
+
         web->template register_route<SetConfigEvent, EventResult>(
             boost::beast::http::verb::post, "/config/set");
 
@@ -49,35 +86,18 @@ class SystemFeature {
                     if (j.contains("fglog_enable")) {
                         bool enable = j["fglog_enable"].get<bool>();
                         if (enable) {
-                            fglog::fglog_conn_registry::get().enable(
-                                conn->get_id());
+                            fglog::enable_ws_connection(conn->get_id());
                             spdlog::info(
                                 "[fglog] Enabled for client connection ID: {}",
                                 conn->get_id());
                         } else {
-                            fglog::fglog_conn_registry::get().disable(
-                                conn->get_id());
+                            fglog::disable_ws_connection(conn->get_id());
                             spdlog::info(
                                 "[fglog] Disabled for client connection ID: {}",
                                 conn->get_id());
                         }
                     }
                 } catch (...) {
-                    if (msg == "fglog_enable: true" ||
-                        msg == "fglog_enable: 1") {
-                        fglog::fglog_conn_registry::get().enable(
-                            conn->get_id());
-                        spdlog::info(
-                            "[fglog] Enabled for client connection ID: {}",
-                            conn->get_id());
-                    } else if (msg == "fglog_enable: false" ||
-                               msg == "fglog_enable: 0") {
-                        fglog::fglog_conn_registry::get().disable(
-                            conn->get_id());
-                        spdlog::info(
-                            "[fglog] Disabled for client connection ID: {}",
-                            conn->get_id());
-                    }
                 }
             });
     }

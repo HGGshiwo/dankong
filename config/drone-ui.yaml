@@ -287,6 +287,32 @@ button:
       config_type: "toast"
       url: "/pland_target/set"
       method: "POST"
+  
+  - key: btn_offset_start
+    name: "校准偏移"
+    group: "算法控制"
+    target:
+      config_type: "toast"
+      url: "/offset_estimate/start"
+      method: "POST"
+  
+  - key: btn_offset_stop
+    name: "停止校准"
+    group: "算法控制"
+    target:
+      config_type: "form"
+      title: "停止校准"
+      items:
+        - key: save
+          type: "switch"
+          name: "是否保存"
+          default: false
+      submit:
+        config_type: "button"
+        target:
+          config_type: "toast"
+          url: "/offset_estimate/stop"
+          method: "POST"
 
   - key: btn_log
     name: "记录日志"

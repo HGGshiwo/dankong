@@ -19,11 +19,22 @@
 class PlandEventListener
     : public dk::BaseEventListener<RobotContext, PlandEventListener> {
    public:
-    using AllowedEvents = std::tuple<StartPlandDetectEvent, SetPlandTarget>;
+    using AllowedEvents = std::tuple<StartPlandDetectEvent, SetPlandTarget,
+                                     StartOffsetEstimate, StopOffsetEstimate>;
 
     void on_event(const StartPlandDetectEvent& event, RobotContext& ctx) {
         ctx.land_detector->start(30);
         event.resolve({"success", "OK"});
+    }
+
+    void on_event(const StartOffsetEstimate& event, RobotContext& ctx) {
+        ctx.land_detector->start(30, true);
+        event.resolve({"success", "OK"});
+    }
+
+    void on_event(const StopOffsetEstimate& event, RobotContext& ctx) {
+        auto out = ctx.land_detector->stop(event.save);
+        event.resolve({"success", out});
     }
 
     void on_event(const SetPlandTarget& event, RobotContext& ctx) {

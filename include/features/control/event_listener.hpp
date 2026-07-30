@@ -16,7 +16,7 @@
 #include "nlohmann/json.hpp"
 #include "robot_context.hpp"
 #include "spdlog/spdlog.h"
-#include "utils/logger/fg_logger.hpp"
+#include "utils/logger/fglog.hpp"
 
 // 和控制相关的事件监听器
 class ControlEventListener
@@ -53,13 +53,14 @@ class ControlEventListener
     void on_event(const ReportEvent& event, RobotContext& ctx) {
         ctx.ws_manager->publish_reliable(nlohmann::json::parse(event.data));
         spdlog::info("[WS] publish: {}", event.data);
-        fglog::publish("/drone/ws", event.data);
+        fglog::log("/drone/ws", event.data);
     }
 
     void on_event(const FlightModeEvent& event, RobotContext& ctx) {
         spdlog::info("Flight mode change: {} -> {}",
                      std::string(event.prev.mode_str),
                      std::string(event.cur.mode_str));
-        fglog::publish("drone/flight_mode", std::string(event.cur.mode_str));
+        fglog::publish_state("drone/flight_mode",
+                             std::string(event.cur.mode_str));
     }
 };

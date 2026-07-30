@@ -18,7 +18,7 @@
 #include "robot_context.hpp"
 #include "ros/publisher.h"
 #include "spdlog/spdlog.h"
-#include "utils/logger/fg_logger.hpp"
+#include "utils/logger/fglog.hpp"
 #include "utils/thread_runner.hpp"
 
 // ==========================================
@@ -411,8 +411,8 @@ class PlandController : public IThreadRunner, public ILandingController {
                 current_z, is_blind_drop_ ? "YES" : "NO", debug_msg);
         }
 
-        fglog::publish("/drone/pland/blind_drop", is_blind_drop_);
-        fglog::publish("/drone/pland/current_z", current_z);
+        fglog::publish_value("/drone/pland/blind_drop", is_blind_drop_);
+        fglog::publish_value("/drone/pland/current_z", current_z);
     }
 
    private:
@@ -737,10 +737,10 @@ class PlandController : public IThreadRunner, public ILandingController {
         );
 
         double err_yaw_deg = err_yaw * 180.0 / M_PI;
-        fglog::publish("/drone/pland/err_body", err_body.head<2>());
-        fglog::publish("/drone/pland/err_yaw", err_yaw_deg);
-        fglog::publish("/drone/pland/vel_body", vel_cmd_body);
-        fglog::publish("/drone/pland/yaw_rate", omega_z);
+        fglog::publish_value("/drone/pland/err_body", err_body.head<2>());
+        fglog::publish_value("/drone/pland/err_yaw", err_yaw_deg);
+        fglog::publish_value("/drone/pland/vel_body", vel_cmd_body);
+        fglog::publish_value("/drone/pland/yaw_rate", omega_z);
 
         return fmt::format(
             "err_body:[{:.2f}, {:.2f}] | vel_body:[{:.2f}, {:.2f}, {:.2f}] | "

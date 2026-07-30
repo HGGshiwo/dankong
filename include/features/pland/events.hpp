@@ -8,3 +8,11 @@ struct StartPlandDetectEvent : dk::AsyncEvent<EventResult> {};
 
 // @JSON_ENABLE
 struct SetPlandTarget : dk::AsyncEvent<EventResult> {};
+
+// @JSON_ENABLE
+struct StartOffsetEstimate : dk::AsyncEvent<EventResult> {};
+
+// @JSON_ENABLE
+struct StopOffsetEstimate : dk::AsyncEvent<EventResult> {
+    bool save = false;
+};
