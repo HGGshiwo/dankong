@@ -99,13 +99,13 @@ FetchContent_Declare(eigen GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git 
 FetchContent_Declare(tinyxml2 GIT_REPOSITORY https://github.com/leethomason/tinyxml2.git GIT_TAG 9.0.0)
 FetchContent_Declare(apriltag GIT_REPOSITORY https://github.com/AprilRobotics/apriltag.git GIT_TAG v3.3.0)
 FetchContent_Declare(yaml-cpp GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git GIT_TAG 0.8.0)
-FetchContent_Declare(magic_enum GIT_REPOSITORY https://github.com/Neargye/magic_enum.git GIT_TAG v0.9.5)
+
 
 set(YAML_CPP_INSTALL OFF CACHE BOOL "Disable yaml-cpp install" FORCE)
 set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "Disable yaml-cpp tests" FORCE)
 
 # 下载并使得库可用
-FetchContent_MakeAvailable(cli11 tinyxml2 apriltag yaml-cpp magic_enum)
+FetchContent_MakeAvailable(cli11 tinyxml2 apriltag yaml-cpp)
 
 # 3. 单独处理 Eigen (因为它是 Header-Only，直接拉取并提取路径，不执行其 CMakeLists)
 FetchContent_GetProperties(eigen)
@@ -246,7 +246,6 @@ function(create_dankong_target TARGET_TYPE)
         yaml-cpp         
         CLI11::CLI11
         MAVSDK::mavsdk
-        magic_enum::magic_enum
         Boost::system
         Boost::filesystem
         pthread
