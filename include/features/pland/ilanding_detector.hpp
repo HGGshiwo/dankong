@@ -25,7 +25,7 @@ class ILandingDetector {
    public:
     virtual ~ILandingDetector() = default;
     virtual void start(int hz) = 0;
-    virtual void start(int hz, bool estimate) = 0;
+    virtual void start(int hz, double x, double y, double z) = 0;
     virtual void stop() = 0;
     virtual std::string stop(bool save) = 0;
 };

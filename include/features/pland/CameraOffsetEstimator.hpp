@@ -76,9 +76,10 @@ class CameraOffsetEstimator {
     }
 
     // 清空历史数据（手持挪动到新的静态场景开始新测试时调用）
-    void reset() {
+    void reset(double x, double y, double z) {
         offset_history_.clear();
         has_drone_state_ = false;
+        tag_pos_w_ = Eigen::Vector3d{x, y, z};
     }
 
     int sample_count() { return offset_history_.size(); }

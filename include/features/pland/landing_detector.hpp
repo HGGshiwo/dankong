@@ -540,11 +540,12 @@ class LandingDetector : public IThreadRunner, public ILandingDetector {
 
     void start(int hz) override { IThreadRunner::start(hz); }
 
-    void start(int hz, bool do_estimate) override {
+    void start(int hz, double x, double y, double z) override {
         if (offset_estimator != nullptr) {
-            offset_estimator->reset();
+            offset_estimator->reset(x, y, z);
         } else {
-            offset_estimator = std::make_shared<CameraOffsetEstimator>();
+            offset_estimator = std::make_shared<CameraOffsetEstimator>(
+                new Eigen::Vector3d{x, y, z});
         }
         IThreadRunner::start(hz);
     }

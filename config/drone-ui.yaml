@@ -292,9 +292,27 @@ button:
     name: "校准偏移"
     group: "算法控制"
     target:
-      config_type: "toast"
-      url: "/offset_estimate/start"
-      method: "POST"
+      config_type: "form"
+      title: "开始校准"
+      items:
+        - key: x
+          type: "number"
+          name: "Tag X"
+          default: 0.0
+        - key: y
+          type: "number"
+          name: "Tag Y"
+          default: 0.0
+        - key: z
+          type: "number"
+          name: "Tag Z"
+          default: 0.0
+      submit:
+        config_type: "button"
+        target:
+          config_type: "toast"
+          url: "/offset_estimate/start"
+          method: "POST"
   
   - key: btn_offset_stop
     name: "停止校准"

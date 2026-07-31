@@ -28,7 +28,7 @@ class PlandEventListener
     }
 
     void on_event(const StartOffsetEstimate& event, RobotContext& ctx) {
-        ctx.land_detector->start(30, true);
+        ctx.land_detector->start(30, event.x, event.y, event.z);
         event.resolve({"success", "OK"});
     }
 

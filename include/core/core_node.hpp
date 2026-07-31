@@ -147,7 +147,7 @@ class CoreNode {
         fglog::set_websocket_sender([ws_mgr](const nlohmann::json& msg) {
             if (!ws_mgr) return;
             try {
-                ws_mgr->publish_fglog(msg, [](size_t id) {
+                ws_mgr->publish(msg, [](size_t id) {
                     return fglog::check_ws_connection(id);
                 });
             } catch (...) {
