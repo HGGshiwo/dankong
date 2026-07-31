@@ -545,7 +545,7 @@ class LandingDetector : public IThreadRunner, public ILandingDetector {
             offset_estimator->reset(x, y, z);
         } else {
             offset_estimator = std::make_shared<CameraOffsetEstimator>(
-                new Eigen::Vector3d{x, y, z});
+                Eigen::Vector3d{x, y, z});
         }
         IThreadRunner::start(hz);
     }
