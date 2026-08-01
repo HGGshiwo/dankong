@@ -22,6 +22,8 @@ struct has_land_target<T, std::void_t<decltype(std::declval<T>().tag_pos_map)>>
 void LandState::on_exit(RobotContext& ctx) {
     StopRecordEvent e2;
     ctx.engine->dispatch(e2);
+    stop_pland(ctx);  // 这里触发停止是安全的
+    spdlog::info("[Pland] stop pland");
 }
 
 // 该函数是必须的，否则has_land_target仍然会检查该分支
@@ -77,8 +79,8 @@ void LandState::stop_pland(ContextType& ctx) {
     }
 }
 StateAction LandState::on_tick(double dt, RobotContext& ctx) {
-    if (ctx.robot->is_landed(ctx)) {
-        stop_pland(ctx);
+    if (ctx.robot->is_landed(ctx) || !ctx.robot->check_hover(ctx)) {
+        // 直接在这里landed判断有点问题，可能会被外界先触发
         return step<GroundState>();
     }
     return StateAction::unhandled();
