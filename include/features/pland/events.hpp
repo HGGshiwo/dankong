@@ -1,5 +1,5 @@
 #pragma once
-
+#ifdef USE_ROS
 #include "core/event_result.hpp"
 #include "dk/engine.hpp"
 
@@ -20,3 +20,4 @@ struct StartOffsetEstimate : dk::AsyncEvent<EventResult> {
 struct StopOffsetEstimate : dk::AsyncEvent<EventResult> {
     bool save = false;
 };
+#endif

@@ -1,5 +1,5 @@
 #pragma once
-
+#ifdef USE_ROS
 #include <array>
 #include <chrono>
 #include <exception>
@@ -46,3 +46,4 @@ class PlandEventListener
         event.resolve({"success", "OK"});
     }
 };
+#endif

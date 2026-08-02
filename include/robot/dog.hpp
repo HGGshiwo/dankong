@@ -3,6 +3,7 @@
 #include <memory>
 #include <optional>
 
+#include "Eigen/Dense"
 #include "dk/adapters/udp/udp_client.hpp"
 #include "dk/future.hpp"
 #include "features/dog/command.hpp"
@@ -17,6 +18,7 @@ class Dog : public IRobot {
    private:
     std::bitset<24> hover_state_;
     RobotContext& ctx_;
+    Eigen::Vector4d cmd_vel_ = Eigen::Vector4d::Zero();
 
    public:
     Dog(std::shared_ptr<IMavlink> mavlink, std::string udp_host, uint port,
@@ -32,16 +34,17 @@ class Dog : public IRobot {
         auto payload = vel_to_axis(vel.y(), vel.x(), vel.w());
         auto cmd = pack_cmd(CommandType::AXIS_COMMAND_NO_DEAD_ZONE, payload);
         ctx_.udp_client->send(cmd);
+        cmd_vel_ = vel;  // 判断是否真的停止
         return true;
     };
 
-    bool inner_check_hover(unsigned int dog_state) override {
-        return hover_state_.test(dog_state);
+    bool inner_check_hover(HoverArgs args) override {
+        return hover_state_.test(args.dog_state.value());
     }
 
-    bool inner_is_landed(unsigned int dog_state) override {
+    bool inner_is_landed(HoverArgs args) override {
         // 机器狗没有 throttle/rangefinder，通过 dog_state 判断
-        return !inner_check_hover(dog_state);
+        return !inner_check_hover(args);
     }
 
     double get_distance(Eigen::Vector3d pos, Eigen::Vector3d goal) override {
@@ -53,14 +56,32 @@ class Dog : public IRobot {
     bool is_alt_enable() override { return false; }
 
     bool land() override {
+        // 必须要减速到0之后才触发降落
+        spdlog::info("[Dog] land trigger");
         loiter();
-        auto data = pack_cmd(CommandType::TOGGLE_STAND_DOWN);
-        ctx_.udp_client->send(data);
+        double TIMEOUT = 500;  // 最多等待500秒
+        double interval = 0.1;
+        double times = TIMEOUT / interval;
+        double min_times = 2.0 / interval;
+        ctx_.engine->call_every(
+            interval, times,
+            [udp_client = ctx_.udp_client, this, times,
+             min_times](int idx) -> bool {
+                // 如果超时了，还是调用一次
+                if (!cmd_vel_.isZero() && idx != times - 1 || idx <= min_times)
+                    return true;
+                auto data = pack_cmd(CommandType::TOGGLE_STAND_DOWN);
+                udp_client->send(data);
+                spdlog::info("[Dog] land done!");
+                return false;
+            });
+
         return true;
     }
 
     bool loiter() override {
-        mavlink_->cmd_vel(Eigen::Vector4d::Zero());
+        ctx_.tracker->send_vel_cmd(Eigen::Vector3d::Zero(), std::nullopt,
+                                   std::nullopt, CmdFrame::BODY);
         return true;
     }
 

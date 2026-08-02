@@ -1,4 +1,5 @@
 #pragma once
+#ifdef USE_ROS
 #include <atomic>
 #include <memory>
 #include <opencv2/opencv.hpp>
@@ -32,3 +33,4 @@ struct PlandContext {
         reg.bind("do_pland", do_pland, 2.0);
     }
 };
+#endif

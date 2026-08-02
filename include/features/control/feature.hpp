@@ -69,10 +69,8 @@ class ControlFeature {
         web->template register_route<SetModeEvent, EventResult>(
             boost::beast::http::verb::post, "/set_mode", 5000);
 
-        // Web 端发送 LOITER 模式，APM 完全兼容这个名称
-        web->template register_route<SetModeEvent, EventResult>(
-            boost::beast::http::verb::post, "/loiter", 5000,
-            [](SetModeEvent& event) { event.mode = "LOITER"; });
+        web->template register_route<LoiterEvent, EventResult>(
+            boost::beast::http::verb::post, "/loiter", 5000);
 
         web->template register_route<SetWaypointEvent, EventResult>(
             boost::beast::http::verb::post, "/return", 5000,

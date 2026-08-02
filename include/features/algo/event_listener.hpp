@@ -1,3 +1,4 @@
+#ifdef USE_ROS
 #pragma once
 #include <ros/ros.h>
 #include <rsos_msgs/SetCameraExposure.h>
@@ -55,3 +56,4 @@ class AlgoEventListener
     void on_event(const EnablePlannerEvent& event, RobotContext& ctx);
     void on_event(const DisablePlannerEvent& event, RobotContext& ctx);
 };
+#endif

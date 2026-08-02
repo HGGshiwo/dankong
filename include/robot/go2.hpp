@@ -78,12 +78,12 @@ class Go2 : public IRobot {
         return true;  // 不支持
     };
 
-    bool inner_check_hover() {
+    bool inner_check_hover(HoverArgs args) {
         bool a = standing_.load();
         return a;
     };
 
-    bool inner_is_landed() { return !inner_check_hover(); };
+    bool inner_is_landed(HoverArgs args) { return !inner_check_hover(args); };
 
     bool arm() {
         push_message("解锁");

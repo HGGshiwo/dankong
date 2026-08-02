@@ -65,7 +65,7 @@ class ReportEventListener
         if (is_hz(10)) {
             publish_pos(ctx);
             publish_lla(ctx);
-            fglog::publish_value("/drone/throttle", ctx.throttle.load());
+            // fglog::publish_value("/drone/throttle", ctx.throttle.load());
         }
         nlohmann::json j;
         double now = ctx.engine->get_time_provider()->now();

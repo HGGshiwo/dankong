@@ -1,4 +1,5 @@
 #pragma once
+#ifdef USE_ROS
 #include <cv_bridge/cv_bridge.h>
 #include <sensor_msgs/Image.h>
 #include <sensor_msgs/image_encodings.h>
@@ -117,3 +118,4 @@ class PlandFeature {
         engine->add_listener(listener);
     }
 };
+#endif

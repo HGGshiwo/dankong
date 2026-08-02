@@ -15,8 +15,9 @@ class Drone : public IRobot {
    public:
     explicit Drone(std::shared_ptr<IMavlink> mavlink) : IRobot(mavlink) {}
 
-    bool inner_check_hover(bool arm, double throttle) override {
-        return arm && throttle > GlobalConfig.GetConfig().throttle_thresh;
+    bool inner_check_hover(HoverArgs args) override {
+        return args.arm.value() &&
+               args.throttle.value() > GlobalConfig.GetConfig().throttle_thresh;
     }
 
     bool cmd_vel(Eigen::Vector4d vel) override {
@@ -26,11 +27,12 @@ class Drone : public IRobot {
 
     static constexpr std::string_view ROBOT_TYPE = "DRONE";
 
-    bool inner_is_landed(bool arm, double throttle,
-                         double rangefinder) override {
-        bool disarmed = !arm;
-        bool ground_check = throttle >= 0 && throttle < 0.01 &&
-                            rangefinder >= 0 && rangefinder < 0.5;
+    bool inner_is_landed(HoverArgs args) override {
+        bool disarmed = !args.arm.value();
+        bool ground_check = args.throttle.value() >= 0 &&
+                            args.throttle.value() < 0.01 &&
+                            args.rangefinder_alt.value() >= 0 &&
+                            args.rangefinder_alt.value() < 0.5;
         return disarmed || ground_check;
     }
 

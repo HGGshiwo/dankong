@@ -1,11 +1,20 @@
 #pragma once
 #include <Eigen/Dense>
 #include <memory>
+#include <optional>
 
 #include "core/base_tracker.hpp"
 #include "dk/future.hpp"
 #include "mavlink/imavlink.hpp"
 #include "plugins/telemetry/telemetry.h"
+
+struct HoverArgs {
+    std::optional<unsigned int> dog_state = std::nullopt;
+    std::optional<bool> arm = std::nullopt;
+    std::optional<double> throttle = std::nullopt;
+    std::optional<unsigned int> gear = std::nullopt;
+    std::optional<double> rangefinder_alt = std::nullopt;
+};
 
 // IRobot: 纯虚接口，不依赖任何 Context 类型
 // 每个具体机器人在构造时注入其专属数据，方法内部直接读取，无需 Context 参数
@@ -36,54 +45,43 @@ class IRobot : public ITrackerRuntime {
     template <typename T>
     bool check_hover(T& ctx) {
         constexpr std::string_view robot_type = T::ROBOT_TYPE;
+        HoverArgs args;
         if constexpr (robot_type == "DOG") {
-            return inner_check_hover(ctx.dog_state);
+            args.dog_state = ctx.dog_state;
         } else if constexpr (robot_type == "DRONE") {
-            return inner_check_hover(ctx.arm.load(), ctx.throttle.load());
+            args.arm = ctx.arm.load();
+            args.throttle = ctx.throttle.load();
         } else if constexpr (robot_type == "CAR") {
-            return inner_check_hover(ctx.gear.load());
+            args.gear = ctx.gear.load();
         } else if constexpr (robot_type == "GO2") {
-            return inner_check_hover();
         } else {
             return false;
         }
+        return inner_check_hover(args);
     }
 
     template <typename T>
     bool is_landed(T& ctx) {
         constexpr std::string_view robot_type = T::ROBOT_TYPE;
+        HoverArgs args;
         if constexpr (robot_type == "DOG") {
-            return inner_is_landed(ctx.dog_state);
+            args.dog_state = ctx.dog_state;
         } else if constexpr (robot_type == "DRONE") {
-            return inner_is_landed(ctx.arm.load(), ctx.throttle.load(),
-                                   ctx.rangefinder_alt.load());
+            args.arm = ctx.arm.load();
+            args.throttle = ctx.throttle.load();
+            args.rangefinder_alt = ctx.rangefinder_alt.load();
         } else if constexpr (robot_type == "CAR") {
-            return inner_is_landed(ctx.gear.load());
+            args.gear = ctx.gear.load();
         } else if constexpr (robot_type == "GO2") {
-            return inner_is_landed();
         } else {
             return false;
         }
+        return inner_is_landed(args);
     }
 
-    virtual bool inner_check_hover(bool arm, double throttle) { return false; };
+    virtual bool inner_check_hover(HoverArgs) = 0;
 
-    virtual bool inner_check_hover(unsigned int state) { return false; };
-
-    virtual bool inner_check_hover(int gear) { return false; };
-
-    virtual bool inner_check_hover() { return false; };
-
-    virtual bool inner_is_landed() { return false; };
-
-    virtual bool inner_is_landed(unsigned int state) { return false; };
-
-    virtual bool inner_is_landed(int gear) { return false; };
-
-    virtual bool inner_is_landed(bool arm, double throttle,
-                                 double rangefinder) {
-        return false;
-    };
+    virtual bool inner_is_landed(HoverArgs) = 0;
 
     bool set_mode(const mavsdk::Telemetry::FlightMode& mode) {
         return mavlink_->set_mode(mode);

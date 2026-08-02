@@ -43,7 +43,7 @@ kp_z: 1
 log_dir: logs/my_log.txt
 loop_rate_hz: 50
 lost_target_alt: 15
-max_acc_xy: 1
+max_acc_xy: 2
 max_acc_yaw: 2
 max_acc_z: 0.80000000000000004
 max_decel_xy: 1

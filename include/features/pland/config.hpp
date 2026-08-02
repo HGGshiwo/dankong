@@ -1,4 +1,5 @@
 #pragma once
+#ifdef USE_ROS
 #include <Eigen/Dense>
 
 #include "utils/config_param.hpp"
@@ -111,3 +112,5 @@ struct PlandConfig {
     dk::Param<bool> pure_vision =
         INIT_PARAM("pure_vision", true, "是否使用纯视觉伺服模式");
 };
+
+#endif

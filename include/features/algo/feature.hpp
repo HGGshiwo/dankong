@@ -1,4 +1,5 @@
 #pragma once
+#ifdef USE_ROS
 #include <memory>
 
 #include "./events.hpp"
@@ -63,3 +64,4 @@ inline void AlgoFeature::setup(TagListeners,
     auto listener = std::make_shared<AlgoEventListener>();
     engine->add_listener(listener);
 }
+#endif

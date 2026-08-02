@@ -42,7 +42,7 @@ struct TrackerConfig {
         INIT_PARAM("max_vel_yaw", 1.5, "最大旋转速度(rad/s)");
 
     dk::Param<double> max_acc_xy =
-        INIT_PARAM("max_acc_xy", 1.0, "XY轴最大加速度(m/s^2)");
+        INIT_PARAM("max_acc_xy", 2.0, "XY轴最大加速度(m/s^2)");
     dk::Param<double> max_acc_z =
         INIT_PARAM("max_acc_z", 0.8, "Z轴最大加速度(m/s^2)");
     dk::Param<double> max_acc_yaw =

@@ -1,3 +1,4 @@
+#ifdef USE_ROS
 #pragma once
 #include <Eigen/Dense>
 
@@ -63,3 +64,4 @@ struct DetectTargetEvent {
 struct ExcutePlandEvent {
     int target_tag_id;
 };
+#endif

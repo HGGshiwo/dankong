@@ -35,6 +35,17 @@
 #endif
 #endif
 
+// ==========================================
+// 外部模板声明，指示编译器在其他编译单元进行显式实例化，加速编译并降低内存压力。
+// ==========================================
+extern template class dk::WebAdapter<RobotContext, Engine>;
+extern template class dk::MavsdkAdapter<RobotContext, Engine>;
+extern template class dk::UdpAdapter<RobotContext, Engine, CommandType>;
+extern template class dk::CanAdapter<RobotContext, Engine>;
+#ifdef USE_ROS
+extern template class dk::RosAdapter<RobotContext, Engine>;
+#endif
+
 struct CLIArgs {
     std::string config_path;
     std::optional<unsigned int> port = std::nullopt;

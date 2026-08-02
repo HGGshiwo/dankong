@@ -1,4 +1,5 @@
 #pragma once
+#ifdef USE_ROS
 #include "utils/dirty_var.hpp"
 #include "utils/fixed_string64.hpp"
 #include "utils/state_registry.hpp"
@@ -25,3 +26,4 @@ struct AlgoContext {
         reg.bind("recording", recording, 1.0);
     }
 };
+#endif

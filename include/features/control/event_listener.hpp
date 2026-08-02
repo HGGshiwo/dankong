@@ -16,17 +16,20 @@
 #include "nlohmann/json.hpp"
 #include "robot_context.hpp"
 #include "spdlog/spdlog.h"
+#include "states/hover_state.hpp"
 #include "utils/logger/fglog.hpp"
 
 // 和控制相关的事件监听器
 class ControlEventListener
     : public dk::BaseEventListener<RobotContext, ControlEventListener> {
    public:
-    using AllowedEvents = std::tuple<
-        PrearmEvent, TakeoffEvent, dk::StateChangeEvent, SetWaypointEvent,
-        SetModeEvent, SetPosVelEvent, RebootFcuEvent, GetWpEvent, GetGpsEvent,
-        GetParamEvent, SetParamEvent, DisarmEvent, RestartEvent, JoystickEvent,
-        EnableJoystickEvent, TestEvent, ReportEvent, FlightModeEvent>;
+    using AllowedEvents =
+        std::tuple<PrearmEvent, TakeoffEvent, dk::StateChangeEvent,
+                   SetWaypointEvent, SetModeEvent, SetPosVelEvent,
+                   RebootFcuEvent, GetWpEvent, GetGpsEvent, GetParamEvent,
+                   SetParamEvent, DisarmEvent, RestartEvent, JoystickEvent,
+                   EnableJoystickEvent, TestEvent, ReportEvent, FlightModeEvent,
+                   LoiterEvent>;
 
     void on_tick(double dt, RobotContext& ctx);
     void on_event(const SetPosVelEvent& event, RobotContext& ctx);
@@ -62,5 +65,13 @@ class ControlEventListener
                      std::string(event.cur.mode_str));
         fglog::publish_state("drone/flight_mode",
                              std::string(event.cur.mode_str));
+    }
+
+    void on_event(const LoiterEvent& event, RobotContext& ctx) {
+        if (ctx.robot->check_hover(ctx)) {
+            ctx.engine->step<HoverState>();
+            event.resolve({"success", "OK"});
+        }
+        event.resolve({"success", "在地面时无法调用悬停!"});
     }
 };
