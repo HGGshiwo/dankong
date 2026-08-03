@@ -290,9 +290,7 @@ class LandingDetector : public IThreadRunner, public ILandingDetector {
         TargetObservation obs = current_pattern_->process(
             detections, tag_detector_.get(), camera_inner_matrix_, detected);
 
-        std::optional<Eigen::Vector3d> pland_target = ctx_.pland_target.load();
-        bool use_target = pland_target.has_value();
-        if (!obs.is_valid && !use_target) return output;
+        if (!obs.is_valid) return output;
 
         double relative_yaw = 0.0;
         double abs_yaw = 0.0;
@@ -403,16 +401,7 @@ class LandingDetector : public IThreadRunner, public ILandingDetector {
 
         auto pos_enu = ctx_.pos_enu.load();
 
-        if (output.is_valid || use_target) {
-            Eigen::Vector2d target_err{0.0, 0.0};
-            if (use_target) {
-                Eigen::Vector3d target = pland_target.value();
-                target_err = pos_enu.head<2>() - target.head<2>();
-                raw_target_enu = {target.x(), target.y(), 0.0};
-                abs_yaw = target.z();
-                relative_yaw = abs_yaw - ctx_.yaw_enu.load();
-                output.is_valid = true;
-            }
+        if (output.is_valid) {
             output.fused_pos = raw_target_enu;
 
             // 计算 EKF 时间间隔 (使用真实照片时间戳)
@@ -511,8 +500,6 @@ class LandingDetector : public IThreadRunner, public ILandingDetector {
             fglog::publish_value("/drone/pland/pnp_enu", pnp_enu.head<2>());
             fglog::publish_value("/drone/pland/los_enu", los_enu.head<2>());
             fglog::publish_value("/drone/pland/rpy", rpy);
-            fglog::publish_value("/drone/pland/target_err",
-                                 target_err.head<2>());
             fglog::publish_value("/drone/pland/imagexy", imagexy);
             fglog::publish_value("/drone/pland/vel_enu",
                                  output.target_vel_enu.head<2>());
@@ -524,14 +511,14 @@ class LandingDetector : public IThreadRunner, public ILandingDetector {
                     "pnp_enu=[{:.2f}, {:.2f}] los_enu=[{:.2f}, {:.2f}] "
                     "drone_enu=[{:.2f}, {:.2f}, {:.2f}] "
                     "drone_rpy=[{:.2f}, {:.2f}, {:.2f}] "
-                    "target_err=[{:.2f}, {:.2f}] imagexy=[{:.2f}, {:.2f}] "
+                    "imagexy=[{:.2f}, {:.2f}] "
                     "vel_enu=[{:.2f}, {:.2f}] rangefinder={:.2f} "
                     "epsilon={:.2f}",
                     pnp_enu.x(), pnp_enu.y(), los_enu.x(), los_enu.y(),
                     pos_enu.x(), pos_enu.y(), pos_enu.z(), rpy.x(), rpy.y(),
-                    rpy.z(), target_err.x(), target_err.y(), imagexy.x(),
-                    imagexy.y(), output.target_vel_enu.x(),
-                    output.target_vel_enu.y(), rangefinder, epsilon);
+                    rpy.z(), imagexy.x(), imagexy.y(),
+                    output.target_vel_enu.x(), output.target_vel_enu.y(),
+                    rangefinder, epsilon);
             }
         }
 

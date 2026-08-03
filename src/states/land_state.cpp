@@ -80,7 +80,8 @@ void LandState::stop_pland(ContextType& ctx) {
 }
 StateAction LandState::on_tick(double dt, RobotContext& ctx) {
     if (ctx.robot->is_landed(ctx) || !ctx.robot->check_hover(ctx)) {
-        // 直接在这里landed判断有点问题，可能会被外界先触发
+        ctx.robot->land();  // 为了安全起见切到降落模式
+        spdlog::info("[LandState] 切换到GroundState");
         return step<GroundState>();
     }
     return StateAction::unhandled();

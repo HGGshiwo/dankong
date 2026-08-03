@@ -201,12 +201,14 @@ class GazeboObject:
         vx: float = 0,
         vy: float = 0,
         vw: float = 0,
+        pause: bool = True,
     ):
         # ================= 步骤 2：重置位置到原点 (物理层面) =================
         model_name = self.robot_name
-        time.sleep(1)  # 非常关键，不sleep可能导致解体！
-        self.pause_physics()
-        time.sleep(1)  # 非常关键，不sleep可能导致解体！
+        if pause:
+            time.sleep(1)  # 非常关键，不sleep可能导致解体！
+            self.pause_physics()
+            time.sleep(1)  # 非常关键，不sleep可能导致解体！
         try:
             # 构造期望的状态
             state_msg = ModelState()
@@ -242,7 +244,8 @@ class GazeboObject:
         except rospy.ServiceException as e:
             raise RuntimeError("SetModelState 服务调用失败: %s" % e)
         finally:
-            self.unpause_physics()
+            if pause:
+                self.unpause_physics()
         return True
 
     def get_state(self):

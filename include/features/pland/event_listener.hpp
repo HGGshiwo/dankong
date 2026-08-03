@@ -1,4 +1,5 @@
 #pragma once
+#include "states/state_utils.hpp"
 #ifdef USE_ROS
 #include <array>
 #include <chrono>
@@ -38,11 +39,24 @@ class PlandEventListener
     }
 
     void on_event(const SetPlandTarget& event, RobotContext& ctx) {
-        auto pos = ctx.pos_enu.load();
+        Eigen::Vector3d pos;
+        if (!event.position.has_value()) {
+            pos = ctx.pos_enu.load();
+        } else {
+            if (!ctx.odom_ok) {
+                event.resolve({"success", "Odom NOT OK"});
+                return;
+            }
+            auto lla = event.position.value();
+            pos = state_utils::gps_to_enu(ctx.lon_lat_alt.load(),
+                                          ctx.pos_enu.load(), lla);
+        }
         spdlog::info("[Pland] Set Target: [{:.2f}, {:.2f}, {:.2f}]", pos.x(),
                      pos.y(), pos.z());
-        ctx.pland_target.store(
-            Eigen::Vector3d{pos.x(), pos.y(), ctx.yaw_enu.load()});
+
+        ctx.pland_target.store(PlandTarget{
+            ctx.engine->get_time_provider()->now(), pos, event.velocity});
+
         event.resolve({"success", "OK"});
     }
 };

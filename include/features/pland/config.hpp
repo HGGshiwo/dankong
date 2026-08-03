@@ -111,6 +111,11 @@ struct PlandConfig {
     dk::Param<double> pland_kv = INIT_PARAM("pland_kv", 2.5, "兔子的速度系数");
     dk::Param<bool> pure_vision =
         INIT_PARAM("pure_vision", true, "是否使用纯视觉伺服模式");
+    dk::Param<double> pland_target_timeout =
+        INIT_PARAM("pland_target_timeout", 1.0f, "注入目标超时的时间");
+    dk::Param<double> pland_target_distance =
+        INIT_PARAM("pland_target_distance", 3.0f,
+                   "在距离目标多少半径内允许执行降落, 负值为忽略");
 };
 
 #endif

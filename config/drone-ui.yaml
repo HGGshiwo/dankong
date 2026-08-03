@@ -172,6 +172,11 @@ button:
     group: "飞行控制"
     target: { config_type: "toast", url: "/land", method: "POST", "data": {"do_pland": true} }
 
+  - key: btn_pland
+    name: "精准返航"
+    group: "飞行控制"
+    target: { config_type: "toast", url: "/return", method: "POST", "data": {"do_pland": true} }
+
   - key: btn_reboot_fcu
     name: "重启飞控"
     group: "飞行控制"

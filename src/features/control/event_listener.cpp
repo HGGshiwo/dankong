@@ -25,6 +25,7 @@ void ControlEventListener::on_tick(double dt, RobotContext& ctx) {
                      ctx.engine->is_active_state<TakeoffState>() ||
                      ctx.engine->is_active_state<LandState>();
     if (!on_ground && !ctx.robot->check_hover(ctx)) {
+        spdlog::info("[Contrl] 切换到GroundState");
         ctx.engine->template step<GroundState>();
     }
 }
