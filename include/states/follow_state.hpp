@@ -4,6 +4,7 @@
 #include "core/global_config.hpp"
 #include "features/tracker/tracker.hpp"
 #include "state_common.hpp"
+#include "states/arm_state.hpp"
 #include "states/hover_state.hpp"
 #include "states/state_common.hpp"
 #include "states/state_utils.hpp"
@@ -14,12 +15,25 @@ class FollowState : public dk::BaseState<RobotContext, FollowState<ParentState>,
                                          ParentState> {
    public:
     double last_time_;
+    DetectEvent event_;
 
     using AllowedEvents = std::tuple<DetectEvent>;
 
-    FollowState(const DetectEvent& event, RobotContext& ctx) {
+    FollowState(const DetectEvent& event, RobotContext& ctx) : event_(event) {
         last_time_ = ctx.engine->get_time_provider()->now();
         on_event(event, ctx);
+    }
+
+    StateAction on_enter(RobotContext& ctx) override {
+        if (!ctx.arm.load()) {
+            auto flags = get_state_flags(ctx);
+            if (ctx.robot->should_arm_before_enter(flags)) {
+                return StateAction::step<ArmState>(
+                    std::tuple(StateAction::step<FollowState<ParentState>>(
+                        std::make_tuple(event_, std::ref(ctx)))));
+            }
+        }
+        return StateAction::unhandled();
     }
 
     StateAction on_tick(double dt, RobotContext& ctx);

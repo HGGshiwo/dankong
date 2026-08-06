@@ -5,6 +5,7 @@
 
 #include "core/base_tracker.hpp"
 #include "dk/future.hpp"
+#include "dk/state.hpp"
 #include "mavlink/imavlink.hpp"
 #include "plugins/telemetry/telemetry.h"
 
@@ -16,6 +17,16 @@ struct HoverArgs {
     std::optional<double> rangefinder_alt = std::nullopt;
 };
 
+struct StateFlags {
+    bool is_takeoff = false;
+    bool is_waypoint = false;
+    bool is_follow = false;
+    bool is_posvel = false;
+    bool is_hover = false;
+    bool is_land = false;
+    bool local = false;
+};
+
 // IRobot: 纯虚接口，不依赖任何 Context 类型
 // 每个具体机器人在构造时注入其专属数据，方法内部直接读取，无需 Context 参数
 class IRobot : public ITrackerRuntime {
@@ -25,6 +36,8 @@ class IRobot : public ITrackerRuntime {
    public:
     IRobot(std::shared_ptr<IMavlink> mavlink) : mavlink_(mavlink) {}
     virtual ~IRobot() = default;
+
+    virtual bool should_arm_before_enter(const StateFlags& flags) = 0;
 
     // 计算目标距离（无人机与机器狗在 Z 轴上的处理不同）
     virtual double get_distance(Eigen::Vector3d pos, Eigen::Vector3d goal) = 0;

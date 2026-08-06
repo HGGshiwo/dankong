@@ -29,6 +29,10 @@ class Dog : public IRobot {
         }
     }
 
+    bool should_arm_before_enter(const StateFlags& flags) override {
+        return flags.is_waypoint && !flags.local;
+    }
+
     bool cmd_vel(Eigen::Vector4d vel) override {
         // x,y好像是反的注意一下
         auto payload = vel_to_axis(vel.y(), vel.x(), vel.w());

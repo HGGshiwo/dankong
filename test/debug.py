@@ -155,8 +155,10 @@ class Debug(unittest.TestCase):
     def test_case1(self):
         while True:
             try:
-                IRIS_X = random.randint(-1, 1)
-                IRIS_Y = random.randint(-1, 1)
+                # IRIS_X = random.randint(-1, 1)
+                # IRIS_Y = random.randint(-1, 1)
+                IRIS_X = 0
+                IRIS_Y = 0
                 self.robot.set_state(x=IRIS_X, y=IRIS_Y, z=0.5)
                 self.board = Apriltag("apriltag")
                 self.board.spawn()

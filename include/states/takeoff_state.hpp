@@ -24,16 +24,14 @@ class TakeoffState : public dk::BaseState<RobotContext, TakeoffState, void> {
     // 和waypoint相关
     bool step_waypoint_ = false;  // 是否进入waypoint
 
-   public:
-    class PrearmCheckState;
-    class ArmState;
-    class TakingoffState;
+    std::shared_ptr<state_utils::StallChecker<1>> checker_;
 
+   public:
     TakeoffState(TakeoffEvent e);
+    TakeoffState(SetWaypointEvent e);
+
     StateAction on_enter(RobotContext& ctx) override;
     StateAction on_tick(double dt, RobotContext& ctx) override;
-
-    TakeoffState(SetWaypointEvent e);
 
     void report_takeoff(RobotContext& ctx) {
         ctx.ws_manager->publish_reliable(
@@ -41,47 +39,4 @@ class TakeoffState : public dk::BaseState<RobotContext, TakeoffState, void> {
     }
 
     static constexpr std::string_view static_name() { return "起飞状态"; }
-};
-
-class TakeoffState::PrearmCheckState
-    : public dk::BaseState<RobotContext, PrearmCheckState, TakeoffState> {
-   public:
-    using AllowedEvents = std::tuple<SysStatusEvent, StatusTextEvent>;
-
-    StateAction on_enter(RobotContext& ctx) override;
-
-    StateAction on_event(const SysStatusEvent& event, RobotContext& ctx);
-
-    StateAction on_event(const StatusTextEvent& event, RobotContext& ctx);
-
-    static constexpr std::string_view static_name() { return "起飞检查"; }
-};
-
-class TakeoffState::ArmState
-    : public dk::BaseState<RobotContext, ArmState, TakeoffState> {
-   public:
-    using AllowedEvents = std::tuple<ArmEvent, StatusTextEvent>;
-
-    StateAction on_enter(RobotContext& ctx) override;
-
-    StateAction on_event(const ArmEvent& event, RobotContext& ctx);
-
-    StateAction on_event(const StatusTextEvent& event, RobotContext& ctx);
-
-    static constexpr std::string_view static_name() { return "解锁状态"; }
-};
-
-class TakeoffState::TakingoffState
-    : public dk::BaseState<RobotContext, TakingoffState, TakeoffState> {
-   public:
-    using AllowedEvents = std::tuple<>;
-
-    std::shared_ptr<state_utils::StallChecker<1>> checker_;
-
-    double start_time_;
-
-    StateAction on_enter(RobotContext& ctx) override;
-    StateAction on_tick(double dt, RobotContext& ctx) override;
-
-    static constexpr std::string_view static_name() { return "执行起飞"; }
 };

@@ -48,6 +48,10 @@ class Car : public IRobot, public IThreadRunner {
 
         this->start(50);
     }
+
+    bool should_arm_before_enter(const StateFlags& flags) override {
+        return false;
+    }
     ~Car() override = default;
 
     void on_step(double dt) override {

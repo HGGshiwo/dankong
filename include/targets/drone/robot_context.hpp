@@ -8,6 +8,7 @@
 #include "features/mavlink/context.hpp"
 #include "features/ntrip/context.hpp"
 #include "features/pland/context.hpp"
+#include "features/report/context.hpp"
 #include "features/tracker/context.hpp"
 
 // =================================================================
@@ -17,4 +18,5 @@ using RobotContext = ContextGenerator<
 #ifdef USE_ROS
     AlgoContext, PlandContext,
 #endif
-    ControlContext, DroneContext, TrackerContext, NtripContext, MavlinkContext>;
+    ControlContext, DroneContext, TrackerContext, NtripContext, MavlinkContext,
+    ReportContext>;

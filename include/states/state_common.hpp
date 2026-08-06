@@ -9,3 +9,5 @@
 #include "robot_context.hpp"
 
 using StateAction = dk::StateAction<RobotContext>;
+
+StateFlags get_state_flags(RobotContext& ctx);

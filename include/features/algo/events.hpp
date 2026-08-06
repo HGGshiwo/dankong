@@ -5,6 +5,10 @@
 #include "core/event_result.hpp"
 #include "dk/engine.hpp"
 
+struct AbnormalEvent {
+    nlohmann::json data;
+};
+
 //@JSON_ENABLE
 struct StopFollowEvent : dk::AsyncEvent<EventResult> {};
 

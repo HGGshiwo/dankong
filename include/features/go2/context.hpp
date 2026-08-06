@@ -4,6 +4,7 @@
 #include <string_view>
 
 #include "mavlink/mavsdk_drone.hpp"
+#include "robot/irobot.hpp"
 #include "utils/state_registry.hpp"
 
 struct Go2Context {

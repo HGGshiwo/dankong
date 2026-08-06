@@ -13,6 +13,7 @@
 
 class WaypointState : public dk::BaseState<RobotContext, WaypointState, void> {
    public:
+    SetWaypointEvent event_;
     std::vector<Eigen::Vector3d> wp_list_;
     std::optional<std::vector<nlohmann::json>> node_event_list_;
     FinishAction action_;
@@ -32,11 +33,6 @@ class WaypointState : public dk::BaseState<RobotContext, WaypointState, void> {
 
    public:
     using AllowedEvents = std::tuple<>;
-
-    void report_task_done(RobotContext& ctx) {
-        ctx.ws_manager->publish_reliable(
-            json{{"type", "event"}, {"event", "disarm"}});
-    }
 
     StateAction on_enter(RobotContext& ctx) override;
 

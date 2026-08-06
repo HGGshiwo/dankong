@@ -22,6 +22,7 @@ struct SetWaypointEvent : dk::AsyncEvent<EventResult> {
     std::optional<double> speed;
     bool do_pland = false;
     FinishAction finish_action = FinishAction::HOVER;
+    bool local = false;
 };
 
 //@JSON_ENABLE

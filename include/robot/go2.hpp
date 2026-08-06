@@ -33,6 +33,10 @@ class Go2 : public IRobot {
         };
     }
 
+    bool should_arm_before_enter(const StateFlags& flags) override {
+        return flags.is_waypoint && !flags.local;
+    }
+
     void push_message(std::string msg) {
         auto future = send_request(
             ctx_.engine, http::verb::post,
@@ -51,41 +55,43 @@ class Go2 : public IRobot {
     }
 
     // 计算目标距离（无人机与机器狗在 Z 轴上的处理不同）
-    double get_distance(Eigen::Vector3d pos, Eigen::Vector3d goal) {
+    double get_distance(Eigen::Vector3d pos, Eigen::Vector3d goal) override {
         return (pos - goal).head<2>().norm();
     };
 
     // 降落（无人机切换 LAND 模式，机器狗发送蹲下指令）
-    bool land() {
+    bool land() override {
         push_message("趴下");
         standing_.store(false);
         return true;
     };
 
-    bool is_prearm_enable() { return false; };
+    bool is_prearm_enable() override { return false; };
 
-    bool is_alt_enable() { return false; };
+    bool is_alt_enable() override { return false; };
 
-    bool loiter() { return true; };
+    bool loiter() override { return true; };
 
-    bool takeoff(double alt) {
+    bool takeoff(double alt) override {
         push_message("站起来");
         standing_.store(true);
         return true;
     };
 
-    bool cmd_vel(Eigen::Vector4d) {
+    bool cmd_vel(Eigen::Vector4d) override {
         return true;  // 不支持
     };
 
-    bool inner_check_hover(HoverArgs args) {
+    bool inner_check_hover(HoverArgs args) override {
         bool a = standing_.load();
         return a;
     };
 
-    bool inner_is_landed(HoverArgs args) { return !inner_check_hover(args); };
+    bool inner_is_landed(HoverArgs args) override {
+        return !inner_check_hover(args);
+    };
 
-    bool arm() {
+    bool arm() override {
         push_message("解锁");
         ctx_.arm.store(true);
         ctx_.engine->dispatch_internal(ArmEvent{true});
@@ -93,7 +99,7 @@ class Go2 : public IRobot {
         return true;
     }
 
-    bool disarm() {
+    bool disarm() override {
         push_message("锁定");
         ctx_.arm.store(false);
         ctx_.engine->dispatch_internal(ArmEvent{false});

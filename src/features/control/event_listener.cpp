@@ -118,8 +118,7 @@ void ControlEventListener::on_event(const TakeoffEvent& event,
         event.reject("只允许在地面状态起飞!");
         return;
     }
-    ctx.engine->step<TakeoffState::PrearmCheckState>(
-        std::tuple(std::move(event)), std::tuple<>());
+    ctx.engine->step<TakeoffState>(std::tuple(std::move(event)));
 }
 
 void ControlEventListener::on_event(const dk::StateChangeEvent& event,
@@ -159,8 +158,7 @@ void ControlEventListener::on_event(const SetWaypointEvent& event,
         // 地面状态：进入起飞前检查流程，并将事件和最终动作向后传递
         // （原逻辑中地面状态无需立即 resolve，通常在起飞完成或校验失败后
         // resolve）
-        ctx.engine->step<TakeoffState::PrearmCheckState>(
-            std::make_tuple(std::move(event)), std::tuple<>());
+        ctx.engine->step<TakeoffState>(std::tuple(std::move(event)));
     } else {
         // 空中执行逻辑分流
         if (wp_empty && action == FinishAction::LAND) {
@@ -169,9 +167,8 @@ void ControlEventListener::on_event(const SetWaypointEvent& event,
             ctx.engine->step<LandState>(std::tuple(event.do_pland));
         } else {
             // 检查是不是半路进入hover，其实没有记录起飞点
-            auto takeoff_lon_lat_alt = ctx.takeoff_lon_lat_alt.load();
-            if (action == FinishAction::RETURN &&
-                takeoff_lon_lat_alt.norm() < 1.0) {
+            auto takeoff_enu = ctx.takeoff_enu.load();
+            if (action == FinishAction::RETURN && !takeoff_enu.has_value()) {
                 event.reject("未记录起飞点，请使用降落");
             } else {
                 event.resolve({"success", "OK"});

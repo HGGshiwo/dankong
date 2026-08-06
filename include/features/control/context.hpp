@@ -229,7 +229,8 @@ struct ControlContext {
     DirtyVar<int> wp_idx{0};               // 当前执行的航点序号
 
     DirtyVar<Eigen::Vector3d> pos_enu{Eigen::Vector3d::Zero()};
-    DirtyVar<Eigen::Vector3d> takeoff_lon_lat_alt{Eigen::Vector3d::Zero()};
+
+    DirtyVar<std::optional<Eigen::Vector3d>> takeoff_enu{std::nullopt};
 
     DirtyVar<double> yaw_ned{0.0};
     DirtyVar<nlohmann::json> mission_data{nlohmann::json::array()};
@@ -288,7 +289,7 @@ struct ControlContext {
                          GlobalConfig.GetConfig().report_pos_threshold.get();
                      return (cur - last).norm() > threshold_pos;
                  });
-        reg.bind("takeoff_lon_lat_alt", takeoff_lon_lat_alt, 0.0);
+
         reg.bind("yaw", yaw_ned, 10.0, [](double cur, double last) {
             double threshold_rad =
                 GlobalConfig.GetConfig().report_ang_threshold.get() * M_PI /

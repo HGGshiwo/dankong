@@ -8,12 +8,16 @@
 #include "mavlink/imavlink.hpp"
 #include "plugins/telemetry/telemetry.h"
 #include "robot/irobot.hpp"
-
 // 无人机硬件逻辑实现
 // 依赖注入 DroneSpecificData，check_hover()/land() 直接读取内部数据，零 cast
 class Drone : public IRobot {
    public:
     explicit Drone(std::shared_ptr<IMavlink> mavlink) : IRobot(mavlink) {}
+
+    bool should_arm_before_enter(const StateFlags& flags) override {
+        return flags.is_takeoff || flags.is_waypoint || flags.is_follow ||
+               flags.is_posvel || flags.is_hover || flags.is_land;
+    }
 
     bool inner_check_hover(HoverArgs args) override {
         return args.arm.value() &&

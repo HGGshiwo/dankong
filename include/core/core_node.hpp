@@ -15,6 +15,7 @@
 #include "dk/ITimeProvider.hpp"
 #include "dk/adapters/can/can_adapter.hpp"
 #include "dk/adapters/mavsdk.hpp"
+#include "dk/adapters/mqtt/adapter.hpp"
 #include "dk/adapters/udp/udp.hpp"
 #include "dk/adapters/web.hpp"
 #include "dk/adapters/web/adapter.hpp"
@@ -42,6 +43,7 @@ extern template class dk::WebAdapter<RobotContext, Engine>;
 extern template class dk::MavsdkAdapter<RobotContext, Engine>;
 extern template class dk::UdpAdapter<RobotContext, Engine, CommandType>;
 extern template class dk::CanAdapter<RobotContext, Engine>;
+extern template class dk::MqttClientAdapter<RobotContext, Engine>;
 #ifdef USE_ROS
 extern template class dk::RosAdapter<RobotContext, Engine>;
 #endif
@@ -62,6 +64,7 @@ class CoreNode {
     using WebAdapterType = dk::WebAdapter<ContextType, Engine>;
     using UdpAdpterType = dk::UdpAdapter<ContextType, Engine, CommandType>;
     using CanAdapterType = dk::CanAdapter<ContextType, Engine>;
+    using MqttAdapterType = dk::MqttClientAdapter<ContextType, Engine>;
 
    private:
     boost::asio::io_context global_io_;
@@ -80,6 +83,8 @@ class CoreNode {
     std::shared_ptr<WebAdapterType> web_adapter_;
     std::shared_ptr<UdpAdpterType> udp_adapter_;
     std::shared_ptr<CanAdapterType> can_adapter_;
+    std::shared_ptr<MqttAdapterType> mqtt_adapter_;
+
     std::shared_ptr<MavsdkAdapterType> mavsdk_adapter_;
     std::shared_ptr<mavsdk::Mavsdk> mavsdk_;
     std::shared_ptr<mavsdk::System> mavsdk_system_;
@@ -150,6 +155,18 @@ class CoreNode {
         web_adapter_ = std::make_shared<WebAdapterType>(engine_, server_port);
         auto ws_mgr = web_adapter_->get_manager();
         engine_->get_context().ws_manager = ws_mgr;
+
+        std::string mqtt_host = cfg.mqtt_host;
+        unsigned int mqtt_port = cfg.mqtt_port;
+
+        mqtt_adapter_ =
+            std::make_shared<dk::MqttClientAdapter<RobotContext, Engine>>(
+                engine_, mqtt_host, mqtt_port);
+        engine_->get_context().mqtt_client = mqtt_adapter_;
+
+        AssemblerType::template setup<TagMqtt>(engine_->get_context(),
+                                               mqtt_adapter_);
+        mqtt_adapter_->connect();
 
         dk::ConnectionManager::on_conn_removed = [](size_t id) {
             fglog::disable_ws_connection(id);

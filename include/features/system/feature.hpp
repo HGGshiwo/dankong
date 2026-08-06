@@ -8,8 +8,10 @@
 #include "core/engine.hpp"
 #include "core/global_config.hpp"
 #include "core/tag.hpp"
+#include "dk/adapters/mqtt.hpp"
 #include "dk/adapters/udp/udp.hpp"
 #include "dk/adapters/web/adapter.hpp"
+#include "robot_context.hpp"
 #include "utils/get_executable_path.hpp"
 
 class SystemFeature {

@@ -12,6 +12,7 @@
 #include "features/tracker/tracker.hpp"
 #include "robot_context.hpp"
 #include "spdlog/spdlog.h"
+#include "states/arm_state.hpp"
 #include "states/hover_state.hpp"
 #include "states/posvel_state.hpp"
 #include "states/state_common.hpp"
@@ -26,8 +27,15 @@ class PosVelState : public dk::BaseState<RobotContext, PosVelState<ParentState>,
 
     explicit PosVelState(SetPosVelEvent e);
 
-    // [修改点 1]：增加父状态的 on_enter，作为控制开始时的初始化
     StateAction on_enter(RobotContext& ctx) override {
+        if (!ctx.arm.load()) {
+            auto flags = get_state_flags(ctx);
+            if (ctx.robot->should_arm_before_enter(flags)) {
+                return StateAction::step<ArmState>(std::tuple(
+                    StateAction::step<PosVelState<ParentState>::MoveState>(
+                        std::tuple(event_), std::tuple<>())));
+            }
+        }
         start_time_ = ctx.engine->get_time_provider()->now();
         last_tick_time_ = start_time_;
         current_vel_xy_ = Eigen::Vector2d::Zero();

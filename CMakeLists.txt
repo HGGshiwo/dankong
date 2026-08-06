@@ -90,10 +90,10 @@ find_package(OpenSSL REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GeographicLib REQUIRED geographiclib)
 
-find_program(CCACHE_PROGRAM ccache)
-if(CCACHE_PROGRAM)
-    set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
-endif()
+# find_program(CCACHE_PROGRAM ccache)
+# if(CCACHE_PROGRAM)
+#     set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+# endif()
 # ------------------------------------------------------------------------------
 # 2. 第三方依赖 (FetchContent)
 # ------------------------------------------------------------------------------
@@ -157,7 +157,17 @@ endif()
 # ROS 2 通常通过 ament_target_dependencies 管理 include，无需加入全局
 include_directories(${GLOBAL_INCLUDE_DIRS})
 
-set(BASE_STATE_SRC src/states/ground_state.cpp src/states/hover_state.cpp src/states/init_state.cpp src/states/land_state.cpp src/states/state_utils.cpp src/states/takeoff_state.cpp src/states/waypoint_state.cpp)
+set(BASE_STATE_SRC 
+    src/states/arm_state.cpp 
+    src/states/ground_state.cpp 
+    src/states/hover_state.cpp 
+    src/states/init_state.cpp 
+    src/states/land_state.cpp 
+    src/states/state_utils.cpp 
+    src/states/takeoff_state.cpp 
+    src/states/waypoint_state.cpp 
+    src/states/state_common.cpp
+)
 
 if(ROS_SUPPORT STREQUAL "ROS1")
     if(ROBOT STREQUAL "drone")
@@ -185,6 +195,7 @@ set(BASE_ADAPTER_SRC
     src/adapters/udp_adapter_inst.cpp
     src/adapters/can_adapter_inst.cpp
     src/adapters/ros_adapter_inst.cpp
+    src/adapters/mqtt_adapter_inst.cpp
 )
 
 # ==============================================================================

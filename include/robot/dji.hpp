@@ -41,6 +41,11 @@ class DjiDrone : public IRobot {
         // 由于是纯 UDP，这里的 mavlink 可能为空或者仅占位
     }
 
+    bool should_arm_before_enter(const StateFlags& flags) override {
+        return flags.is_takeoff || flags.is_waypoint || flags.is_follow ||
+               flags.is_posvel || flags.is_hover || flags.is_land;
+    }
+
     // 核心速度控制：将 Eigen 向量直接映射到 DJI UDP 的 CmdVelocity 结构中
     bool cmd_vel(Eigen::Vector4d vel) override {
         CmdVelocity cmd_payload;

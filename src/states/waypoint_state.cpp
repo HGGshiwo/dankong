@@ -5,10 +5,12 @@
 #include <optional>
 #include <stdexcept>
 
+#include "features/report/event_listener.hpp"
 #include "features/tracker/tracker.hpp"
 #include "mavlink/imavlink.hpp"
 #include "robot_context.hpp"
 #include "spdlog/spdlog.h"
+#include "states/arm_state.hpp"
 #include "states/ground_state.hpp"
 #include "states/hover_state.hpp"
 #include "states/state_common.hpp"
@@ -17,7 +19,8 @@
 using josn = nlohmann::json;
 
 WaypointState::WaypointState(SetWaypointEvent e)
-    : wp_list_(e.waypoint),
+    : event_(e),
+      wp_list_(e.waypoint),
       wp_idx_(0),
       action_(e.finish_action),
       node_event_list_(e.nodeEventList),
@@ -25,11 +28,28 @@ WaypointState::WaypointState(SetWaypointEvent e)
       target_vel_(e.speed) {}
 
 StateAction WaypointState::on_enter(RobotContext& ctx) {
-    // 现在一定是起飞中了
+    if (!ctx.arm.load()) {
+        auto flags = get_state_flags(ctx);
+        if (ctx.robot->should_arm_before_enter(flags)) {
+            return StateAction::step<ArmState>(std::tuple(
+                StateAction::step<WaypointState>(std::tuple(event_))));
+        }
+    }
+    // 直接全部转为局部坐标
+    if (!event_.local) {
+        Eigen::Vector3d lon_lat_alt = ctx.lon_lat_alt.load();
+        Eigen::Vector3d pos_enu = ctx.pos_enu.load();
+        for (auto& wp : wp_list_) {
+            wp = state_utils::gps_to_enu(lon_lat_alt, pos_enu, wp);
+        }
+    }
+
+    // 保证一定是有局部坐标的
+    Eigen::Vector3d takeoff_pos = ctx.takeoff_enu.load().value();
 
     // return 转为land情况
     if (action_ == FinishAction::RETURN) {
-        wp_list_.push_back(ctx.takeoff_lon_lat_alt.load());
+        wp_list_.push_back(takeoff_pos);
     }
     if (wp_list_.size() == 0) {
         // 直接执行剩余命令
@@ -45,7 +65,7 @@ StateAction WaypointState::on_enter(RobotContext& ctx) {
     }
     if (wp_list_.size() == 1) {
         // 偷懒没有传第一个点
-        wp_list_.insert(wp_list_.begin(), ctx.takeoff_lon_lat_alt.load());
+        wp_list_.insert(wp_list_.begin(), takeoff_pos);
     }
 
     // 计算真实的航点
@@ -61,9 +81,9 @@ StateAction WaypointState::on_enter(RobotContext& ctx) {
         }
         auto cur_wp = wp_list_[i];
         wp_data.push_back(json{{"num", i},
-                               {"lon", cur_wp.x()},
-                               {"lat", cur_wp.y()},
-                               {"alt", cur_wp.z()},
+                               {"enu_x", cur_wp.x()},
+                               {"enu_y", cur_wp.y()},
+                               {"enu_z", cur_wp.z()},
                                {"command", command}});
     }
     ctx.mission_data.store(wp_data);
@@ -100,7 +120,7 @@ StateAction WaypointState::LiftingState::on_enter(RobotContext& ctx) {
         STALL_TIMEOUT, now);
 
     auto cur_wp = parent()->get_cur_wp();
-    auto diff = state_utils::get_relevant_enu(ctx.lon_lat_alt.load(), cur_wp);
+    auto diff = cur_wp - ctx.pos_enu.load();
     target_alt_ = cur_wp.z();
     target_yaw_ = diff.head<2>().norm() < CLOSE_THRESH
                       ? ctx.yaw_enu.load()
@@ -111,7 +131,7 @@ StateAction WaypointState::LiftingState::on_enter(RobotContext& ctx) {
 StateAction WaypointState::LiftingState::on_tick(double dt, RobotContext& ctx) {
     // 达到目标的高度和航向退出
     double yaw_diff = state_utils::get_yaw_diff(target_yaw_, ctx.yaw_enu);
-    double alt_diff = fabs(target_alt_ - ctx.lon_lat_alt.load().z());
+    double alt_diff = fabs(target_alt_ - ctx.pos_enu.load().z());
 
     if (yaw_diff < YAW_TOLERANCE &&
         (!ctx.robot->is_alt_enable() || alt_diff < ALT_TOLERANCE)) {
@@ -121,12 +141,12 @@ StateAction WaypointState::LiftingState::on_tick(double dt, RobotContext& ctx) {
     }
 
     double now = ctx.engine->get_time_provider()->now();
-    if (checker_->is_stall({ctx.yaw_enu, ctx.lon_lat_alt.load().z()}, now)) {
+    if (checker_->is_stall({ctx.yaw_enu, ctx.pos_enu.load().z()}, now)) {
         return step<WaypointState::ExcuteState>();
     }
 
-    double vz = std::clamp(target_alt_ - ctx.lon_lat_alt.load().z(), -MAX_Z_VEL,
-                           MAX_Z_VEL);
+    double vz =
+        std::clamp(target_alt_ - ctx.pos_enu.load().z(), -MAX_Z_VEL, MAX_Z_VEL);
     ctx.tracker->send_vel_cmd(Eigen::Vector3d{0.0, 0.0, vz}, target_yaw_,
                               std::nullopt, CmdFrame::ENU);
     return StateAction::unhandled();
@@ -151,19 +171,9 @@ bool WaypointState::ExcuteState::check_arrive(RobotContext& ctx) {
 StateAction WaypointState::ExcuteState::on_enter(RobotContext& ctx) {
     auto wp = parent()->get_cur_wp();
     auto datum = ctx.datum.getReliableDatum();
-    Eigen::Vector3d lon_lat_alt = ctx.lon_lat_alt.load();
     Eigen::Vector3d pos_enu = ctx.pos_enu.load();
+    wp_goal_ = wp;
 
-    if (!datum.has_value()) {
-        // 理论上不会出现退化到当前值
-        spdlog::error(
-            "[Waypoint] can not get reliable datum, this may never happen!");
-    } else {
-        lon_lat_alt = datum->gps;
-        pos_enu = datum->enu;
-    }
-
-    wp_goal_ = state_utils::gps_to_enu(lon_lat_alt, pos_enu, wp);
     if (!ctx.set_waypoint_goal.has_value()) {
         ctx.tracker->send_pos_cmd(wp_goal_, std::nullopt, std::nullopt,
                                   std::nullopt, parent()->target_vel_,
@@ -190,16 +200,11 @@ StateAction WaypointState::ExcuteState::on_enter(RobotContext& ctx) {
 StateAction WaypointState::ExcuteState::on_arrive(RobotContext& ctx) {
     parent()->wp_idx_ += 1;
     ctx.wp_idx.store(parent()->wp_idx_);
-
-    // 发布数据
-    json j = json{{"total", parent()->wp_list_.size()},
-                  {"cur", ctx.wp_idx.load()},
-                  {"type", "event"},
-                  {"event", "progress"}};
-    ctx.ws_manager->publish_state("progress", j);
+    ctx.engine->dispatch(TaskProgressEvent{
+        ctx.wp_idx.load(), static_cast<int>(parent()->wp_list_.size())});
 
     if (parent()->wp_idx_ >= parent()->wp_list_.size()) {
-        parent()->report_task_done(ctx);
+        ctx.engine->dispatch(TaskDoneEvent{});
         if (parent()->action_ != FinishAction::HOVER)
             return step<LandState>(std::tuple(parent()->do_pland_));
         else
