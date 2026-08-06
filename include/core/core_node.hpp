@@ -151,13 +151,13 @@ class CoreNode {
         YamlHelper::save(json_cfg, get_config_dir(cfg.json_path.get()));
 
         // 创建适配器
-        unsigned int server_port = args.port.value_or(cfg.server_port);
+        unsigned int server_port = args.port.value_or(cfg.server_port.get());
         web_adapter_ = std::make_shared<WebAdapterType>(engine_, server_port);
         auto ws_mgr = web_adapter_->get_manager();
         engine_->get_context().ws_manager = ws_mgr;
 
-        std::string mqtt_host = cfg.mqtt_host;
-        unsigned int mqtt_port = cfg.mqtt_port;
+        std::string mqtt_host = cfg.mqtt_host.get();
+        unsigned int mqtt_port = cfg.mqtt_port.get();
 
         mqtt_adapter_ =
             std::make_shared<dk::MqttClientAdapter<RobotContext, Engine>>(

@@ -46,6 +46,7 @@ class ReportEventListener
         // 把Data转为云端需要的格式
         rename_key(data, "gps", "gpsLocation");
         rename_key(data, "pos_enu", "mapLocation");
+        rename_key(data, "battery_remaining", "battery");
         ctx.mqtt_client->publish(
             fmt::format("device/{}/state", deviceCode.value()), data, 0, false);
     }

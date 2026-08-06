@@ -1,7 +1,7 @@
 auto_heading_enable_dist_m: 1
 can_name: can0
 command_timeout_sec: 0.5
-device_code: UAV-S-001
+device_code: UAV-S-005
 fcu_data_rate: 10
 fcu_timeout: 5
 fg_log_dir: logs/fg_log.jsonl
@@ -36,8 +36,8 @@ max_vel_xy: 3
 max_vel_yaw: 1.5
 max_vel_z: 1
 min_lookahead: 0.5
-mqtt_host: localhost
-mqtt_port: 1883
+mqtt_host: 192.168.2.14
+mqtt_port: 41883
 msg_interval_rate: 30
 pdef_path: config/apm.pdef.xml
 pos_tolerance: 1

@@ -8,7 +8,9 @@
 #include "core/tag.hpp"
 #include "dk/adapters/mqtt.hpp"
 #include "robot_context.hpp"
-
+#if USE_ROS
+#include "dk/adapters/ros.hpp"
+#endif
 // 数据上报
 class ReportFeature {
    public:
@@ -80,6 +82,7 @@ class ReportFeature {
                         config.device_code.set(
                             std::make_optional<std::string>(device_code));
                         GlobalConfig.save();
+                        mqtt->connect(device_code);
                         register_topic(ctx, mqtt);
                         spdlog::info("[Mqtt] register with code: {}",
                                      device_code);
@@ -91,4 +94,17 @@ class ReportFeature {
             mqtt->connect();  // 先注册
         }
     }
+
+#if USE_ROS1
+    static void setup(
+        TagRos, std::shared_ptr<dk::RosAdapter<RobotContext, Engine>>& ros) {
+        ros->bind_event(
+            "/abnormal",
+            [](const std_msgs::String::ConstPtr& msg) -> AbnormalEvent {
+                AbnormalEvent e;
+                e.data = msg->data;
+                return e;
+            });
+    }
+#endif
 };

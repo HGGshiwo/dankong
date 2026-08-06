@@ -52,17 +52,6 @@ class AlgoFeature {
     }
 
     static void setup(TagListeners, const std::shared_ptr<Engine>& engine);
-
-    static void setup(
-        TagRos, std::shared_ptr<dk::RosAdapter<RobotContext, Engine>>& ros) {
-        ros->bind_event(
-            "/abnormal",
-            [](const std_msgs::String::ConstPtr& msg) -> AbnormalEvent {
-                AbnormalEvent e;
-                e.data = msg->data;
-                return e;
-            });
-    }
 };
 
 #include "./event_listener.hpp"
