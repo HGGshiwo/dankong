@@ -25,16 +25,29 @@ WaypointState::WaypointState(SetWaypointEvent e)
       action_(e.finish_action),
       node_event_list_(e.nodeEventList),
       do_pland_(e.do_pland),
+      skip_lifting_(e.skip_lifting),
       target_vel_(e.speed) {}
 
-StateAction WaypointState::on_enter(RobotContext& ctx) {
+StateAction WaypointState::before_enter(RobotContext& ctx,
+                                        const SetWaypointEvent& e) {
     if (!ctx.arm.load()) {
-        auto flags = get_state_flags(ctx);
+        StateFlags flags{.is_waypoint = true, .local = e.local};
         if (ctx.robot->should_arm_before_enter(flags)) {
-            return StateAction::step<ArmState>(std::tuple(
-                StateAction::step<WaypointState>(std::tuple(event_))));
+            return StateAction::plan([](auto& plan, auto& /*ctx*/) {
+                plan.template push_front<ArmState>();
+            });
         }
     }
+    return StateAction::handled();
+}
+
+namespace {
+constexpr double CLOSE_THRESH = 0.1;  // 两个点足够近视为同一个点
+constexpr double TURN_ANGLE_THRESH =
+    60.0 * M_PI / 180.0;  // 航向夹角大于60度停下来调整朝向
+}  // namespace
+
+StateAction WaypointState::on_enter(RobotContext& ctx) {
     // 直接全部转为局部坐标
     if (!event_.local) {
         Eigen::Vector3d lon_lat_alt = ctx.lon_lat_alt.load();
@@ -44,12 +57,23 @@ StateAction WaypointState::on_enter(RobotContext& ctx) {
         }
     }
 
+    // 初始化暂留点标记列表
+    is_dwell_point_.assign(event_.waypoint.size(), !skip_lifting_);
+    if (skip_lifting_) {
+        for (int idx : event_.dwell_indices) {
+            if (idx >= 0 && idx < (int)is_dwell_point_.size()) {
+                is_dwell_point_[idx] = true;
+            }
+        }
+    }
+
     // 保证一定是有局部坐标的
     Eigen::Vector3d takeoff_pos = ctx.takeoff_enu.load().value();
 
     // return 转为land情况
     if (action_ == FinishAction::RETURN) {
         wp_list_.push_back(takeoff_pos);
+        is_dwell_point_.push_back(true);
     }
     if (wp_list_.size() == 0) {
         // 直接执行剩余命令
@@ -66,6 +90,31 @@ StateAction WaypointState::on_enter(RobotContext& ctx) {
     if (wp_list_.size() == 1) {
         // 偷懒没有传第一个点
         wp_list_.insert(wp_list_.begin(), takeoff_pos);
+        is_dwell_point_.insert(is_dwell_point_.begin(), true);
+    }
+
+    // 相邻航段夹角大于阈值时（>60度），自动标记为暂留点，先停下来调整朝向和高度再飞下一段
+    for (size_t i = 1; i + 1 < wp_list_.size(); ++i) {
+        Eigen::Vector2d v1 = (wp_list_[i] - wp_list_[i - 1]).head<2>();
+        Eigen::Vector2d v2 = (wp_list_[i + 1] - wp_list_[i]).head<2>();
+        if (v1.norm() > CLOSE_THRESH && v2.norm() > CLOSE_THRESH) {
+            double cos_theta = v1.dot(v2) / (v1.norm() * v2.norm());
+            cos_theta = std::clamp(cos_theta, -1.0, 1.0);
+            double turn_angle = std::acos(cos_theta);
+            if (turn_angle > TURN_ANGLE_THRESH) {
+                is_dwell_point_[i] = true;
+                spdlog::info(
+                    "[WaypointState] Waypoint {} turn angle {:.1f} deg > "
+                    "{:.1f} deg, marked as dwell point",
+                    i, turn_angle * 180.0 / M_PI,
+                    TURN_ANGLE_THRESH * 180.0 / M_PI);
+            }
+        }
+    }
+
+    // 确保最后一个点一定是暂留点
+    if (!is_dwell_point_.empty()) {
+        is_dwell_point_.back() = true;
     }
 
     // 计算真实的航点
@@ -88,6 +137,7 @@ StateAction WaypointState::on_enter(RobotContext& ctx) {
     }
     ctx.mission_data.store(wp_data);
     wp_list_.erase(wp_list_.begin());
+    is_dwell_point_.erase(is_dwell_point_.begin());
     ctx.wp_idx.store(0);
     return StateAction::unhandled();
 }
@@ -104,7 +154,6 @@ Eigen::Vector3d WaypointState::get_cur_wp() {
 inline double MAX_Z_VEL = 1.0;
 double YAW_STALL_THRESH = 0.1;
 double ALT_STALL_THRESH = 0.1;
-inline double CLOSE_THRESH = 0.1;  // 两个点足够近视为同一个点
 double YAW_TOLERANCE = 0.1;
 double ALT_TOLERANCE = 2.0;
 double STALL_TIMEOUT = 3.0;
@@ -158,13 +207,17 @@ void WaypointState::LiftingState::on_exit(RobotContext& ctx) {
 }
 
 //============= excute_state =============
-
-double TOLERANCE = 1.2;
 bool WaypointState::ExcuteState::check_arrive(RobotContext& ctx) {
     if (!ctx.odom_ok) return false;
     double dist = ctx.robot->get_distance(ctx.pos_enu.load(), wp_goal_);
     ctx.dist_to_target.store(std::round(dist * 100.0) / 100.0);
-    return dist < TOLERANCE;
+
+    if (parent()->wp_idx_ < (int)parent()->is_dwell_point_.size() &&
+        parent()->is_dwell_point_[parent()->wp_idx_]) {
+        return dist < GlobalConfig.GetConfig().waypoint_tolerance.get();
+    } else {
+        return dist < GlobalConfig.GetConfig().non_dwell_tolerance.get();
+    }
 }
 
 // 执行当前wp_idx指向的航点
@@ -174,24 +227,35 @@ StateAction WaypointState::ExcuteState::on_enter(RobotContext& ctx) {
     Eigen::Vector3d pos_enu = ctx.pos_enu.load();
     wp_goal_ = wp;
 
-    if (!ctx.set_waypoint_goal.has_value()) {
-        ctx.tracker->send_pos_cmd(wp_goal_, std::nullopt, std::nullopt,
-                                  std::nullopt, parent()->target_vel_,
-                                  std::nullopt, std::nullopt, CmdFrame::ENU);
-    } else {
-        ctx.set_waypoint_goal.value()(wp_goal_, parent()->target_vel_);
+    std::vector<TrackerWaypoint> path;
+    for (size_t j = parent()->wp_idx_; j < parent()->wp_list_.size(); ++j) {
+        TrackerWaypoint tracker_wp;
+        tracker_wp.pos = parent()->wp_list_[j];
+        tracker_wp.frame = CmdFrame::ENU;
+        tracker_wp.fb_speed_limit_xy = parent()->target_vel_;
+
+        path.push_back(std::move(tracker_wp));
+
+        // 如果遇到了暂留点，说明是一段轨迹的结尾，切断并停止添加后续点
+        if (j < parent()->is_dwell_point_.size() &&
+            parent()->is_dwell_point_[j]) {
+            break;
+        }
     }
+    ctx.tracker->send_pos_cmd(path);
 
     if (parent()->node_event_list_.has_value()) {
         auto events = parent()->node_event_list_.value().at(parent()->wp_idx_);
-        spdlog::info("run event: {}", events.dump());
+        spdlog::info("[WaypointEvent] run event for wp_idx: {}: {}",
+                     parent()->wp_idx_, events.dump());
         if (!events.is_null()) {
             for (const auto& event : events) {
                 run_wp_event(ctx, event);
             }
         }
     } else {
-        spdlog::info("no event for wp_idx: {}!", parent()->wp_idx_);
+        spdlog::info("[WaypointEvent] no event for wp_idx: {}!",
+                     parent()->wp_idx_);
     }
 
     return StateAction::unhandled();
@@ -205,12 +269,18 @@ StateAction WaypointState::ExcuteState::on_arrive(RobotContext& ctx) {
 
     if (parent()->wp_idx_ >= parent()->wp_list_.size()) {
         ctx.engine->dispatch(TaskDoneEvent{});
-        if (parent()->action_ != FinishAction::HOVER)
-            return step<LandState>(std::tuple(parent()->do_pland_));
-        else
-            return step<HoverState>();
+        return StateAction::next();
     }
-    return step<WaypointState::LiftingState>();
+
+    // 如果刚到达的这个点是暂留点，进入 LiftingState
+    // 调整姿态，否则直接进入下一航点的 ExcuteState
+    if (parent()->wp_idx_ - 1 < (int)parent()->is_dwell_point_.size() &&
+        parent()->is_dwell_point_[parent()->wp_idx_ - 1]) {
+        return step<WaypointState::LiftingState>();
+    } else {
+        return step<WaypointState::ExcuteState>()
+            .reenter_from<WaypointState::ExcuteState>();
+    }
 }
 
 StateAction WaypointState::ExcuteState::on_tick(double dt, RobotContext& ctx) {
@@ -224,7 +294,9 @@ StateAction WaypointState::ExcuteState::on_tick(double dt, RobotContext& ctx) {
 
 StateAction WaypointState::ExcuteState::on_event(const WpArriveEvent& event,
                                                  RobotContext& ctx) {
-    return on_arrive(ctx);
+    // 这个会和waypoint自带的arrive检查冲突，考虑更加优雅的实现
+    // return on_arrive(ctx);
+    return StateAction::unhandled();
 }
 
 void WaypointState::ExcuteState::run_wp_event(RobotContext& ctx,

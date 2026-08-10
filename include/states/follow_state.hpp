@@ -1,5 +1,6 @@
 #pragma once
 #include <chrono>
+#include <tuple>
 
 #include "core/global_config.hpp"
 #include "features/tracker/tracker.hpp"
@@ -24,15 +25,20 @@ class FollowState : public dk::BaseState<RobotContext, FollowState<ParentState>,
         on_event(event, ctx);
     }
 
-    StateAction on_enter(RobotContext& ctx) override {
+    static StateAction before_enter(RobotContext& ctx, const DetectEvent& event,
+                                    RobotContext& /*ctx_param*/) {
         if (!ctx.arm.load()) {
-            auto flags = get_state_flags(ctx);
+            StateFlags flags{.is_follow = true};
             if (ctx.robot->should_arm_before_enter(flags)) {
-                return StateAction::step<ArmState>(
-                    std::tuple(StateAction::step<FollowState<ParentState>>(
-                        std::make_tuple(event_, std::ref(ctx)))));
+                return StateAction::plan([](auto& plan, auto& /*ctx*/) {
+                    plan.template push_front<ArmState>();
+                });
             }
         }
+        return StateAction::handled();
+    }
+
+    StateAction on_enter(RobotContext& ctx) override {
         return StateAction::unhandled();
     }
 
@@ -69,11 +75,7 @@ StateAction FollowState<ParentState>::on_tick(double dt, RobotContext& ctx) {
     if (state_utils::get_time_span(last_time_, now) >
         GlobalConfig.GetConfig().follow_timeout) {
         spdlog::error("[FollowState] follow timeout!");
-        if constexpr (std::is_same_v<ParentState, HoverState>)
-            return this->template step<HoverState>();
-        if constexpr (std::is_same_v<ParentState, WaypointState>)
-            return this->template step<WaypointState::LiftingState>();
-        return this->template step<HoverState>();
+        return StateAction::next();
     }
     // 必须handle住，否则走的是Hover的
     return StateAction::handled();

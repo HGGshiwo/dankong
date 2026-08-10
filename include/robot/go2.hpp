@@ -1,4 +1,6 @@
 #pragma once
+#include <geometry_msgs/TwistStamped.h>
+
 #include <boost/beast/http/verb.hpp>
 #include <memory>
 #include <optional>
@@ -22,19 +24,24 @@ class Go2 : public IRobot {
    private:
     RobotContext& ctx_;
     std::atomic<bool> standing_{false};
+    ros::Publisher cmd_vel_pub_;
 
    public:
     Go2(std::shared_ptr<IMavlink> mavlink, RobotContext& ctx)
         : IRobot(mavlink), ctx_(ctx) {
-        ctx.set_waypoint_goal = [this](Eigen::Vector3d target_enu,
-                                       std::optional<double> vel) {
-            this->push_message(fmt::format("前往地图点{}米{}米", target_enu.x(),
-                                           target_enu.y()));
-        };
+        // ctx.set_waypoint_goal = [this](Eigen::Vector3d target_enu,
+        //                                std::optional<double> vel) {
+        //     this->push_message(fmt::format("前往地图点{}米{}米",
+        //     target_enu.x(),
+        //                                    target_enu.y()));
+        // };
+        ros::NodeHandle nh;
+        cmd_vel_pub_ = nh.advertise<geometry_msgs::Twist>("/cmd_vel", 1);
     }
 
     bool should_arm_before_enter(const StateFlags& flags) override {
-        return flags.is_waypoint && !flags.local;
+        return flags.is_waypoint || flags.is_follow || flags.is_posvel ||
+               flags.is_hover;
     }
 
     void push_message(std::string msg) {
@@ -78,8 +85,15 @@ class Go2 : public IRobot {
         return true;
     };
 
-    bool cmd_vel(Eigen::Vector4d) override {
-        return true;  // 不支持
+    bool cmd_vel(Eigen::Vector4d data) override {
+        auto msg = geometry_msgs::Twist();
+        msg.linear.x = data.x();
+        msg.linear.y = data.y();
+        msg.linear.z = data.z();
+        msg.angular.z = data.w();
+
+        cmd_vel_pub_.publish(msg);
+        return true;
     };
 
     bool inner_check_hover(HoverArgs args) override {

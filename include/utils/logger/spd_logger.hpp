@@ -16,6 +16,10 @@
 #include "spdlog/spdlog.h"
 #include "utils/get_executable_path.hpp"
 
+#define LOG_STATE_STEP(state)                                            \
+    spdlog::info("step to state {} from file={} line={} func={}", state, \
+                 __FILE__, __LINE__, __FUNCTION__)
+
 inline void init_spd_logger() {
     try {
         // 0. 显式初始化全局无锁线程池：设置队列大小为 8192，工作线程数为 1 个

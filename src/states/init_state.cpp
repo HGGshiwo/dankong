@@ -2,6 +2,11 @@
 
 StateAction InitState::on_tick(double dt, RobotContext& ctx) {
     if (!ctx.odom_ok) return StateAction::unhandled();
-    return ctx.robot->check_hover(ctx) ? step<HoverState>()
-                                       : step<GroundState>();
+    if (ctx.robot->check_hover(ctx)) {
+        LOG_STATE_STEP("HoverState");
+        return step<HoverState>();
+    } else {
+        LOG_STATE_STEP("GroundState");
+        return step<GroundState>();
+    }
 }

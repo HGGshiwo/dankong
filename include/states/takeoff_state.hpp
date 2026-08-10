@@ -1,7 +1,7 @@
 #pragma once
 #include <chrono>
 #include <memory>
-#include <variant>
+#include <optional>
 
 #include "core/global_config.hpp"
 #include "features/control/events.hpp"
@@ -11,25 +11,22 @@
 #include "robot_context.hpp"
 #include "state_common.hpp"
 #include "state_utils.hpp"
-#include "waypoint_state.hpp"
 
 class TakeoffState : public dk::BaseState<RobotContext, TakeoffState, void> {
    public:
     using AllowedEvents = std::tuple<>;
-    using TriggerEvent = std::variant<SetWaypointEvent, TakeoffEvent>;
-    double start_time_;
-    TriggerEvent event_;
-    double alt_;
-
-    // 和waypoint相关
-    bool step_waypoint_ = false;  // 是否进入waypoint
+    double start_time_{0.0};
+    std::optional<TakeoffEvent> event_;
+    double alt_{0.0};
 
     std::shared_ptr<state_utils::StallChecker<1>> checker_;
 
    public:
-    TakeoffState(TakeoffEvent e);
-    TakeoffState(SetWaypointEvent e);
+    explicit TakeoffState(TakeoffEvent e);
+    explicit TakeoffState(double alt);
 
+    static StateAction before_enter(RobotContext& ctx, const TakeoffEvent& e);
+    static StateAction before_enter(RobotContext& ctx, double alt);
     StateAction on_enter(RobotContext& ctx) override;
     StateAction on_tick(double dt, RobotContext& ctx) override;
 

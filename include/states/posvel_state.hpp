@@ -24,23 +24,22 @@ class PosVelState : public dk::BaseState<RobotContext, PosVelState<ParentState>,
                                          ParentState> {
    public:
     static constexpr std::string_view static_name() { return "指点控制"; }
+    PosVelState(SetPosVelEvent e);
 
-    explicit PosVelState(SetPosVelEvent e);
-
-    StateAction on_enter(RobotContext& ctx) override {
+    static StateAction before_enter(RobotContext& ctx,
+                                    const SetPosVelEvent& e) {
         if (!ctx.arm.load()) {
-            auto flags = get_state_flags(ctx);
+            StateFlags flags{.is_posvel = true};
             if (ctx.robot->should_arm_before_enter(flags)) {
-                return StateAction::step<ArmState>(std::tuple(
-                    StateAction::step<PosVelState<ParentState>::MoveState>(
-                        std::tuple(event_), std::tuple<>())));
+                return StateAction::plan([](auto& plan, auto& /*ctx*/) {
+                    plan.template push_front<ArmState>();
+                });
             }
         }
-        start_time_ = ctx.engine->get_time_provider()->now();
-        last_tick_time_ = start_time_;
-        current_vel_xy_ = Eigen::Vector2d::Zero();
-        current_z_speed_ = 0.0;
-        is_first_tick_ = true;
+        return StateAction::handled();
+    }
+
+    StateAction on_enter(RobotContext& ctx) override {
         return StateAction::unhandled();
     }
 
@@ -135,13 +134,7 @@ StateAction PosVelState<ParentState>::on_event(const SetPosVelEvent& e,
 
 template <typename ParentState>
 StateAction PosVelState<ParentState>::get_next_state() {
-    if constexpr (std::is_same_v<ParentState, HoverState>)
-        return this->template step<HoverState>();
-    if constexpr (std::is_same_v<ParentState, WaypointState>)
-        return this->template step<WaypointState::LiftingState>();
-
-    spdlog::warn("[PosvelState] Unexpected parent, switch to Hover");
-    return this->template step<HoverState>();
+    return StateAction::next();
 }
 
 template <typename ParentState>
@@ -180,6 +173,12 @@ void PosVelState<ParentState>::MoveState::base_move(RobotContext& ctx) {
 
 template <typename ParentState>
 StateAction PosVelState<ParentState>::MoveState::on_enter(RobotContext& ctx) {
+    auto p = this->parent();
+    p->start_time_ = ctx.engine->get_time_provider()->now();
+    p->last_tick_time_ = p->start_time_;
+    p->current_vel_xy_ = Eigen::Vector2d::Zero();
+    p->current_z_speed_ = 0.0;
+    p->is_first_tick_ = true;
     base_move(ctx);
     return StateAction::unhandled();
 }

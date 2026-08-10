@@ -6,6 +6,10 @@
 #include "states/takeoff_state.hpp"
 
 StateAction GroundState::on_tick(double dt, RobotContext& ctx) {
-    return ctx.robot->check_hover(ctx) ? step<HoverState>()
-                                       : StateAction::unhandled();
+    if (ctx.robot->check_hover(ctx)) {
+        LOG_STATE_STEP("HoverState");
+        return step<HoverState>();
+    } else {
+        return StateAction::unhandled();
+    }
 }

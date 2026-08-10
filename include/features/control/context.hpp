@@ -256,9 +256,6 @@ struct ControlContext {
     DirtyVar<double> roll;
     DirtyVar<double> pitch;
 
-    std::optional<std::function<void(Eigen::Vector3d, std::optional<double>)>>
-        set_waypoint_goal = std::nullopt;
-
     PoseHistory pose_history;
 
     DatumSynchronizer datum;

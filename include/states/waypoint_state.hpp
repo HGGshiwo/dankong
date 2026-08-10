@@ -20,6 +20,8 @@ class WaypointState : public dk::BaseState<RobotContext, WaypointState, void> {
     std::optional<double> target_vel_;  // 期望的速度
 
     bool do_pland_ = false;
+    bool skip_lifting_ = true;
+    std::vector<bool> is_dwell_point_;
     int wp_idx_;  // 当前点的序号
 
    private:
@@ -34,6 +36,8 @@ class WaypointState : public dk::BaseState<RobotContext, WaypointState, void> {
    public:
     using AllowedEvents = std::tuple<>;
 
+    static StateAction before_enter(RobotContext& ctx,
+                                    const SetWaypointEvent& e);
     StateAction on_enter(RobotContext& ctx) override;
 
     void on_exit(RobotContext& ctx) override;
@@ -83,7 +87,7 @@ class WaypointState::ExcuteState
    public:
     ExcuteState() = default;
 
-    static constexpr std::string_view static_name() { return "航点模式"; }
+    static constexpr std::string_view static_name() { return "执行航点"; }
 
     bool check_arrive(RobotContext& ctx);
 

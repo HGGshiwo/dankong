@@ -1,5 +1,5 @@
-#ifdef USE_ROS
 #pragma once
+#ifdef USE_ROS
 #include <Eigen/Dense>
 
 #include "core/event_result.hpp"

@@ -158,7 +158,6 @@ endif()
 include_directories(${GLOBAL_INCLUDE_DIRS})
 
 set(BASE_STATE_SRC 
-    src/states/arm_state.cpp 
     src/states/ground_state.cpp 
     src/states/hover_state.cpp 
     src/states/init_state.cpp 

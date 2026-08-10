@@ -23,6 +23,8 @@ struct SetWaypointEvent : dk::AsyncEvent<EventResult> {
     bool do_pland = false;
     FinishAction finish_action = FinishAction::HOVER;
     bool local = false;
+    bool skip_lifting = true;
+    std::vector<int> dwell_indices;
 };
 
 //@JSON_ENABLE
