@@ -1,7 +1,7 @@
 #pragma once
 #include <chrono>
 #include <memory>
-#include <variant>
+#include <optional>
 
 #include "core/global_config.hpp"
 #include "features/control/events.hpp"
@@ -11,79 +11,29 @@
 #include "robot_context.hpp"
 #include "state_common.hpp"
 #include "state_utils.hpp"
-#include "waypoint_state.hpp"
 
 class TakeoffState : public dk::BaseState<RobotContext, TakeoffState, void> {
    public:
-    using AllowedEvents = std::tuple<dk::TickEvent>;
-    using TriggerEvent = std::variant<SetWaypointEvent, TakeoffEvent>;
-    double start_time_;
-    TriggerEvent event_;
-    double alt_;
+    using AllowedEvents = std::tuple<>;
+    double start_time_{0.0};
+    std::optional<TakeoffEvent> event_;
+    double alt_{0.0};
 
-    // 和waypoint相关
-    bool step_waypoint_ = false;  // 是否进入waypoint
+    std::shared_ptr<state_utils::StallChecker<1>> checker_;
 
    public:
-    class PrearmCheckState;
-    class ArmState;
-    class TakingoffState;
+    explicit TakeoffState(TakeoffEvent e);
+    explicit TakeoffState(double alt);
 
-    TakeoffState(TakeoffEvent e);
-    void on_enter(RobotContext& ctx);
-
-    TakeoffState(SetWaypointEvent e);
+    static StateAction before_enter(RobotContext& ctx, const TakeoffEvent& e);
+    static StateAction before_enter(RobotContext& ctx, double alt);
+    StateAction on_enter(RobotContext& ctx) override;
+    StateAction on_tick(double dt, RobotContext& ctx) override;
 
     void report_takeoff(RobotContext& ctx) {
         ctx.ws_manager->publish_reliable(
             nlohmann::json{{"type", "event"}, {"event", "takeoff"}});
     }
 
-    StateAction on_event(const dk::TickEvent& e, RobotContext& ctx);
-
     static constexpr std::string_view static_name() { return "起飞状态"; }
-};
-
-class TakeoffState::PrearmCheckState
-    : public dk::BaseState<RobotContext, PrearmCheckState, TakeoffState> {
-   public:
-    using AllowedEvents = std::tuple<SysStatusEvent, StatusTextEvent>;
-
-    void on_enter(RobotContext& ctx) override;
-
-    StateAction on_event(const SysStatusEvent& event, RobotContext& ctx);
-
-    StateAction on_event(const StatusTextEvent& event, RobotContext& ctx);
-
-    static constexpr std::string_view static_name() { return "起飞检查"; }
-};
-
-class TakeoffState::ArmState
-    : public dk::BaseState<RobotContext, ArmState, TakeoffState> {
-   public:
-    using AllowedEvents = std::tuple<ArmEvent, StatusTextEvent>;
-
-    void on_enter(RobotContext& ctx) override;
-
-    StateAction on_event(const ArmEvent& event, RobotContext& ctx);
-
-    StateAction on_event(const StatusTextEvent& event, RobotContext& ctx);
-
-    static constexpr std::string_view static_name() { return "解锁状态"; }
-};
-
-class TakeoffState::TakingoffState
-    : public dk::BaseState<RobotContext, TakingoffState, TakeoffState> {
-   public:
-    using AllowedEvents = std::tuple<dk::TickEvent>;
-
-    std::shared_ptr<state_utils::StallChecker<1>> checker_;
-
-    double start_time_;
-
-    void on_enter(RobotContext& ctx) override;
-
-    StateAction on_event(const dk::TickEvent& e, RobotContext& ctx);
-
-    static constexpr std::string_view static_name() { return "执行起飞"; }
 };

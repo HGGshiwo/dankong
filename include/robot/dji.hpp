@@ -41,6 +41,11 @@ class DjiDrone : public IRobot {
         // 由于是纯 UDP，这里的 mavlink 可能为空或者仅占位
     }
 
+    bool should_arm_before_enter(const StateFlags& flags) override {
+        return flags.is_takeoff || flags.is_waypoint || flags.is_follow ||
+               flags.is_posvel || flags.is_hover || flags.is_land;
+    }
+
     // 核心速度控制：将 Eigen 向量直接映射到 DJI UDP 的 CmdVelocity 结构中
     bool cmd_vel(Eigen::Vector4d vel) override {
         CmdVelocity cmd_payload;
@@ -57,14 +62,14 @@ class DjiDrone : public IRobot {
         return true;
     }
 
-    bool inner_check_hover(unsigned int drone_state) override {
+    bool inner_check_hover(HoverArgs args) override {
         // 对于无人机，可以直接读取我们上下文中的字符串状态来判断悬停
         std::string current_mode = ctx_.mode.load();
         return current_mode == "LOITER" || current_mode == "GUIDED" ||
                current_mode == "AUTO";
     }
 
-    bool inner_is_landed(unsigned int drone_state) override {
+    bool inner_is_landed(HoverArgs args) override {
         // 飞行模式为 LAND 或者 桨叶未解锁即认为降落
         return !ctx_.arm.load() || ctx_.mode.load() == "LAND";
     }

@@ -18,6 +18,7 @@
 #include "robot_context.hpp"
 #include "ros/publisher.h"
 #include "spdlog/spdlog.h"
+#include "utils/logger/fglog.hpp"
 #include "utils/thread_runner.hpp"
 
 // ==========================================
@@ -258,6 +259,7 @@ class PlandController : public IThreadRunner, public ILandingController {
     DetectorResult latest_obs_;
     bool is_blind_drop_ = false;  // 是否已经进入降落状态
     ServoingMode current_mode_ = ServoingMode::GLOBAL_ENU;  // 默认使用原方案
+    bool is_approaching_target_ = true;  // 是否正在飞向目标注入点
 
    public:
     PlandController(RobotContext& ctx)
@@ -311,15 +313,68 @@ class PlandController : public IThreadRunner, public ILandingController {
 
     void start(int hz) override { IThreadRunner::start(hz); }
 
-    void stop() override { IThreadRunner::stop(); }
+    void stop() override {
+        IThreadRunner::stop();
+        // 停止后清空之前的速度
+        ctx_.tracker->send_vel_cmd(Eigen::Vector3d::Zero(), std::nullopt,
+                                   std::nullopt, CmdFrame::BODY);
+    }
 
     void on_start() override {
         traj_gen_.reset(
             Eigen::Vector2d(ctx_.pos_enu.load().x(), ctx_.pos_enu.load().y()));
+        is_approaching_target_ = true;
     }
 
     void on_step(double dt) override {
         double now = ctx_.engine->get_time_provider()->now();
+        auto pland_target = ctx_.pland_target.load();
+        auto config = GlobalConfig.GetConfig();
+        if (pland_target.has_value()) {
+            double pland_target_distance = config.pland_target_distance.get();
+            if (now - pland_target->timestamp <=
+                    config.pland_target_timeout.get() &&
+                pland_target_distance > 0) {
+                double dist =
+                    (pland_target->pos - ctx_.pos_enu.load()).head<2>().norm();
+                // 增加 1 米迟滞带宽以防边界震荡
+                double exit_distance = pland_target_distance + 1.0f;
+
+                if (is_approaching_target_) {
+                    if (dist <= pland_target_distance) {
+                        is_approaching_target_ = false;
+                    }
+                } else {
+                    if (dist > exit_distance) {
+                        is_approaching_target_ = true;
+                    }
+                }
+                if (is_hz(10)) {
+                    fglog::publish_value("/pland/approach",
+                                         (double)is_approaching_target_);
+                }
+
+                if (is_approaching_target_) {
+                    // 往该方向飞行
+                    auto target = pland_target->pos;
+                    auto velocity = pland_target->vel_enu;
+                    if (velocity.has_value()) {
+                        velocity->z() = 0.0f;
+                    }
+                    target.z() = ctx_.pos_enu.load().z();
+
+                    // 逼近期间同步重置轨迹生成器，防止模式切入时因为虚拟位置落后而发生反向拉扯与急刹震荡
+                    traj_gen_.reset(Eigen::Vector2d(ctx_.pos_enu.load().x(),
+                                                    ctx_.pos_enu.load().y()));
+
+                    ctx_.tracker->send_pos_cmd(target, std::nullopt,
+                                               std::nullopt, velocity,
+                                               std::nullopt, std::nullopt,
+                                               std::nullopt, CmdFrame::ENU);
+                    return;
+                }
+            }
+        }
 
         DetectorResult obs;
         {
@@ -409,6 +464,9 @@ class PlandController : public IThreadRunner, public ILandingController {
                 current_mode_ == ServoingMode::GLOBAL_ENU ? "ENU" : "PVS",
                 current_z, is_blind_drop_ ? "YES" : "NO", debug_msg);
         }
+
+        fglog::publish_value("/drone/pland/blind_drop", is_blind_drop_);
+        fglog::publish_value("/drone/pland/current_z", current_z);
     }
 
    private:
@@ -732,10 +790,16 @@ class PlandController : public IThreadRunner, public ILandingController {
             CmdFrame::BODY  // ★ 关键：指令参考系为机体坐标系
         );
 
+        double err_yaw_deg = err_yaw * 180.0 / M_PI;
+        fglog::publish_value("/drone/pland/err_body", err_body.head<2>());
+        fglog::publish_value("/drone/pland/err_yaw", err_yaw_deg);
+        fglog::publish_value("/drone/pland/vel_body", vel_cmd_body);
+        fglog::publish_value("/drone/pland/yaw_rate", omega_z);
+        fglog::publish_value("/drone/pland/ff_vel", ff_vel_body);
         return fmt::format(
             "err_body:[{:.2f}, {:.2f}] | vel_body:[{:.2f}, {:.2f}, {:.2f}] | "
             "err_yaw:{:.1f}deg | omega_z:{:.2f}",
             err_body.x(), err_body.y(), vel_cmd_body.x(), vel_cmd_body.y(),
-            vel_cmd_body.z(), err_yaw * 180.0 / M_PI, omega_z);
+            vel_cmd_body.z(), err_yaw_deg, omega_z);
     }
 };

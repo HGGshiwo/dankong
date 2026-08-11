@@ -1,5 +1,6 @@
 ui_config: dog-ui.yaml
 udp_server_port: 9111
+mavsdk_url: tcp://127.0.0.1:5760
 
 udp_host: "127.0.0.1"
 udp_port: 9112
@@ -8,7 +9,7 @@ udp_port: 9112
 server_port: 8000
 
 # Path Settings
-static_dir: "dk/frontend/dist"
+static_dir: "dist"
 ui_config_path: "config/ui.yaml"
 json_path: "config/config.json"
 

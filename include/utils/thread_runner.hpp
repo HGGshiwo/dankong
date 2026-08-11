@@ -6,8 +6,9 @@
 #include <thread>
 
 #include "dk/ITimeProvider.hpp"
+#include "dk/utils.hpp"
 
-class IThreadRunner {
+class IThreadRunner : public dk::TimeTracker {
     std::thread control_thread_;
     std::atomic<bool> is_running_{false};
     std::atomic<bool> is_terminating_{false};  // 用于通知线程彻底退出
@@ -81,6 +82,7 @@ class IThreadRunner {
             const double period_s = 1.0 / static_cast<double>(hz_.load());
             while (is_running_) {
                 double step_start = time_provider_->now();
+                update_time(period_s);
                 on_step(period_s);
                 double step_end = time_provider_->now();
                 double elapsed = step_end - step_start;

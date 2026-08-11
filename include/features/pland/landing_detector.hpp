@@ -8,24 +8,28 @@
 #include <optional>
 
 #include "./config.hpp"
+#include "spdlog/fmt/bundled/format.h"
+#include "spdlog/spdlog.h"
+#include "utils/logger/fglog.hpp"
 // #include "./kalman_filter_imm_ukf.hpp"
 // #include "./kalman_filter_imm.hpp"
 // #include "./kalman_filter_ctrv_ukf.hpp"
 #include "./kalman_filter_ctrv.hpp"
 #include "./kalman_filter_yaw.hpp"
 // #include "./tag_detector/tags_pattern1.hpp"
+#include "./CameraOffsetEstimator.hpp"
 #include "./ilanding_detector.hpp"
 #include "./tag_detector/multiarray_tags_pattern.hpp"
 #include "./target_tracker.hpp"
 #include "./utils.hpp"
 #include "Eigen/src/Core/Matrix.h"
 #include "core/global_config.hpp"
+#include "dk/utils.hpp"
 #include "robot_context.hpp"
 #include "states/state_utils.hpp"
 #include "utils/dirty_var.hpp"
 #include "utils/get_executable_path.hpp"
 #include "utils/thread_runner.hpp"
-#include "utils/throttle.hpp"
 
 class LandingDetector : public IThreadRunner, public ILandingDetector {
    private:
@@ -39,6 +43,8 @@ class LandingDetector : public IThreadRunner, public ILandingDetector {
     std::shared_ptr<KalmanFilterYaw> kf_yaw_;
     std::shared_ptr<KalmanFilterYaw> kf_abs_yaw_;
     std::shared_ptr<TargetTracker> target_tracker_;
+
+    std::shared_ptr<CameraOffsetEstimator> offset_estimator = nullptr;
 
     // --- 时间戳与缓存 ---
     std::function<void(const DetectorResult &, cv::Mat &)> set_target_;
@@ -284,9 +290,7 @@ class LandingDetector : public IThreadRunner, public ILandingDetector {
         TargetObservation obs = current_pattern_->process(
             detections, tag_detector_.get(), camera_inner_matrix_, detected);
 
-        std::optional<Eigen::Vector3d> pland_target = ctx_.pland_target.load();
-        bool use_target = pland_target.has_value();
-        if (!obs.is_valid && !use_target) return output;
+        if (!obs.is_valid) return output;
 
         double relative_yaw = 0.0;
         double abs_yaw = 0.0;
@@ -340,6 +344,27 @@ class LandingDetector : public IThreadRunner, public ILandingDetector {
                 }
             }
 
+            // 如果是校准模式
+            if (is_hz(1) && offset_estimator != nullptr) {
+                Eigen::Matrix3d R_bc = get_dynamic_camera_to_body_rotation(
+                    hist_R_wb, gimbal_roll, gimbal_pitch, gimbal_yaw,
+                    gimbal_abs);
+                offset_estimator->update_drone_state(hist_drone_pos, hist_R_wb);
+                offset_estimator->update_detection(best_pose->t, R_bc);
+                auto eval =
+                    offset_estimator->evaluate_error(best_pose->t, R_bc);
+                Eigen::Vector3d calibrated_offset =
+                    offset_estimator->get_estimated_offset().value();
+
+                fglog::publish_value("/estimator/offset_std_dev",
+                                     eval->offset_std_dev);
+                fglog::publish_value("/estimator/reverse_error",
+                                     eval->reverse_pos_error);
+                fglog::publish_value("/estimator/sample_count",
+                                     offset_estimator->sample_count());
+                fglog::publish_value("/estimator/offset", calibrated_offset);
+            }
+
             // --- 坐标求解 ---
             Eigen::Vector3d pnp_pos_body = Eigen::Vector3d::Zero();
             pnp_enu = solve_pose_by_pnp(
@@ -374,19 +399,9 @@ class LandingDetector : public IThreadRunner, public ILandingDetector {
             output.is_valid = true;
         }
 
-        static Throttle throttle{4};
         auto pos_enu = ctx_.pos_enu.load();
 
-        if (output.is_valid || use_target) {
-            Eigen::Vector2d target_err{0.0, 0.0};
-            if (use_target) {
-                Eigen::Vector3d target = pland_target.value();
-                target_err = pos_enu.head<2>() - target.head<2>();
-                raw_target_enu = {target.x(), target.y(), 0.0};
-                abs_yaw = target.z();
-                relative_yaw = abs_yaw - ctx_.yaw_enu.load();
-                output.is_valid = true;
-            }
+        if (output.is_valid) {
             output.fused_pos = raw_target_enu;
 
             // 计算 EKF 时间间隔 (使用真实照片时间戳)
@@ -475,20 +490,35 @@ class LandingDetector : public IThreadRunner, public ILandingDetector {
                 output.target_vel_enu.z() = yaw_rate;
             }
             // auto prob = kf_xy_->get_prob();
-            if (throttle.shouldLog()) {
+
+            auto rpy = Eigen::Vector3d{ctx_.roll.load(), ctx_.pitch.load(),
+                                       ctx_.yaw_enu.load()};
+            auto imagexy =
+                Eigen::Vector2d{obs.center_pixel.x, obs.center_pixel.y};
+            double rangefinder = ctx_.rangefinder_alt.load();
+
+            fglog::publish_value("/drone/pland/pnp_enu", pnp_enu.head<2>());
+            fglog::publish_value("/drone/pland/los_enu", los_enu.head<2>());
+            fglog::publish_value("/drone/pland/rpy", rpy);
+            fglog::publish_value("/drone/pland/imagexy", imagexy);
+            fglog::publish_value("/drone/pland/vel_enu",
+                                 output.target_vel_enu.head<2>());
+            fglog::publish_value("/drone/pland/rangefinder", rangefinder);
+            fglog::publish_value("/drone/pland/epsilon", epsilon);
+
+            if (is_hz(4.0)) {
                 spdlog::info(
                     "pnp_enu=[{:.2f}, {:.2f}] los_enu=[{:.2f}, {:.2f}] "
                     "drone_enu=[{:.2f}, {:.2f}, {:.2f}] "
                     "drone_rpy=[{:.2f}, {:.2f}, {:.2f}] "
-                    "target_err=[{:.2f}, {:.2f}] imagexy=[{:.2f}, {:.2f}] "
+                    "imagexy=[{:.2f}, {:.2f}] "
                     "vel_enu=[{:.2f}, {:.2f}] rangefinder={:.2f} "
                     "epsilon={:.2f}",
                     pnp_enu.x(), pnp_enu.y(), los_enu.x(), los_enu.y(),
-                    pos_enu.x(), pos_enu.y(), pos_enu.z(), ctx_.roll.load(),
-                    ctx_.pitch.load(), ctx_.yaw_enu.load(), target_err.x(),
-                    target_err.y(), obs.center_pixel.x, obs.center_pixel.y,
+                    pos_enu.x(), pos_enu.y(), pos_enu.z(), rpy.x(), rpy.y(),
+                    rpy.z(), imagexy.x(), imagexy.y(),
                     output.target_vel_enu.x(), output.target_vel_enu.y(),
-                    ctx_.rangefinder_alt.load(), epsilon);
+                    rangefinder, epsilon);
             }
         }
 
@@ -496,12 +526,54 @@ class LandingDetector : public IThreadRunner, public ILandingDetector {
     }
 
     void start(int hz) override { IThreadRunner::start(hz); }
-    void stop() override { IThreadRunner::stop(); }
+
+    void start(int hz, double x, double y, double z) override {
+        if (offset_estimator != nullptr) {
+            offset_estimator->reset(x, y, z);
+        } else {
+            offset_estimator = std::make_shared<CameraOffsetEstimator>(
+                Eigen::Vector3d{x, y, z});
+        }
+        IThreadRunner::start(hz);
+    }
+
+    void stop() override {
+        IThreadRunner::stop();
+        offset_estimator = nullptr;
+    }
 
     void on_start() override { reset_estimator(); }
 
     void on_stop() override {
         ctx_.pland_target.store(std::nullopt);  // 清空目标，避免污染
+    }
+
+    std::string stop(bool save) override {
+        std::string output;
+        if (offset_estimator == nullptr) {
+            spdlog::warn("[Offset Estimate] no start, skip stop!");
+            stop();
+            return "Not start!";
+        }
+        if (save) {
+            auto calibrated_offset = offset_estimator->get_estimated_offset();
+            if (calibrated_offset.has_value()) {
+                GlobalConfig.GetConfig().offset_x = calibrated_offset->x();
+                GlobalConfig.GetConfig().offset_y = calibrated_offset->y();
+                GlobalConfig.GetConfig().offset_z = calibrated_offset->z();
+                output =
+                    fmt::format("save to config: {:.2f} {:.2f} {:.2f}",
+                                calibrated_offset->x(), calibrated_offset->y(),
+                                calibrated_offset->z());
+                spdlog::info("[Offset Estimator] " + output);
+
+            } else {
+                output = "No valid estimator";
+                spdlog::error("[Offset Estimator] No valid estimator");
+            }
+        }
+        stop();
+        return output;
     }
 
     void on_step(double dt) override {

@@ -1,7 +1,6 @@
 #pragma once
 
-#include <Eigen/src/Core/Matrix.h>
-
+#include <Eigen/Dense>
 #include <algorithm>  // 包含 std::clamp, std::min, std::max
 #include <cmath>
 #include <optional>
@@ -13,6 +12,7 @@
 #include "features/tracker/tracker.hpp"
 #include "robot_context.hpp"
 #include "spdlog/spdlog.h"
+#include "states/arm_state.hpp"
 #include "states/hover_state.hpp"
 #include "states/posvel_state.hpp"
 #include "states/state_common.hpp"
@@ -24,24 +24,33 @@ class PosVelState : public dk::BaseState<RobotContext, PosVelState<ParentState>,
                                          ParentState> {
    public:
     static constexpr std::string_view static_name() { return "指点控制"; }
+    PosVelState(SetPosVelEvent e);
 
-    explicit PosVelState(SetPosVelEvent e);
-
-    // [修改点 1]：增加父状态的 on_enter，作为控制开始时的初始化
-    void on_enter(RobotContext& ctx) override {
-        start_time_ = ctx.engine->get_time_provider()->now();
-        last_tick_time_ = start_time_;
-        current_vel_xy_ = Eigen::Vector2d::Zero();
-        current_z_speed_ = 0.0;
-        is_first_tick_ = true;
+    static StateAction before_enter(RobotContext& ctx,
+                                    const SetPosVelEvent& e) {
+        if (!ctx.arm.load()) {
+            StateFlags flags{.is_posvel = true};
+            if (ctx.robot->should_arm_before_enter(flags)) {
+                return StateAction::plan([](auto& plan, auto& /*ctx*/) {
+                    plan.template push_front<ArmState>();
+                });
+            }
+        }
+        return StateAction::handled();
     }
+
+    StateAction on_enter(RobotContext& ctx) override {
+        return StateAction::unhandled();
+    }
+
+    StateAction on_tick(double dt, RobotContext& ctx) override;
 
     void on_exit(RobotContext& ctx) override {
         ctx.tracker->send_vel_cmd(Eigen::Vector3d::Zero(), std::nullopt,
                                   std::nullopt, CmdFrame::ENU);
     }
 
-    using AllowedEvents = std::tuple<dk::TickEvent, SetPosVelEvent>;
+    using AllowedEvents = std::tuple<SetPosVelEvent>;
 
     SetPosVelEvent event_;
 
@@ -52,8 +61,6 @@ class PosVelState : public dk::BaseState<RobotContext, PosVelState<ParentState>,
     Eigen::Vector2d current_vel_xy_ = Eigen::Vector2d::Zero();
     double current_z_speed_ = 0.0;  // 新增：用于 Z 轴的平滑加减速
     bool is_first_tick_ = true;
-
-    StateAction on_event(const dk::TickEvent& e, RobotContext& ctx);
 
     StateAction on_event(const SetPosVelEvent& e, RobotContext& ctx);
 
@@ -69,12 +76,11 @@ template <typename ParentState>
 class PosVelState<ParentState>::MoveState
     : public dk::BaseState<RobotContext, MoveState, PosVelState<ParentState>> {
    public:
-    using AllowedEvents = std::tuple<dk::TickEvent>;
+    using AllowedEvents = std::tuple<>;
 
     // 父状态已接管初始化，这里可以保持为空，或者仅做特定子状态的日志等
-    void on_enter(RobotContext& ctx);
-
-    StateAction on_event(const dk::TickEvent& e, RobotContext& ctx);
+    StateAction on_enter(RobotContext& ctx) override;
+    StateAction on_tick(double dt, RobotContext& ctx) override;
 
     StateAction on_event(const SetPosVelEvent& e, RobotContext& ctx);
 
@@ -89,12 +95,11 @@ class PosVelState<ParentState>::LaterTurnState
     : public dk::BaseState<RobotContext, LaterTurnState,
                            PosVelState<ParentState>> {
    public:
-    using AllowedEvents = std::tuple<dk::TickEvent>;
-    StateAction on_event(const dk::TickEvent& e, RobotContext& ctx);
+    using AllowedEvents = std::tuple<>;
+    StateAction on_enter(RobotContext& ctx) override;
+    StateAction on_tick(double dt, RobotContext& ctx);
 
     static constexpr std::string_view static_name() { return "指点转向"; }
-
-    void on_enter(RobotContext& ctx);
 };
 
 template <typename ParentState>
@@ -129,18 +134,11 @@ StateAction PosVelState<ParentState>::on_event(const SetPosVelEvent& e,
 
 template <typename ParentState>
 StateAction PosVelState<ParentState>::get_next_state() {
-    if constexpr (std::is_same_v<ParentState, HoverState>)
-        return this->template step<HoverState>();
-    if constexpr (std::is_same_v<ParentState, WaypointState>)
-        return this->template step<WaypointState::LiftingState>();
-
-    spdlog::warn("[PosvelState] Unexpected parent, switch to Hover");
-    return this->template step<HoverState>();
+    return StateAction::next();
 }
 
 template <typename ParentState>
-StateAction PosVelState<ParentState>::on_event(const dk::TickEvent& e,
-                                               RobotContext& ctx) {
+StateAction PosVelState<ParentState>::on_tick(double dt, RobotContext& ctx) {
     double now = ctx.engine->get_time_provider()->now();
     if (state_utils::get_time_span(start_time_, now) >
         GlobalConfig.GetConfig().posvel_timeout) {
@@ -174,8 +172,15 @@ void PosVelState<ParentState>::MoveState::base_move(RobotContext& ctx) {
 }
 
 template <typename ParentState>
-void PosVelState<ParentState>::MoveState::on_enter(RobotContext& ctx) {
+StateAction PosVelState<ParentState>::MoveState::on_enter(RobotContext& ctx) {
+    auto p = this->parent();
+    p->start_time_ = ctx.engine->get_time_provider()->now();
+    p->last_tick_time_ = p->start_time_;
+    p->current_vel_xy_ = Eigen::Vector2d::Zero();
+    p->current_z_speed_ = 0.0;
+    p->is_first_tick_ = true;
     base_move(ctx);
+    return StateAction::unhandled();
 }
 
 template <typename ParentState>
@@ -187,8 +192,8 @@ StateAction PosVelState<ParentState>::MoveState::on_event(
 }
 
 template <typename ParentState>
-StateAction PosVelState<ParentState>::MoveState::on_event(
-    const dk::TickEvent& e, RobotContext& ctx) {
+StateAction PosVelState<ParentState>::MoveState::on_tick(double dt,
+                                                         RobotContext& ctx) {
     auto p = this->parent();
     auto& cfg = GlobalConfig.GetConfig();
     auto current_pos = ctx.pos_enu.load();
@@ -217,17 +222,19 @@ StateAction PosVelState<ParentState>::MoveState::on_event(
 }
 
 template <typename ParentState>
-void PosVelState<ParentState>::LaterTurnState::on_enter(RobotContext& ctx) {
+StateAction PosVelState<ParentState>::LaterTurnState::on_enter(
+    RobotContext& ctx) {
     auto p = this->parent();
     double target_yaw = p->event_.yaw;
     auto current_pos = ctx.pos_enu.load();
     auto target_pos = state_utils::gps_to_enu(ctx.lon_lat_alt.load(),
                                               current_pos, p->event_.pos);
+    return StateAction::unhandled();
 }
 
 template <typename ParentState>
-StateAction PosVelState<ParentState>::LaterTurnState::on_event(
-    const dk::TickEvent& e, RobotContext& ctx) {
+StateAction PosVelState<ParentState>::LaterTurnState::on_tick(
+    double dt, RobotContext& ctx) {
     auto p = this->parent();
     auto& cfg = GlobalConfig.GetConfig();
     double current_yaw = ctx.yaw_enu;

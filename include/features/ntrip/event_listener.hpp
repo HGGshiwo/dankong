@@ -18,12 +18,10 @@
 // 和控制相关的事件监听器
 class NtripEventListener
     : public dk::BaseEventListener<RobotContext, NtripEventListener> {
-    RateLimiter rate_{0.1};
-
    public:
-    using AllowedEvents = std::tuple<dk::TickEvent>;
+    using AllowedEvents = std::tuple<>;
 
-    void on_event(dk::TickEvent event, RobotContext& ctx) {
+    void on_tick(double dt, RobotContext& ctx) {
         if (!ctx.ntrip_client->is_running()) {
             auto config = GlobalConfig.GetConfig();
             if (!config.ntrip_enable.get() || ctx.gps_fix_type.load() < 3 ||
@@ -44,8 +42,7 @@ class NtripEventListener
                                     size_t size) {  // 回调函数
                     robot->send_rtcm_data(data, size);
                 });
-        } else if (rate_.check_and_update(
-                       ctx.engine->get_time_provider()->now())) {
+        } else if (is_hz(0.1)) {
             // NTRIP 已经在运行了，CORS/千寻 要求我们大约每 10~15 秒更新一次坐标
             auto lon_lat_alt = ctx.lon_lat_alt.load();
             ctx.ntrip_client->send_location_update(lon_lat_alt.y(),

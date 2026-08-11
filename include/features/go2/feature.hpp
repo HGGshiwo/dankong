@@ -104,6 +104,7 @@ class Go2Feature {
                 // Body(FLU) 到 World(ENU) 的旋转 它的共轭 (conjugate) 就是从
                 // World(ENU) 回到 Body(FLU)
                 ctx.vel_body.store(q_enu_flu.conjugate() * vel_enu);
+                ctx.odom_ok.store(true);
             });
 
         ros->bind_event(

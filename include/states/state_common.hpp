@@ -7,5 +7,6 @@
 #include "features/control/context.hpp"
 #include "features/control/events.hpp"
 #include "robot_context.hpp"
+#include "utils/logger/spd_logger.hpp"
 
 using StateAction = dk::StateAction<RobotContext>;

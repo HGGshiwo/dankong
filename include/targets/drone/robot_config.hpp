@@ -2,17 +2,15 @@
 #include "core/base_assembler.hpp"
 
 // 引入你需要的 Feature
+#include "features/algo/config.hpp"
 #include "features/control/config.hpp"
 #include "features/drone/config.hpp"
 #include "features/mavlink/config.hpp"
 #include "features/ntrip/config.hpp"
+#include "features/pland/config.hpp"
 #include "features/report/config.hpp"
 #include "features/system/config.hpp"
 #include "features/tracker/config.hpp"
-#ifdef USE_ROS
-#include "features/algo/config.hpp"
-#include "features/pland/config.hpp"
-#endif
 
 // =================================================================
 // 终极魔法：只需这一段配置，剩下的全交由编译器生成！

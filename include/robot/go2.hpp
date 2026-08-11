@@ -1,4 +1,6 @@
 #pragma once
+#include <geometry_msgs/TwistStamped.h>
+
 #include <boost/beast/http/verb.hpp>
 #include <memory>
 #include <optional>
@@ -22,15 +24,24 @@ class Go2 : public IRobot {
    private:
     RobotContext& ctx_;
     std::atomic<bool> standing_{false};
+    ros::Publisher cmd_vel_pub_;
 
    public:
     Go2(std::shared_ptr<IMavlink> mavlink, RobotContext& ctx)
         : IRobot(mavlink), ctx_(ctx) {
-        ctx.set_waypoint_goal = [this](Eigen::Vector3d target_enu,
-                                       std::optional<double> vel) {
-            this->push_message(fmt::format("前往地图点{}米{}米", target_enu.x(),
-                                           target_enu.y()));
-        };
+        // ctx.set_waypoint_goal = [this](Eigen::Vector3d target_enu,
+        //                                std::optional<double> vel) {
+        //     this->push_message(fmt::format("前往地图点{}米{}米",
+        //     target_enu.x(),
+        //                                    target_enu.y()));
+        // };
+        ros::NodeHandle nh;
+        cmd_vel_pub_ = nh.advertise<geometry_msgs::Twist>("/cmd_vel", 1);
+    }
+
+    bool should_arm_before_enter(const StateFlags& flags) override {
+        return flags.is_waypoint || flags.is_follow || flags.is_posvel ||
+               flags.is_hover;
     }
 
     void push_message(std::string msg) {
@@ -51,41 +62,50 @@ class Go2 : public IRobot {
     }
 
     // 计算目标距离（无人机与机器狗在 Z 轴上的处理不同）
-    double get_distance(Eigen::Vector3d pos, Eigen::Vector3d goal) {
+    double get_distance(Eigen::Vector3d pos, Eigen::Vector3d goal) override {
         return (pos - goal).head<2>().norm();
     };
 
     // 降落（无人机切换 LAND 模式，机器狗发送蹲下指令）
-    bool land() {
+    bool land() override {
         push_message("趴下");
         standing_.store(false);
         return true;
     };
 
-    bool is_prearm_enable() { return false; };
+    bool is_prearm_enable() override { return false; };
 
-    bool is_alt_enable() { return false; };
+    bool is_alt_enable() override { return false; };
 
-    bool loiter() { return true; };
+    bool loiter() override { return true; };
 
-    bool takeoff(double alt) {
+    bool takeoff(double alt) override {
         push_message("站起来");
         standing_.store(true);
         return true;
     };
 
-    bool cmd_vel(Eigen::Vector4d) {
-        return true;  // 不支持
+    bool cmd_vel(Eigen::Vector4d data) override {
+        auto msg = geometry_msgs::Twist();
+        msg.linear.x = data.x();
+        msg.linear.y = data.y();
+        msg.linear.z = data.z();
+        msg.angular.z = data.w();
+
+        cmd_vel_pub_.publish(msg);
+        return true;
     };
 
-    bool inner_check_hover() {
+    bool inner_check_hover(HoverArgs args) override {
         bool a = standing_.load();
         return a;
     };
 
-    bool inner_is_landed() { return !inner_check_hover(); };
+    bool inner_is_landed(HoverArgs args) override {
+        return !inner_check_hover(args);
+    };
 
-    bool arm() {
+    bool arm() override {
         push_message("解锁");
         ctx_.arm.store(true);
         ctx_.engine->dispatch_internal(ArmEvent{true});
@@ -93,7 +113,7 @@ class Go2 : public IRobot {
         return true;
     }
 
-    bool disarm() {
+    bool disarm() override {
         push_message("锁定");
         ctx_.arm.store(false);
         ctx_.engine->dispatch_internal(ArmEvent{false});

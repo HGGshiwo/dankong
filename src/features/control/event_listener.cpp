@@ -1,10 +1,13 @@
 #include "features/control/event_listener.hpp"
 
+#include <exception>
+
 #include "Eigen/Dense"
 #include "core/global_config.hpp"
 #include "features/control/events.hpp"
 #include "features/mavlink/events.hpp"
 #include "robot_context.hpp"
+#include "states/arm_state.hpp"
 #include "states/ground_state.hpp"
 #include "states/hover_state.hpp"
 #include "states/init_state.hpp"
@@ -14,15 +17,17 @@
 #include "states/takeoff_state.hpp"
 #include "states/waypoint_state.hpp"
 #include "utils/fixed_string64.hpp"
+#include "utils/logger/fglog.hpp"
 
 // ---------- 成员函数实现 ----------
-void ControlEventListener::on_event(const dk::TickEvent& event,
-                                    RobotContext& ctx) {
+void ControlEventListener::on_tick(double dt, RobotContext& ctx) {
     bool on_ground = ctx.engine->is_active_state<GroundState>() ||
                      ctx.engine->is_active_state<InitState>() ||
                      ctx.engine->is_active_state<TakeoffState>() ||
+                     ctx.engine->is_active_state<ArmState>() ||
                      ctx.engine->is_active_state<LandState>();
     if (!on_ground && !ctx.robot->check_hover(ctx)) {
+        spdlog::info("[Contrl] 切换到GroundState");
         ctx.engine->template step<GroundState>();
     }
 }
@@ -35,13 +40,21 @@ void ControlEventListener::on_event(const SetPosVelEvent& event,
         return;
     }
     if (ctx.engine->is_active_state<WaypointState>()) {
-        ctx.engine->template step<PosVelState<WaypointState>::MoveState>(
-            std::tuple(event), std::tuple<>());
+        ctx.engine->plan().clear();
+        ctx.engine->plan()
+            .push_back<PosVelState<WaypointState>::MoveState>(std::tuple(event),
+                                                              std::tuple<>())
+            .fallback<WaypointState::LiftingState>()
+            .start();
         event.resolve({"success", "OK"});
         return;
     } else if (ctx.engine->is_active_state<HoverState>()) {
-        ctx.engine->template step<PosVelState<HoverState>::MoveState>(
-            std::tuple(event), std::tuple<>());
+        ctx.engine->plan().clear();
+        ctx.engine->plan()
+            .push_back<PosVelState<HoverState>::MoveState>(std::tuple(event),
+                                                           std::tuple<>())
+            .fallback<HoverState>()
+            .start();
         event.resolve({"success", "OK"});
         return;
     } else {
@@ -115,13 +128,18 @@ void ControlEventListener::on_event(const TakeoffEvent& event,
         event.reject("只允许在地面状态起飞!");
         return;
     }
-    ctx.engine->step<TakeoffState::PrearmCheckState>(
-        std::tuple(std::move(event)), std::tuple<>());
+    ctx.engine->plan().clear();
+    ctx.engine->plan()
+        .push_back<TakeoffState>(std::tuple(std::move(event)))
+        .fallback<HoverState>()
+        .start();
 }
 
 void ControlEventListener::on_event(const dk::StateChangeEvent& event,
                                     RobotContext& ctx) {
+    ctx.dk_state.store(std::string(event.cur));
     spdlog::info("State change {} -> {}", event.prev, event.cur);
+    fglog::publish_state("/drone/state", std::string(event.cur));
 }
 
 void ControlEventListener::on_event(const SetWaypointEvent& event,
@@ -151,11 +169,23 @@ void ControlEventListener::on_event(const SetWaypointEvent& event,
 
     // 3. 状态流转 (航点数 >= 1 的情况会直接走到这里，全都允许执行)
     if (is_ground) {
-        // 地面状态：进入起飞前检查流程，并将事件和最终动作向后传递
-        // （原逻辑中地面状态无需立即 resolve，通常在起飞完成或校验失败后
-        // resolve）
-        ctx.engine->step<TakeoffState::PrearmCheckState>(
-            std::make_tuple(std::move(event)), std::tuple<>());
+        double takeoff_alt = event.waypoint.at(0).z();
+        auto finish_action = event.finish_action;
+        bool do_pland = event.do_pland;
+
+        ctx.engine->plan().clear();
+        ctx.engine->plan()
+            .push_back<TakeoffState>(std::tuple(takeoff_alt))
+            .push_back<WaypointState::LiftingState>(
+                std::make_tuple(std::move(event)), std::tuple<>());
+
+        if (finish_action == FinishAction::HOVER) {
+            ctx.engine->plan().fallback<HoverState>();
+        } else {
+            ctx.engine->plan().fallback<LandState>(std::tuple(do_pland));
+        }
+        event.resolve({"success", "OK"});
+        ctx.engine->plan().start();
     } else {
         // 空中执行逻辑分流
         if (wp_empty && action == FinishAction::LAND) {
@@ -164,16 +194,25 @@ void ControlEventListener::on_event(const SetWaypointEvent& event,
             ctx.engine->step<LandState>(std::tuple(event.do_pland));
         } else {
             // 检查是不是半路进入hover，其实没有记录起飞点
-            auto takeoff_lon_lat_alt = ctx.takeoff_lon_lat_alt.load();
-            if (action == FinishAction::RETURN &&
-                takeoff_lon_lat_alt.norm() < 1.0) {
+            auto takeoff_enu = ctx.takeoff_enu.load();
+            if (action == FinishAction::RETURN && !takeoff_enu.has_value()) {
                 event.reject("未记录起飞点，请使用降落");
             } else {
                 event.resolve({"success", "OK"});
-                // 其他情况（有航点，或空中原地悬停/返航）：进入
-                // LiftingState 执行航点处理
-                ctx.engine->step_reenter_all<WaypointState::LiftingState>(
+                auto finish_action = event.finish_action;
+                bool do_pland = event.do_pland;
+
+                ctx.engine->plan().clear();
+                ctx.engine->plan().push_back<WaypointState::LiftingState>(
                     std::make_tuple(std::move(event)), std::tuple<>());
+
+                if (finish_action == FinishAction::HOVER) {
+                    ctx.engine->plan().fallback<HoverState>();
+                } else {
+                    ctx.engine->plan().fallback<LandState>(
+                        std::tuple(do_pland));
+                }
+                ctx.engine->plan().start();
             }
         }
     }
@@ -181,28 +220,34 @@ void ControlEventListener::on_event(const SetWaypointEvent& event,
 
 void ControlEventListener::on_event(const SetModeEvent& event,
                                     RobotContext& ctx) {
+    std::optional<FlightMode> mode;
+    try {
+        mode = FlightMode::create(event.mode);
+    } catch (const std::exception& e) {
+        event.reject(e.what());
+        return;
+    }
+
     using Promise = dk::Promise<bool>;
     auto p = std::make_shared<Promise>(ctx.engine);
 
     // 1. 提前获取 Future，避免后续 Promise 被 move 后无法获取
     auto future = p->get_future();
 
-    if (ctx.mode.load() == event.mode) {
+    if (ctx.mode.load() == mode) {
         // 同步完成的情况，直接 resolve，局部变量 p 会随函数结束正常销毁
         p->resolve(true);
     } else {
-        ctx.robot->set_mode(event.mode);
+        ctx.robot->set_mode(mode->mode_raw);
 
         // 2. 将 promise 移动 (Move) 进 Lambda 中
         // 这样 p 的生命周期就交给了引擎的事件队列，执行完后自动释放
-
-        ctx.engine->wait_for(2000,
-                             [mode = FixedString64(event.mode),
-                              p](const FlightModeEvent& e) mutable -> bool {
-                                 if (mode != e.cur) return false;
-                                 p->resolve(true);
-                                 return true;
-                             });
+        ctx.engine->wait_for(
+            2000, [mode, p](const FlightModeEvent& e) mutable -> bool {
+                if (mode != e.cur) return false;
+                p->resolve(true);
+                return true;
+            });
     }
 
     // 3. 处理 event 回调
@@ -234,7 +279,7 @@ void ControlEventListener::on_event(const GetWpEvent& event,
     for (int i = 0; i < mission_data.size(); ++i) {
         auto cur_mission = mission_data[i];
         wp_list.push_back(
-            {cur_mission["lon"], cur_mission["lat"], cur_mission["alt"]});
+            {cur_mission["enu_x"], cur_mission["enu_y"], cur_mission["enu_z"]});
     }
     event.resolve({"success", wp_list});
 }

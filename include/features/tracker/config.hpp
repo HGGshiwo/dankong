@@ -5,6 +5,9 @@
 struct TrackerConfig {
     static constexpr const char* __group_name = "Tracker";
 
+    dk::Param<std::string> tracker_type =
+        INIT_PARAM("tracker_type", std::string("threaded"),
+                   "追踪器类型: threaded (内部PID) 或 move_base (ROS导航)");
     dk::Param<bool> is_omnidirectional =
         INIT_PARAM("is_omnidirectional", true, "是否开启全向移动模式");
     dk::Param<double> kp_xy = INIT_PARAM("kp_xy", 1.5, "水平位置控制比例系数");
@@ -42,7 +45,7 @@ struct TrackerConfig {
         INIT_PARAM("max_vel_yaw", 1.5, "最大旋转速度(rad/s)");
 
     dk::Param<double> max_acc_xy =
-        INIT_PARAM("max_acc_xy", 1.0, "XY轴最大加速度(m/s^2)");
+        INIT_PARAM("max_acc_xy", 2.0, "XY轴最大加速度(m/s^2)");
     dk::Param<double> max_acc_z =
         INIT_PARAM("max_acc_z", 0.8, "Z轴最大加速度(m/s^2)");
     dk::Param<double> max_acc_yaw =

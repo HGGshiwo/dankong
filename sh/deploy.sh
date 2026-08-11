@@ -70,7 +70,7 @@ cmake .. \
     -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
     -DROBOT="$ROBOT_TYPE"
 
-make -j$(nproc)
+make -j4
 
 echo "📦 [3/6] 提取可执行文件与静态资源..."
 cd "$PROJECT_DIR"

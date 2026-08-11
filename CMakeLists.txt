@@ -89,28 +89,47 @@ find_package(OpenSSL REQUIRED)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GeographicLib REQUIRED geographiclib)
+
+# find_program(CCACHE_PROGRAM ccache)
+# if(CCACHE_PROGRAM)
+#     set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+# endif()
 # ------------------------------------------------------------------------------
 # 2. 第三方依赖 (FetchContent)
 # ------------------------------------------------------------------------------
 include(FetchContent)
 
-FetchContent_Declare(cli11 GIT_REPOSITORY https://github.com/CLIUtils/CLI11.git GIT_TAG v2.4.1)
-FetchContent_Declare(eigen GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git GIT_TAG 3.4.0)
-FetchContent_Declare(tinyxml2 GIT_REPOSITORY https://github.com/leethomason/tinyxml2.git GIT_TAG 9.0.0)
-FetchContent_Declare(apriltag GIT_REPOSITORY https://github.com/AprilRobotics/apriltag.git GIT_TAG v3.3.0)
-FetchContent_Declare(yaml-cpp GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git GIT_TAG 0.8.0)
-
-# MAVSDK 避坑配置：关闭内部不需要的庞大模块，极大加速编译
-set(SUPERBUILD OFF CACHE BOOL "Turn off superbuild" FORCE)
-set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build static libraries" FORCE)
-set(BUILD_TESTS OFF CACHE BOOL "Disable tests" FORCE)
-set(BUILD_BACKEND OFF CACHE BOOL "Disable gRPC backend server" FORCE) 
+FetchContent_Declare(cli11 GIT_REPOSITORY https://github.com/CLIUtils/CLI11.git GIT_TAG v2.4.1 GIT_SHALLOW TRUE)
+FetchContent_Declare(eigen GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git GIT_TAG 3.4.0 GIT_SHALLOW TRUE)
+FetchContent_Declare(tinyxml2 GIT_REPOSITORY https://github.com/leethomason/tinyxml2.git GIT_TAG 9.0.0 GIT_SHALLOW TRUE)
+FetchContent_Declare(apriltag GIT_REPOSITORY https://github.com/AprilRobotics/apriltag.git GIT_TAG v3.3.0 GIT_SHALLOW TRUE)
+FetchContent_Declare(yaml-cpp GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git GIT_TAG 0.8.0 GIT_SHALLOW TRUE)
+FetchContent_Declare(paho_mqtt_cpp GIT_REPOSITORY https://github.com/eclipse/paho.mqtt.cpp.git GIT_TAG v1.3.2 GIT_SHALLOW TRUE)
 
 set(YAML_CPP_INSTALL OFF CACHE BOOL "Disable yaml-cpp install" FORCE)
 set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "Disable yaml-cpp tests" FORCE)
+set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "Disable yaml-cpp tools" FORCE)
+set(YAML_CPP_BUILD_CONTRIB OFF CACHE BOOL "Disable yaml-cpp contrib" FORCE)
 
-# 2. 正常生成除了 Eigen 之外的其他库
-FetchContent_MakeAvailable(cli11 tinyxml2 apriltag yaml-cpp)
+set(tinyxml2_BUILD_TESTING OFF CACHE BOOL "Disable tinyxml2 tests" FORCE)
+
+# 禁用所有无关的测试、样例、文档及动态库生成，极大缩短构建耗时！
+set(PAHO_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(PAHO_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(PAHO_BUILD_DOCUMENTATION OFF CACHE BOOL "" FORCE)
+set(PAHO_BUILD_STATIC ON CACHE BOOL "" FORCE)
+set(PAHO_BUILD_SHARED ON CACHE BOOL "" FORCE)
+set(PAHO_WITH_MQTT_C ON CACHE BOOL "" FORCE)
+# [可选]: 是否启用 SSL/TLS 支持？需要本地安装了 OpenSSL (没有安装可设为 OFF)
+set(PAHO_ENABLE_SSL OFF CACHE BOOL "" FORCE)
+
+# 禁用底层 paho-mqtt-c 的测试和样例
+set(PAHO_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+set(PAHO_BUILD_SAMPLES OFF CACHE BOOL "" FORCE)
+set(PAHO_BUILD_DEB_PACKAGE OFF CACHE BOOL "" FORCE)
+
+# 下载并使得库可用
+FetchContent_MakeAvailable(cli11 tinyxml2 apriltag yaml-cpp paho_mqtt_cpp)
 
 # 3. 单独处理 Eigen (因为它是 Header-Only，直接拉取并提取路径，不执行其 CMakeLists)
 FetchContent_GetProperties(eigen)
@@ -138,7 +157,16 @@ endif()
 # ROS 2 通常通过 ament_target_dependencies 管理 include，无需加入全局
 include_directories(${GLOBAL_INCLUDE_DIRS})
 
-set(BASE_STATE_SRC src/states/ground_state.cpp src/states/hover_state.cpp src/states/init_state.cpp src/states/land_state.cpp src/states/state_utils.cpp src/states/takeoff_state.cpp src/states/waypoint_state.cpp)
+set(BASE_STATE_SRC 
+    src/states/ground_state.cpp 
+    src/states/hover_state.cpp 
+    src/states/init_state.cpp 
+    src/states/land_state.cpp 
+    src/states/state_utils.cpp 
+    src/states/takeoff_state.cpp 
+    src/states/waypoint_state.cpp 
+    src/states/state_common.cpp
+)
 
 if(ROS_SUPPORT STREQUAL "ROS1")
     if(ROBOT STREQUAL "drone")
@@ -159,6 +187,15 @@ endif()
 
 set(BASE_MAVLINK_SRC src/mavlink/mavsdk_drone.cpp)
 set(BASE_NODE_SRC src/dankong_node.cpp)
+
+set(BASE_ADAPTER_SRC 
+    src/adapters/web_adapter_inst.cpp
+    src/adapters/mavsdk_adapter_inst.cpp
+    src/adapters/udp_adapter_inst.cpp
+    src/adapters/can_adapter_inst.cpp
+    src/adapters/ros_adapter_inst.cpp
+    src/adapters/mqtt_adapter_inst.cpp
+)
 
 # ==============================================================================
 # 文件/目录拷贝工具函数 (保持不变)
@@ -230,12 +267,14 @@ function(create_dankong_target TARGET_TYPE)
         ${BASE_MAVLINK_SRC} 
         ${BASE_NODE_SRC}
         ${FEATURES_SRC}
+        ${BASE_ADAPTER_SRC}
         ${PARSED_ARGS_EXTRA_SOURCES}
     )
 
     target_include_directories(${TARGET_NAME} BEFORE PRIVATE 
         ${CMAKE_CURRENT_SOURCE_DIR}/include/targets/${TARGET_TYPE}
         include
+        generated
         ${PARSED_ARGS_EXTRA_INCLUDES}
     )
 
@@ -252,6 +291,7 @@ function(create_dankong_target TARGET_TYPE)
         MAVSDK::mavsdk
         Boost::system
         Boost::filesystem
+        paho-mqttpp3-static
         pthread
         OpenSSL::SSL      # 链接 SSL 库 (负责 TLS/SSL 协议层)
         OpenSSL::Crypto   # 链接 Crypto 库 (负责底层的加密算法)
@@ -289,6 +329,8 @@ function(create_dankong_target TARGET_TYPE)
 
     target_copy_post_build(${TARGET_NAME} config config)
     target_copy_post_build(${TARGET_NAME} dk/frontend/dist dist)
+
+    target_precompile_headers(${TARGET_NAME} PRIVATE include/pch.h)
 
     message(STATUS "Created target: ${TARGET_NAME} with includes for ${TARGET_TYPE}")
 endfunction()

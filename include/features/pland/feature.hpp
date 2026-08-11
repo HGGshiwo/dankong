@@ -1,4 +1,5 @@
 #pragma once
+#ifdef USE_ROS
 #include <cv_bridge/cv_bridge.h>
 #include <sensor_msgs/Image.h>
 #include <sensor_msgs/image_encodings.h>
@@ -97,6 +98,10 @@ class PlandFeature {
             boost::beast::http::verb::post, "/start_pland_detect");
         web->template register_route<SetPlandTarget, EventResult>(
             boost::beast::http ::verb::post, "/pland_target/set");
+        web->template register_route<StartOffsetEstimate, EventResult>(
+            boost::beast::http ::verb::post, "/offset_estimate/start");
+        web->template register_route<StopOffsetEstimate, EventResult>(
+            boost::beast::http ::verb::post, "/offset_estimate/stop");
         // 该接口只是调试时候使用
         web->template register_route<SetWaypointEvent, EventResult>(
             boost::beast::http::verb::post, "/pland", 5000,
@@ -111,3 +116,4 @@ class PlandFeature {
         engine->add_listener(listener);
     }
 };
+#endif

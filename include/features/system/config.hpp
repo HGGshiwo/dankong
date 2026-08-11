@@ -4,6 +4,8 @@
 //@JSON_ENABLE
 struct SystemConfig {
     static constexpr const char* __group_name = "System";
+    dk::Param<std::optional<std::string>> device_code =
+        INIT_HIDDEN_PARAM("device_code", std::nullopt);
 
     dk::Param<std::string> static_dir =
         INIT_PARAM("static_dir", "dist", "Web前端文件所在路径");
@@ -14,8 +16,16 @@ struct SystemConfig {
 
     dk::Param<int> server_port = INIT_HIDDEN_PARAM("server_port", 8000);
     dk::Param<int> udp_server_port = INIT_HIDDEN_PARAM("udp_server_port", 9111);
+
+    dk::Param<int> mqtt_port = INIT_HIDDEN_PARAM("mqtt_port", 1883);
+    dk::Param<std::string> mqtt_host =
+        INIT_HIDDEN_PARAM("mqtt_host", "localhost");
+
     dk::Param<std::string> log_dir =
         INIT_HIDDEN_PARAM("log_dir", "logs/my_log.txt");
+    dk::Param<std::string> fg_log_dir =
+        INIT_HIDDEN_PARAM("fg_log_dir", "logs/fg_log.jsonl");
+
     dk::Param<std::string> can_name =
         INIT_PARAM("can_name", "can0", "can总线对应网口名称");
     dk::Param<double> fcu_timeout =

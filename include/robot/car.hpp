@@ -48,6 +48,10 @@ class Car : public IRobot, public IThreadRunner {
 
         this->start(50);
     }
+
+    bool should_arm_before_enter(const StateFlags& flags) override {
+        return false;
+    }
     ~Car() override = default;
 
     void on_step(double dt) override {
@@ -113,7 +117,9 @@ class Car : public IRobot, public IThreadRunner {
         double yaw_rate = vel[3];
 
         std::lock_guard<std::mutex> lock(cmd_mutex_);
-        if (!inner_check_hover(cmd_210_.target_gear)) {
+        HoverArgs args;
+        args.gear = cmd_210_.target_gear;
+        if (!inner_check_hover(args)) {
             return false;
         }
 
@@ -210,15 +216,15 @@ class Car : public IRobot, public IThreadRunner {
 
     // 复用基类的 unsigned int state 重载，你可以将底层采集的(车速+挡位)打包成
     // state 传进来
-    bool inner_check_hover(int gear) override {
+    bool inner_check_hover(HoverArgs args) override {
         // 这里只是示例，实际业务中可位操作提取：低8位是挡位，高16位是车速
         // return (speed < 0.1 && gear == 2);
-        return gear != 0 && gear != 2;  // 不是P或者N
+        return args.gear.value() != 0 && args.gear.value() != 2;  // 不是P或者N
     }
 
-    bool inner_is_landed(int gear) override {
+    bool inner_is_landed(HoverArgs args) override {
         // 比如 state = EPOSts (急停状态)
         // return state != 0;
-        return !inner_check_hover(gear);
+        return !inner_check_hover(args);
     }
 };

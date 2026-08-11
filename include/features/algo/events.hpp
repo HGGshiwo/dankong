@@ -1,8 +1,13 @@
 #pragma once
+#ifdef USE_ROS
 #include <Eigen/Dense>
 
 #include "core/event_result.hpp"
 #include "dk/engine.hpp"
+
+struct AbnormalEvent {
+    nlohmann::json data;
+};
 
 //@JSON_ENABLE
 struct StopFollowEvent : dk::AsyncEvent<EventResult> {};
@@ -63,3 +68,4 @@ struct DetectTargetEvent {
 struct ExcutePlandEvent {
     int target_tag_id;
 };
+#endif

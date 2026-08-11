@@ -15,6 +15,7 @@
 #include "dk/ITimeProvider.hpp"
 #include "dk/adapters/can/can_adapter.hpp"
 #include "dk/adapters/mavsdk.hpp"
+#include "dk/adapters/mqtt/adapter.hpp"
 #include "dk/adapters/udp/udp.hpp"
 #include "dk/adapters/web.hpp"
 #include "dk/adapters/web/adapter.hpp"
@@ -23,7 +24,8 @@
 #include "robot_context.hpp"
 #include "states/init_state.hpp"
 #include "utils/get_executable_path.hpp"
-#include "utils/logger.hpp"
+#include "utils/logger/fglog.hpp"
+#include "utils/logger/spd_logger.hpp"
 #include "utils/yaml_helper.hpp"
 
 #ifdef USE_ROS
@@ -32,6 +34,18 @@
 #ifdef USE_ROS1
 #include "ros/node_handle.h"
 #endif
+#endif
+
+// ==========================================
+// 外部模板声明，指示编译器在其他编译单元进行显式实例化，加速编译并降低内存压力。
+// ==========================================
+extern template class dk::WebAdapter<RobotContext, Engine>;
+extern template class dk::MavsdkAdapter<RobotContext, Engine>;
+extern template class dk::UdpAdapter<RobotContext, Engine, CommandType>;
+extern template class dk::CanAdapter<RobotContext, Engine>;
+extern template class dk::MqttClientAdapter<RobotContext, Engine>;
+#ifdef USE_ROS
+extern template class dk::RosAdapter<RobotContext, Engine>;
 #endif
 
 struct CLIArgs {
@@ -50,6 +64,7 @@ class CoreNode {
     using WebAdapterType = dk::WebAdapter<ContextType, Engine>;
     using UdpAdpterType = dk::UdpAdapter<ContextType, Engine, CommandType>;
     using CanAdapterType = dk::CanAdapter<ContextType, Engine>;
+    using MqttAdapterType = dk::MqttClientAdapter<ContextType, Engine>;
 
    private:
     boost::asio::io_context global_io_;
@@ -68,6 +83,8 @@ class CoreNode {
     std::shared_ptr<WebAdapterType> web_adapter_;
     std::shared_ptr<UdpAdpterType> udp_adapter_;
     std::shared_ptr<CanAdapterType> can_adapter_;
+    std::shared_ptr<MqttAdapterType> mqtt_adapter_;
+
     std::shared_ptr<MavsdkAdapterType> mavsdk_adapter_;
     std::shared_ptr<mavsdk::Mavsdk> mavsdk_;
     std::shared_ptr<mavsdk::System> mavsdk_system_;
@@ -86,7 +103,7 @@ class CoreNode {
         GlobalConfig.load(get_config_dir(args.config_path));
 
         auto& cfg = GlobalConfig.GetConfig();
-        init_logger();
+        init_spd_logger();
 
         // Initialize MAVSDK
         mavsdk::Mavsdk::Configuration config(
@@ -134,9 +151,36 @@ class CoreNode {
         YamlHelper::save(json_cfg, get_config_dir(cfg.json_path.get()));
 
         // 创建适配器
-        unsigned int server_port = args.port.value_or(cfg.server_port);
+        unsigned int server_port = args.port.value_or(cfg.server_port.get());
         web_adapter_ = std::make_shared<WebAdapterType>(engine_, server_port);
-        engine_->get_context().ws_manager = web_adapter_->get_manager();
+        auto ws_mgr = web_adapter_->get_manager();
+        engine_->get_context().ws_manager = ws_mgr;
+
+        std::string mqtt_host = cfg.mqtt_host.get();
+        unsigned int mqtt_port = cfg.mqtt_port.get();
+
+        mqtt_adapter_ =
+            std::make_shared<dk::MqttClientAdapter<RobotContext, Engine>>(
+                engine_, mqtt_host, mqtt_port);
+        engine_->get_context().mqtt_client = mqtt_adapter_;
+
+        AssemblerType::template setup<TagMqtt>(engine_->get_context(),
+                                               mqtt_adapter_);
+        mqtt_adapter_->connect();
+
+        dk::ConnectionManager::on_conn_removed = [](size_t id) {
+            fglog::disable_ws_connection(id);
+        };
+
+        fglog::set_websocket_sender([ws_mgr](const nlohmann::json& msg) {
+            if (!ws_mgr) return;
+            try {
+                ws_mgr->publish(msg, [](size_t id) {
+                    return fglog::check_ws_connection(id);
+                });
+            } catch (...) {
+            }
+        });
 
         // 2. 调用装配工厂，一键注册全部路由和回调！
         AssemblerType::template setup<TagWeb>(web_adapter_);

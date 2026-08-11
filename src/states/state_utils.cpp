@@ -1,5 +1,14 @@
 #include "states/state_utils.hpp"
 
+#include "core/engine.hpp"
+#include "robot_context.hpp"
+#include "states/follow_state.hpp"
+#include "states/hover_state.hpp"
+#include "states/land_state.hpp"
+#include "states/posvel_state.hpp"
+#include "states/takeoff_state.hpp"
+#include "states/waypoint_state.hpp"
+
 namespace state_utils {
 bool is_prearm_msg(const std::string& text) {
     return text.rfind("PreArm: ", 0) == 0 || text.rfind("Arm: ", 0) == 0;

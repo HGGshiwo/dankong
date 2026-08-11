@@ -1,4 +1,5 @@
 #pragma once
+#ifdef USE_ROS
 #include <memory>
 
 #include "./events.hpp"
@@ -51,9 +52,6 @@ class AlgoFeature {
     }
 
     static void setup(TagListeners, const std::shared_ptr<Engine>& engine);
-
-    static void setup(
-        TagRos, std::shared_ptr<dk::RosAdapter<RobotContext, Engine>>& ros) {}
 };
 
 #include "./event_listener.hpp"
@@ -63,3 +61,4 @@ inline void AlgoFeature::setup(TagListeners,
     auto listener = std::make_shared<AlgoEventListener>();
     engine->add_listener(listener);
 }
+#endif

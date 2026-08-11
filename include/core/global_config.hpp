@@ -32,6 +32,13 @@ class ConfigManager {
         std::unique_lock<std::shared_mutex> lock(rw_mutex_);
         try {
             YAML::Node final_yaml = YamlHelper::load_with_base(filepath);
+            spdlog::info("Config loaded from: {}", filepath);
+
+            std::stringstream ss;
+            ss << final_yaml;                   // 将节点内容写入流
+            std::string yamlString = ss.str();  // 获取字符串
+
+            spdlog::info("Config content: {}", yamlString);
             nlohmann::json final_json = YamlHelper::yaml_to_json(final_yaml);
             data_ = final_json.get<AppConfigData>();
             last_filepath_ = filepath;

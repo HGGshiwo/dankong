@@ -1,4 +1,6 @@
 #pragma once
+#include <plugins/telemetry/telemetry.h>
+
 #include <Eigen/Dense>
 #include <nlohmann/json.hpp>
 #include <optional>
@@ -10,9 +12,11 @@
 #include "utils/fixed_string64.hpp"
 
 using ApmParam = std::variant<int, double, std::string>;
+
 class IMavlink {
    public:
-    virtual bool set_mode(const FixedString64& mode) = 0;
+    VehicleType vehicle_type = VehicleType::Unknown;
+    virtual bool set_mode(const mavsdk::Telemetry::FlightMode& mode) = 0;
     virtual bool cmd_vel(Eigen::Vector4d vel) = 0;  // 只要求实现body的速度控制
 
     // MAV_CMD_RUN_PREARM_CHECKS

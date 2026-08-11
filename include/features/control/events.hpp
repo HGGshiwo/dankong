@@ -3,6 +3,7 @@
 #include <optional>
 
 #include "core/event_result.hpp"
+#include "core/flight_mode.hpp"
 #include "dk/engine.hpp"
 #include "nlohmann/json.hpp"
 #include "utils/fixed_string64.hpp"
@@ -21,6 +22,9 @@ struct SetWaypointEvent : dk::AsyncEvent<EventResult> {
     std::optional<double> speed;
     bool do_pland = false;
     FinishAction finish_action = FinishAction::HOVER;
+    bool local = false;
+    bool skip_lifting = true;
+    std::vector<int> dwell_indices;
 };
 
 //@JSON_ENABLE
@@ -49,6 +53,9 @@ struct TakeoffEvent : dk::AsyncEvent<EventResult> {
 struct SetModeEvent : dk::AsyncEvent<EventResult> {
     std::string mode;
 };
+
+// @JSON_ENABLE
+struct LoiterEvent : dk::AsyncEvent<EventResult> {};
 
 // @JSON_ENABLE
 struct TestEvent : dk::AsyncEvent<EventResult> {};
@@ -83,8 +90,8 @@ struct EnableJoystickEvent : dk::AsyncEvent<EventResult> {
 struct RestartEvent {};
 
 struct FlightModeEvent {
-    FixedString64 prev;
-    FixedString64 cur;
+    FlightMode prev;
+    FlightMode cur;
 };
 
 struct ArmEvent {

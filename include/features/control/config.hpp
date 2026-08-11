@@ -24,4 +24,9 @@ struct ControlConfig {
         INIT_PARAM("z_tolerance", 1.0, "判定起飞到达高度的偏差(m)");
     dk::Param<double> fix_yaw_dist =
         INIT_PARAM("fix_yaw_dist", 1.0, "距离目标点小于此值时锁定朝向(m)");
+
+    dk::Param<double> waypoint_tolerance =
+        INIT_PARAM("waypoint_tolerance", 1.2, "判定到达目标点的距离偏差(m)");
+    dk::Param<double> non_dwell_tolerance =
+        INIT_PARAM("non_dwell_tolerance", 2.0, "判定到达非暂留点的距离偏差(m)");
 };

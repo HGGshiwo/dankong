@@ -17,8 +17,8 @@
 #include "utils/dirty_var.hpp"
 #include "utils/thread_runner.hpp"
 
-class ThreadedTracker : public IThreadRunner {
-   private:
+class ThreadedTracker : public ITracker, public IThreadRunner {
+   protected:
     enum class CtrlMode { NONE, POSITION, VELOCITY };
 
     // ==========================================
@@ -39,22 +39,11 @@ class ThreadedTracker : public IThreadRunner {
     struct PendingCmd {
         CtrlMode mode = CtrlMode::NONE;
         CmdFrame frame = CmdFrame::ENU;
-        Eigen::Vector3d vec3_cmd = Eigen::Vector3d::Zero();  // POS or VEL
+        std::vector<TrackerWaypoint> waypoints;
+
+        Eigen::Vector3d vec3_cmd = Eigen::Vector3d::Zero();  // VEL 目标速度
         std::optional<double> yaw = std::nullopt;
-        std::optional<double> yaw_rate =
-            std::nullopt;  // Pos时的 ff_yaw_rate，Vel时的 yaw_rate
-        std::optional<Eigen::Vector3d> ff_vel = Eigen::Vector3d::Zero();
-        std::optional<double> fb_speed_limit_xy = std::nullopt;
-        std::optional<double> fb_speed_limit_z = std::nullopt;
-        std::optional<double> fb_speed_limit_yaw = std::nullopt;
-        std::optional<double> max_acc_xy = std::nullopt;
-        std::optional<double> max_decel_xy = std::nullopt;
-
-        // [新增] 加加速度(Jerk)限制参数
-        std::optional<double> max_jerk_xy = std::nullopt;
-        std::optional<double> max_jerk_z = std::nullopt;
-
-        Eigen::Vector3d gamma = {1.0, 1.0, 1.0};
+        std::optional<double> yaw_rate = std::nullopt;  // VEL 偏航角速度
     };
 
     const TrackerConfig& config_;
@@ -75,7 +64,7 @@ class ThreadedTracker : public IThreadRunner {
     std::optional<double> max_acc_xy_ = std::nullopt;
     std::optional<double> max_decel_xy_ = std::nullopt;
 
-    // [新增] 当前生效的 Jerk 限制
+    // 当前生效 of Jerk 限制
     std::optional<double> max_jerk_xy_ = std::nullopt;
     std::optional<double> max_jerk_z_ = std::nullopt;
 
@@ -91,11 +80,15 @@ class ThreadedTracker : public IThreadRunner {
     // 用来暂存外部下发的新指令
     PendingCmd pending_cmd_;
 
+    // 执行中的轨迹与当前点索引
+    std::vector<TrackerWaypoint> target_waypoints_;
+    size_t current_wp_idx_ = 0;
+
     double last_command_time_;
 
     Eigen::Vector4d last_cmd_vel_ = Eigen::Vector4d::Zero();
     Eigen::Vector3d last_cmd_acc_ =
-        Eigen::Vector3d::Zero();  // [新增] 用于记录上一拍的加速度指令
+        Eigen::Vector3d::Zero();  // 用于记录上一拍的加速度指令
 
     double last_yaw_ = 0.0;
 
@@ -119,61 +112,78 @@ class ThreadedTracker : public IThreadRunner {
           yaw_enu_(yaw_enu),
           time_provider_(time_provider) {}
 
-    ~ThreadedTracker() { stop(); }
+    ~ThreadedTracker() override { stop(); }
+
+    void start(int rate_hz = 50) override { IThreadRunner::start(rate_hz); }
+
+    void stop() override { IThreadRunner::stop(); }
 
     void on_start() override {
         last_cmd_vel_ = Eigen::Vector4d::Zero();
-        last_cmd_acc_ = Eigen::Vector3d::Zero();  // [新增] 初始化加速度记录
+        last_cmd_acc_ = Eigen::Vector3d::Zero();  // 初始化加速度记录
         last_yaw_ = yaw_enu_.load();
         reset_all_pids();
     }
 
-    void on_stop() override { send_zero_velocity(); }
+    void on_stop() override {
+        on_cancel_navigation();
+        send_zero_velocity();
+    }
 
-    bool is_position_reached() {
+    bool is_position_reached() override {
         std::lock_guard<std::mutex> lock(data_mutex_);
         return pos_cmd_finished_;
     }
 
     // =========================================================================
-    // 接口 1：位置控制 (仅仅写入暂存区)
-    // gamma: KP系数衰减
+    // 接口 1.1：位置控制 (单点调用，自动打包为 Vector
+    // 传入多点接口，保持向下兼容)
     // =========================================================================
-    // [修改] 增加 max_jerk_xy 和 max_jerk_z 传参
-    void send_pos_cmd(const Eigen::Vector3d& pos, std::optional<double> yaw,
-                      std::optional<double> ff_yaw_rate,
-                      std::optional<Eigen::Vector3d> ff_vel,
-                      std::optional<double> fb_speed_limit_xy,  // 限制反馈速度
-                      std::optional<double> fb_speed_limit_z,
-                      std::optional<double> fb_speed_limit_yaw, CmdFrame frame,
-                      Eigen::Vector3d gamma = {1.0, 1.0, 1.0},
-                      std::optional<double> max_acc_xy = std::nullopt,
-                      std::optional<double> max_decel_xy = std::nullopt,
-                      std::optional<double> max_jerk_xy = std::nullopt,
-                      std::optional<double> max_jerk_z = std::nullopt) {
+    void send_pos_cmd(
+        const Eigen::Vector3d& pos, std::optional<double> yaw = std::nullopt,
+        std::optional<double> ff_yaw_rate = std::nullopt,
+        std::optional<Eigen::Vector3d> ff_vel = std::nullopt,
+        std::optional<double> fb_speed_limit_xy = std::nullopt,
+        std::optional<double> fb_speed_limit_z = std::nullopt,
+        std::optional<double> fb_speed_limit_yaw = std::nullopt,
+        CmdFrame frame = CmdFrame::ENU, Eigen::Vector3d gamma = {1.0, 1.0, 1.0},
+        std::optional<double> max_acc_xy = std::nullopt,
+        std::optional<double> max_decel_xy = std::nullopt,
+        std::optional<double> max_jerk_xy = std::nullopt,
+        std::optional<double> max_jerk_z = std::nullopt) override {
+        TrackerWaypoint wp{pos,
+                           yaw,
+                           ff_yaw_rate,
+                           ff_vel,
+                           fb_speed_limit_xy,
+                           fb_speed_limit_z,
+                           fb_speed_limit_yaw,
+                           frame,
+                           gamma,
+                           max_acc_xy,
+                           max_decel_xy,
+                           max_jerk_xy,
+                           max_jerk_z};
+        send_pos_cmd(std::vector<TrackerWaypoint>{std::move(wp)});
+    }
+
+    // =========================================================================
+    // 接口 1.2：位置控制 (多航点/轨迹控制调用)
+    // =========================================================================
+    void send_pos_cmd(const std::vector<TrackerWaypoint>& path) override {
+        if (path.empty()) return;
         std::lock_guard<std::mutex> lock(data_mutex_);
         pending_cmd_.mode = CtrlMode::POSITION;
-        pending_cmd_.frame = frame;
-        pending_cmd_.vec3_cmd = pos;
-        pending_cmd_.yaw = yaw;
-        pending_cmd_.yaw_rate = ff_yaw_rate;
-        pending_cmd_.ff_vel = ff_vel;
-        pending_cmd_.fb_speed_limit_xy = fb_speed_limit_xy;
-        pending_cmd_.fb_speed_limit_z = fb_speed_limit_z;
-        pending_cmd_.fb_speed_limit_yaw = fb_speed_limit_yaw;
-        pending_cmd_.gamma = gamma;
-        pending_cmd_.max_acc_xy = max_acc_xy;
-        pending_cmd_.max_decel_xy = max_decel_xy;
-        // [新增] 存入暂存区
-        pending_cmd_.max_jerk_xy = max_jerk_xy;
-        pending_cmd_.max_jerk_z = max_jerk_z;
+        pending_cmd_.waypoints = path;
     }
 
     // =========================================================================
     // 接口 2：速度控制 (仅仅写入暂存区)
     // =========================================================================
-    void send_vel_cmd(const Eigen::Vector3d& vel, std::optional<double> yaw,
-                      std::optional<double> yaw_rate, CmdFrame frame) {
+    void send_vel_cmd(const Eigen::Vector3d& vel,
+                      std::optional<double> yaw = std::nullopt,
+                      std::optional<double> yaw_rate = std::nullopt,
+                      CmdFrame frame = CmdFrame::ENU) override {
         std::lock_guard<std::mutex> lock(data_mutex_);
         pending_cmd_.mode = CtrlMode::VELOCITY;
         pending_cmd_.frame = frame;
@@ -182,8 +192,30 @@ class ThreadedTracker : public IThreadRunner {
         pending_cmd_.yaw_rate = yaw_rate;
     }
 
+    // =========================================================================
+    // 接口 3：平滑停止控制 (切换状态到 VELOCITY 模式并限速到 0)
+    // =========================================================================
+    void send_zero_vel_cmd() override {
+        on_cancel_navigation();
+        send_vel_cmd(Eigen::Vector3d::Zero(), std::nullopt, std::nullopt,
+                     CmdFrame::ENU);
+    }
+
+    // =========================================================================
+    // 接口 4：查询当前轨迹执行状态
+    // =========================================================================
+    size_t get_current_waypoint_index() override {
+        std::lock_guard<std::mutex> lock(data_mutex_);
+        return current_wp_idx_;
+    }
+
+    size_t get_total_waypoints() override {
+        std::lock_guard<std::mutex> lock(data_mutex_);
+        return target_waypoints_.size();
+    }
+
     void on_step(double dt) override {
-        // ... (防止除0保护)
+        // 防止除0保护
         if (dt < 1e-6) return;
 
         {
@@ -233,19 +265,31 @@ class ThreadedTracker : public IThreadRunner {
                 (std::abs(dyaw) <= config_.yaw_tolerance_rad.get());
 
             if (pos_error <= config_.pos_tolerance_m.get() && yaw_reached) {
-                {
-                    std::lock_guard<std::mutex> lock(data_mutex_);
-                    pos_cmd_finished_ = true;
+                if (current_wp_idx_ + 1 < target_waypoints_.size()) {
+                    current_wp_idx_++;
+                    apply_current_waypoint();
+                    body_target_vel = target_vel_;
+                    if (target_frame_ == CmdFrame::ENU) {
+                        double cy = std::cos(-current_pose.w());
+                        double sy = std::sin(-current_pose.w());
+                        body_target_vel.x() =
+                            target_vel_.x() * cy - target_vel_.y() * sy;
+                        body_target_vel.y() =
+                            target_vel_.x() * sy + target_vel_.y() * cy;
+                    }
+                } else {
+                    {
+                        std::lock_guard<std::mutex> lock(data_mutex_);
+                        pos_cmd_finished_ = true;
+                    }
+                    current_mode_ = CtrlMode::NONE;
+                    on_cancel_navigation();
+                    send_zero_velocity();
+                    return;
                 }
-                current_mode_ = CtrlMode::NONE;
-                send_zero_velocity();
-                return;
             }
 
-            raw_cmd = compute_pos_control(current_pose, target_pose_enu_,
-                                          body_target_vel, ctrl_yaw_, gamma_,
-                                          fb_vel_limit_xy_, fb_vel_limit_z_,
-                                          fb_vel_limit_yaw_, dt);
+            on_pos_step(dt, current_pose, target_pose_enu_, body_target_vel);
 
         } else if (current_mode_ == CtrlMode::VELOCITY) {
             double now = time_provider_->now();
@@ -259,25 +303,53 @@ class ThreadedTracker : public IThreadRunner {
 
             raw_cmd = compute_vel_control(current_pose, target_pose_enu_,
                                           body_target_vel, ctrl_yaw_);
+
+            Eigen::Vector4d safe_cmd = apply_kinematic_constraints(
+                raw_cmd, config_.max_vel_xy.get(), config_.max_vel_z.get(),
+                config_.max_vel_yaw.get(), current_pose.w(), dt);
+
+            if (runtime_) {
+                runtime_->cmd_vel(safe_cmd);
+            }
         }
+    }
+
+   protected:
+    // ==========================================
+    // 扩展钩子（用于派生类如 MoveBaseTracker 拦截与扩展）
+    // ==========================================
+    virtual void on_waypoint_activated(const TrackerWaypoint& wp,
+                                       const Eigen::Vector4d& target_pose_enu) {
+    }
+
+    virtual void on_cancel_navigation() {}
+
+    virtual void on_pos_step(double dt, const Eigen::Vector4d& current_pose,
+                             const Eigen::Vector4d& target_pose,
+                             const Eigen::Vector4d& body_target_vel) {
+        Eigen::Vector4d raw_cmd = compute_pos_control(
+            current_pose, target_pose, body_target_vel, ctrl_yaw_, gamma_,
+            fb_vel_limit_xy_, fb_vel_limit_z_, fb_vel_limit_yaw_, dt);
 
         Eigen::Vector4d safe_cmd = apply_kinematic_constraints(
             raw_cmd, config_.max_vel_xy.get(), config_.max_vel_z.get(),
             config_.max_vel_yaw.get(), current_pose.w(), dt);
 
-        runtime_->cmd_vel(safe_cmd);
+        if (runtime_) {
+            runtime_->cmd_vel(safe_cmd);
+        }
     }
 
+   protected:
     void send_zero_velocity() {
         Eigen::Vector4d zero_cmd = Eigen::Vector4d::Zero();
         runtime_->cmd_vel(zero_cmd);
         last_cmd_vel_ = zero_cmd;
-        last_cmd_acc_ = Eigen::Vector3d::Zero();  // [新增]
+        last_cmd_acc_ = Eigen::Vector3d::Zero();
         last_yaw_ = yaw_enu_.load();
         reset_all_pids();
     }
 
-   private:
     void reset_all_pids() {
         pid_x_.reset();
         pid_y_.reset();
@@ -299,63 +371,109 @@ class ThreadedTracker : public IThreadRunner {
         return kp * error + ki * state.integral + kd * derivative;
     }
 
+    void apply_current_waypoint() {
+        if (current_wp_idx_ >= target_waypoints_.size()) return;
+        const auto& wp = target_waypoints_[current_wp_idx_];
+
+        ctrl_yaw_ = wp.yaw.has_value();
+        target_frame_ = wp.frame;
+        gamma_ = wp.gamma;
+        max_acc_xy_ = wp.max_acc_xy;
+        max_decel_xy_ = wp.max_decel_xy;
+        max_jerk_xy_ = wp.max_jerk_xy;
+        max_jerk_z_ = wp.max_jerk_z;
+
+        auto_heading_ = (!wp.yaw.has_value() && !wp.ff_yaw_rate.has_value()) ||
+                        !config_.is_omnidirectional.get();
+
+        fb_vel_limit_xy_ =
+            std::min(wp.fb_speed_limit_xy.value_or(config_.max_vel_xy.get()),
+                     config_.max_vel_xy.get());
+        fb_vel_limit_z_ =
+            std::min(wp.fb_speed_limit_z.value_or(config_.max_vel_z.get()),
+                     config_.max_vel_z.get());
+        fb_vel_limit_yaw_ =
+            std::min(wp.fb_speed_limit_yaw.value_or(config_.max_vel_yaw.get()),
+                     config_.max_vel_yaw.get());
+
+        if (target_frame_ == CmdFrame::BODY) {
+            Eigen::Vector4d body_offset = Eigen::Vector4d::Zero();
+            body_offset.head<3>() = wp.pos;
+            if (ctrl_yaw_) body_offset.w() = wp.yaw.value();
+
+            Eigen::Vector4d current_odom;
+            current_odom.head<3>() = pos_enu_.load();
+            current_odom.w() = yaw_enu_.load();
+            target_pose_enu_ =
+                state_utils::body_to_enu(body_offset, current_odom);
+        } else {
+            target_pose_enu_.head<3>() = wp.pos;
+            if (ctrl_yaw_) target_pose_enu_.w() = wp.yaw.value();
+        }
+
+        if (wp.ff_vel.has_value()) {
+            target_vel_.head<3>() = wp.ff_vel.value();
+        } else {
+            // 自动计算前馈速度：
+            // 若当前点不是整段轨迹的终点（后面还有后续航点），则根据航向计算巡航前馈速度
+            if (current_wp_idx_ + 1 < target_waypoints_.size()) {
+                Eigen::Vector3d from_pos =
+                    (current_wp_idx_ == 0)
+                        ? (target_frame_ == CmdFrame::BODY
+                               ? Eigen::Vector3d::Zero()
+                               : pos_enu_.load())
+                        : target_waypoints_[current_wp_idx_ - 1].pos;
+                Eigen::Vector3d to_pos = wp.pos;
+                Eigen::Vector3d dir_vec = to_pos - from_pos;
+
+                // 若与起点重合过近，尝试使用从当前点指向下一个点的方向
+                if (dir_vec.head<2>().norm() < 1e-3 &&
+                    current_wp_idx_ + 1 < target_waypoints_.size()) {
+                    dir_vec =
+                        target_waypoints_[current_wp_idx_ + 1].pos - to_pos;
+                }
+
+                if (dir_vec.head<2>().norm() > 1e-3) {
+                    Eigen::Vector2d dir_xy = dir_vec.head<2>().normalized();
+                    double cruise_speed = fb_vel_limit_xy_;
+                    target_vel_.x() = dir_xy.x() * cruise_speed;
+                    target_vel_.y() = dir_xy.y() * cruise_speed;
+                    target_vel_.z() = 0.0;
+                } else {
+                    target_vel_.head<3>() = Eigen::Vector3d::Zero();
+                }
+            } else {
+                // 终点航点：前馈速度为0，通过反馈PID和平滑减速曲线自然停住
+                target_vel_.head<3>() = Eigen::Vector3d::Zero();
+            }
+        }
+        target_vel_.w() = wp.ff_yaw_rate.value_or(0.0);
+        on_waypoint_activated(wp, target_pose_enu_);
+    }
+
     void apply_pending_command() {
         if (pending_cmd_.mode == CtrlMode::POSITION &&
             current_mode_ != CtrlMode::POSITION) {
             reset_all_pids();
         }
+        if (pending_cmd_.mode != CtrlMode::POSITION &&
+            current_mode_ == CtrlMode::POSITION) {
+            on_cancel_navigation();
+        }
 
         current_mode_ = pending_cmd_.mode;
-        ctrl_yaw_ = pending_cmd_.yaw.has_value();
-        target_frame_ = pending_cmd_.frame;
-        gamma_ = pending_cmd_.gamma;
         last_command_time_ = time_provider_->now();
-        max_acc_xy_ = pending_cmd_.max_acc_xy;
-        max_decel_xy_ = pending_cmd_.max_decel_xy;
-
-        // [新增] 提取外部传入的 Jerk 限制
-        max_jerk_xy_ = pending_cmd_.max_jerk_xy;
-        max_jerk_z_ = pending_cmd_.max_jerk_z;
 
         if (current_mode_ == CtrlMode::POSITION) {
             pos_cmd_finished_ = false;
-            auto_heading_ = (!pending_cmd_.yaw.has_value() &&
-                             !pending_cmd_.yaw_rate.has_value()) ||
-                            !config_.is_omnidirectional.get();
-
-            fb_vel_limit_xy_ = std::min(pending_cmd_.fb_speed_limit_xy.value_or(
-                                            config_.max_vel_xy.get()),
-                                        config_.max_vel_xy.get());
-            fb_vel_limit_z_ = std::min(
-                pending_cmd_.fb_speed_limit_z.value_or(config_.max_vel_z.get()),
-                config_.max_vel_z.get());
-            fb_vel_limit_yaw_ =
-                std::min(pending_cmd_.fb_speed_limit_yaw.value_or(
-                             config_.max_vel_yaw.get()),
-                         config_.max_vel_yaw.get());
-
-            if (target_frame_ == CmdFrame::BODY) {
-                Eigen::Vector4d body_offset = Eigen::Vector4d::Zero();
-                body_offset.head<3>() = pending_cmd_.vec3_cmd;
-                if (ctrl_yaw_) body_offset.w() = pending_cmd_.yaw.value();
-
-                Eigen::Vector4d current_odom;
-                current_odom.head<3>() = pos_enu_.load();
-                current_odom.w() = yaw_enu_.load();
-                target_pose_enu_ =
-                    state_utils::body_to_enu(body_offset, current_odom);
-            } else {
-                target_pose_enu_.head<3>() = pending_cmd_.vec3_cmd;
-                if (ctrl_yaw_) target_pose_enu_.w() = pending_cmd_.yaw.value();
-            }
-
-            target_vel_.head<3>() =
-                pending_cmd_.ff_vel.value_or(Eigen::Vector3d::Zero());
-            target_vel_.w() = pending_cmd_.yaw_rate.value_or(0.0);
-
+            target_waypoints_ = std::move(pending_cmd_.waypoints);
+            current_wp_idx_ = 0;
+            apply_current_waypoint();
         } else if (current_mode_ == CtrlMode::VELOCITY) {
             pos_cmd_finished_ = true;
             auto_heading_ = false;
+            ctrl_yaw_ = pending_cmd_.yaw.has_value();
+            target_frame_ = pending_cmd_.frame;
 
             target_vel_.head<3>() = pending_cmd_.vec3_cmd;
             target_vel_.w() = pending_cmd_.yaw_rate.value_or(0.0);
@@ -613,7 +731,7 @@ class ThreadedTracker : public IThreadRunner {
         double rotated_last_vy =
             -last_cmd_vel_.x() * sy + last_cmd_vel_.y() * cy;
 
-        // [新增] 同样旋转上一拍的加速度
+        // [新增] 同样旋转上一拍 of 加速度
         double rotated_last_ax =
             last_cmd_acc_.x() * cy + last_cmd_acc_.y() * sy;
         double rotated_last_ay =

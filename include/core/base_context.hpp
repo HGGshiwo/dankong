@@ -3,6 +3,7 @@
 #include <chrono>
 #include <memory>
 
+#include "dk/adapters/mqtt/protocal.hpp"
 #include "dk/adapters/web/websocket.hpp"
 #include "dk/engine.hpp"
 #include "robot/irobot.hpp"
@@ -14,6 +15,7 @@ struct IContext {
     virtual ~IContext() = default;
     // 这两个需要小心，没有加锁
     std::shared_ptr<dk::ConnectionManager> ws_manager;
+    std::shared_ptr<dk::IMqttClient> mqtt_client;
     StateRegistry state_registry;
     std::shared_ptr<mavsdk::System> mavsdk_system;
 #ifdef USE_ROS1

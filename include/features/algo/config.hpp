@@ -1,4 +1,5 @@
 #pragma once
+#ifdef USE_ROS
 #include <string>
 #include <unordered_map>
 
@@ -21,3 +22,4 @@ struct AlgoConfig {
         __group_name,
         false};
 };
+#endif

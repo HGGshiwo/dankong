@@ -172,6 +172,11 @@ button:
     group: "飞行控制"
     target: { config_type: "toast", url: "/land", method: "POST", "data": {"do_pland": true} }
 
+  - key: btn_pland_return
+    name: "精准返航"
+    group: "飞行控制"
+    target: { config_type: "toast", url: "/return", method: "POST", "data": {"do_pland": true} }
+
   - key: btn_reboot_fcu
     name: "重启飞控"
     group: "飞行控制"
@@ -287,6 +292,50 @@ button:
       config_type: "toast"
       url: "/pland_target/set"
       method: "POST"
+  
+  - key: btn_offset_start
+    name: "校准偏移"
+    group: "算法控制"
+    target:
+      config_type: "form"
+      title: "开始校准"
+      items:
+        - key: x
+          type: "number"
+          name: "Tag X"
+          default: 0.0
+        - key: y
+          type: "number"
+          name: "Tag Y"
+          default: 0.0
+        - key: z
+          type: "number"
+          name: "Tag Z"
+          default: 0.0
+      submit:
+        config_type: "button"
+        target:
+          config_type: "toast"
+          url: "/offset_estimate/start"
+          method: "POST"
+  
+  - key: btn_offset_stop
+    name: "停止校准"
+    group: "算法控制"
+    target:
+      config_type: "form"
+      title: "停止校准"
+      items:
+        - key: save
+          type: "switch"
+          name: "是否保存"
+          default: false
+      submit:
+        config_type: "button"
+        target:
+          config_type: "toast"
+          url: "/offset_estimate/stop"
+          method: "POST"
 
   - key: btn_log
     name: "记录日志"

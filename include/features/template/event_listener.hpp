@@ -14,5 +14,5 @@ class TemplateEventListener
 
     TemplateEventListener() {}
 
-    void on_event(const dk::TickEvent& event, RobotContext& ctx) {}
+    void on_tick(double dt, RobotContext& ctx) {}
 };
