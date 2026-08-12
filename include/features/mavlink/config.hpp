@@ -15,4 +15,6 @@ struct MavlinkConfig {
         "pdef_path", "config/apm.pdef.xml", "APM参数描述XML文件路径");
     dk::Param<int> msg_interval_rate =
         INIT_PARAM("msg_interval_rate", 30, "数据上报频率");
+    dk::Param<int> heartbeat_rate =
+        INIT_PARAM("heartbeat_rate", 5, "心跳发送频率");
 };

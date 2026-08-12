@@ -1,11 +1,11 @@
 <launch>
     <arg name="robot_type" default="drone"/>  <!-- dog/drone -->
-    <arg name="world_type" default="empty"/>
+    <arg name="world_type" default="empty_world.launch"/>
     <arg name="gui" default="true"/>
 
     <include file="$(find gazebo_sim)/launch/iris_with_roscam2.launch">
         <arg name="gui" value="$(arg gui)" />
-        <arg name="rviz" value="false" />
+        <arg name="rviz" value="true" />
         <arg name="robot_type" value="$(arg robot_type)" />
         <arg name="world_type" value="$(arg world_type)" />
         <arg name="output" value="log" />

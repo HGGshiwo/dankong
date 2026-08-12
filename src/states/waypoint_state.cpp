@@ -223,7 +223,6 @@ bool WaypointState::ExcuteState::check_arrive(RobotContext& ctx) {
 // 执行当前wp_idx指向的航点
 StateAction WaypointState::ExcuteState::on_enter(RobotContext& ctx) {
     auto wp = parent()->get_cur_wp();
-    auto datum = ctx.datum.getReliableDatum();
     Eigen::Vector3d pos_enu = ctx.pos_enu.load();
     wp_goal_ = wp;
 

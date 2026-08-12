@@ -34,6 +34,8 @@ void MavlinkEventListener::on_event(const FcuConnectedEvent& event,
         int msg_interval_rate =
             GlobalConfig.GetConfig().msg_interval_rate.get();
         ctx.engine->get_context().robot->set_msg_interval(
+            0, GlobalConfig.GetConfig().heartbeat_rate.get());  // heartbeat
+        ctx.engine->get_context().robot->set_msg_interval(
             32, msg_interval_rate);  // position
         ctx.engine->get_context().robot->set_msg_interval(
             30, msg_interval_rate);  // attitude
