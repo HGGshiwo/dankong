@@ -10,3 +10,5 @@ sh/logs/*
 sh/terrain/*
 config/*-real-config.yaml
 test_log/
+.clangd
+compile_commands.json
