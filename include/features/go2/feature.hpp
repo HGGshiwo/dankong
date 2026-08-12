@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "./event_listener.hpp"
+#include "./events.hpp"
 #include "core/engine.hpp"
 #include "core/global_config.hpp"
 #include "core/tag.hpp"
@@ -84,7 +85,6 @@ class Go2Feature {
                 double enu_z = msg->pose.pose.position.z;
 
                 ctx.pos_enu.emplace(enu_x, enu_y, enu_z);
-                ctx.datum.pushENU({enu_x, enu_y, enu_z}, now);
                 ctx.pose_history.push_pos(now,
                                           Eigen::Vector3d(enu_x, enu_y, enu_z));
 
@@ -111,6 +111,18 @@ class Go2Feature {
             "/task/feedback",
             [](const std_msgs::String::ConstPtr& msg) -> WpArriveEvent {
                 return WpArriveEvent{};
+            });
+
+        ros->bind_json_context(
+            "/dank/status",
+            [](const Go2StateData& msg, RobotContext& ctx) -> void {
+                ctx.go2_state.store(msg.mode);
+                ctx.battery_remaining.store(msg.battery);
+                bool is_arm = msg.mode == 1;
+                if (is_arm != ctx.arm.load()) {
+                    ctx.arm.store(is_arm);
+                    ctx.engine->dispatch_internal(ArmEvent{is_arm});
+                }
             });
     };
 };

@@ -12,7 +12,6 @@
 #include "Eigen/src/Geometry/Quaternion.h"
 #include "core/flight_mode.hpp"
 #include "core/global_config.hpp"
-#include "utils/datum_synchronizer.hpp"
 #include "utils/dirty_var.hpp"
 #include "utils/fixed_string64.hpp"
 #include "utils/state_registry.hpp"
@@ -257,8 +256,6 @@ struct ControlContext {
     DirtyVar<double> pitch;
 
     PoseHistory pose_history;
-
-    DatumSynchronizer datum;
 
    public:
     // =========================================================================

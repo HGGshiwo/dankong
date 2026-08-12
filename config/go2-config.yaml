@@ -1,5 +1,6 @@
 auto_heading_enable_dist_m: 1
 can_name: can0
+tracker_type: move_base
 command_timeout_sec: 0.5
 device_code: UAV-S-005
 fcu_data_rate: 10

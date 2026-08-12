@@ -1,5 +1,6 @@
 #pragma once
 #include <atomic>
+#include <cstdint>
 #include <memory>
 #include <string_view>
 
@@ -9,6 +10,7 @@
 
 struct Go2Context {
     std::shared_ptr<IRobot> robot;
+    std::atomic<uint8_t> go2_state;
 
    public:
     explicit Go2Context(StateRegistry& reg) {}

@@ -26,6 +26,21 @@ from std_srvs.srv import Empty
 HOST = "127.0.0.1"
 PORT = 8000
 
+robot_type_map = {
+    "drone": ("ArduCopter", "gazebo-iris", "iris_demo"),
+    "dog": ("Rover", "gazebo-rover", "/"),
+    "car": ("Rover", "gazebo-rover", "ugv_0"),
+    "go2": ("Rover", "gazebo-rover", "/"),
+}
+
+
+def get_robot_params(robot_type: str):
+    apm_arg = robot_type_map.get(robot_type, None)
+    if apm_arg is None:
+        raise RuntimeError(f"不支持机器人类型：{robot_type}")
+    # v, f, _ = apm_arg
+    return apm_arg
+
 
 @contextmanager
 def sitl_env(robot_type: str = None):
@@ -41,15 +56,8 @@ def sitl_env(robot_type: str = None):
     custom_env = os.environ.copy()
     custom_env["MY_ROS_SITL_SESSION"] = session_id
 
-    robot_type_map = {
-        "drone": ("ArduCopter", "gazebo-iris"),
-        "dog": ("Rover", "gazebo-rover"),
-        "car": ("Rover", "gazebo-rover"),
-    }
-    apm_arg = robot_type_map.get(robot_type, None)
-    if apm_arg is None:
-        raise RuntimeError(f"不支持机器人类型：{robot_type}")
-    v, f = apm_arg
+    v, f, _ = get_robot_params(robot_type)
+
     cmd = f"sim_vehicle.py --no-rebuild --no-mavproxy -v {v} -f {f} --custom-location=30.11269,120.1429,0,0".split()
 
     # 3. 带着狗牌启动进程
@@ -104,9 +112,6 @@ def sitl_env(robot_type: str = None):
             session_cleanup()
 
 
-MODEL_NAME_MAP = {"dog": "/", "drone": "iris_demo", "car": "ugv_0"}
-
-
 def http_post(url, data=None, check=False) -> Dict[str, Any]:
     response = requests.post(f"http://{HOST}:{PORT}{url}", json=data)
     res = response.json()
@@ -124,7 +129,8 @@ class GazeboObject:
     @staticmethod
     def get_robot_type():
         robot_type = rospy.get_param("~robot_type")
-        return MODEL_NAME_MAP.get(robot_type)
+        v, f, _ = get_robot_params(robot_type)
+        return _
 
     def __init__(self, robot_name=None):
         rospy.wait_for_service("/gazebo/get_model_state", timeout=5.0)

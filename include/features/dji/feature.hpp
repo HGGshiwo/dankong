@@ -78,9 +78,6 @@ class DjiFeature {
                 // --- 运动学数据更新 (极致精简) ---
                 ctx.pos_enu.emplace(tlm->pos_enu_x, tlm->pos_enu_y,
                                     tlm->pos_enu_z);
-                ctx.datum.pushENU(
-                    {tlm->pos_enu_x, tlm->pos_enu_y, tlm->pos_enu_z},
-                    ctx.engine->get_time_provider()->now());
 
                 Eigen::Vector3d vel_enu(tlm->vel_enu_x, tlm->vel_enu_y,
                                         tlm->vel_enu_z);
@@ -112,10 +109,6 @@ class DjiFeature {
                     d.y() = tlm->latitude;
                     d.z() = tlm->relative_alt;
                 });
-
-                ctx.datum.pushGPS(
-                    {tlm->longitude, tlm->latitude, tlm->relative_alt},
-                    ctx.engine->get_time_provider()->now());
                 ctx.odom_ok = true;
             });
 
