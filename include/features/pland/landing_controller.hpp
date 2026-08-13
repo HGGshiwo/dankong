@@ -143,7 +143,9 @@ class PlandController : public IThreadRunner, public ILandingController {
         }
 
         // 4. 计算动态对齐漏斗 (Funnel)
-        double align_dist_thresh = std::max(0.2, current_z * 0.2);
+        double align_dist_thresh =
+            std::max(cfg.pland_funnel_max_radius.get(),
+                     current_z * cfg.pland_funnel_radius_k.get());
         double hold_dist_thresh_max = cfg.hold_dist_thresh_max.get();
         double hold_dist_thresh_min = cfg.hold_dist_thresh_min.get();
         double hold_dist_thresh_min_alt = cfg.hold_dist_thresh_min_alt.get();
@@ -773,9 +775,9 @@ class PlandController : public IThreadRunner, public ILandingController {
         if (!z_cmd_opt) return "";
         auto z_cmd = z_cmd_opt.value();
 
-        // 强制切断盲降输出
+        // 盲降时切断相对平移输出，若有前馈则保持前馈速度
         if (z_cmd.is_blind_drop) {
-            vel_cmd_body.head<2>().setZero();
+            vel_cmd_body.head<2>() = ff_vel_body;
             omega_z = 0.0;
         }
 

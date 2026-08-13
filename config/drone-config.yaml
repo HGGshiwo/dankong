@@ -66,7 +66,7 @@ pland_detect_topic: /pland/detect
 pland_gamma: 0.25
 pland_gamma_yaw: 0.20000000000000001
 pland_gamma_z: 0.5
-pland_gimbal_abs: true
+pland_gimbal_abs: false
 pland_image_topic: /roscam/cam/image_raw
 pland_limit_start_z: 3
 pland_max_acc_xy: 1

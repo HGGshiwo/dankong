@@ -94,7 +94,7 @@ struct PlandConfig {
     dk::Param<double> blind_drop_xy_thresh =
         INIT_PARAM("blind_drop_xy_thresh", 0.2, "达到该误差允许切blind_drop");
     dk::Param<double> hold_dist_thresh_max = INIT_PARAM(
-        "hold_dist_thresh_max", 3.5, "允许降低高度的误差thresh(10m)");
+        "hold_dist_thresh_max", 1.8, "允许降低高度的误差thresh(10m)");
     dk::Param<double> hold_dist_thresh_min = INIT_PARAM(
         "hold_dist_thresh_min", 0.2, "允许降低高度的误差thresh(最小高度)");
 
@@ -116,6 +116,10 @@ struct PlandConfig {
     dk::Param<double> pland_target_distance =
         INIT_PARAM("pland_target_distance", 3.0f,
                    "在距离目标多少半径内允许执行降落, 负值为忽略");
+    dk::Param<double> pland_funnel_max_radius = INIT_PARAM(
+        "pland_funnel_max_radius", 0.15, "漏斗最大半径，进入漏斗后允许下降");
+    dk::Param<double> pland_funnel_radius_k =
+        INIT_PARAM("pland_funnel_radius_k", 0.1, "漏斗半径，计算方式为k * z");
 };
 
 #endif

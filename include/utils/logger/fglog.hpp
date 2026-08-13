@@ -322,4 +322,22 @@ inline void publish_value(const std::string& topic, const T& value) {
     }
 }
 
+// ---- 类型四：用于统计事件频率的辅助 API (使用宏定义以支持无 map 且各调用点
+// static 隔离) ----
+#define fglog_publish_hz(topic, interval_seconds)                     \
+    do {                                                              \
+        static int _count = 0;                                        \
+        static auto _last_time = std::chrono::steady_clock::now();    \
+        _count++;                                                     \
+        auto _now = std::chrono::steady_clock::now();                 \
+        double _elapsed =                                             \
+            std::chrono::duration<double>(_now - _last_time).count(); \
+        if (_elapsed >= (interval_seconds)) {                         \
+            double _hz = _count / _elapsed;                           \
+            _count = 0;                                               \
+            _last_time = _now;                                        \
+            fglog::publish_value((topic), _hz);                       \
+        }                                                             \
+    } while (0)
+
 }  // namespace fglog

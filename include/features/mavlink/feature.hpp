@@ -12,6 +12,7 @@
 #include "features/mavlink/events.hpp"
 #include "robot_context.hpp"
 #include "states/state_utils.hpp"
+#include "utils/logger/fglog.hpp"
 
 class MavlinkFeature {
    public:
@@ -76,6 +77,8 @@ class MavlinkFeature {
                 double enu_x = pos_vel.position.east_m;
                 double enu_y = pos_vel.position.north_m;
                 double enu_z = -pos_vel.position.down_m;
+
+                fglog_publish_hz("/hz/pose", 1.0);
 
                 ctx.pos_enu.emplace(enu_x, enu_y, enu_z);
 
