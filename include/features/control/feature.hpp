@@ -111,6 +111,9 @@ class ControlFeature {
         web->template register_route<JoystickEvent, EventResult>(
             boost::beast::http::verb::post, "/cmd_vel", 5000);
 
+        web->template register_route<OldJoystickEvent, EventResult>(
+            boost::beast::http::verb::post, "/set_joystick", 5000);
+
         web->template register_route<EnableJoystickEvent, EventResult>(
             boost::beast::http::verb::post, "/joystick/enable", 5000);
     }

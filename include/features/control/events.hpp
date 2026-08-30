@@ -83,6 +83,14 @@ struct JoystickEvent : dk::AsyncEvent<EventResult> {
 };
 
 // @JSON_ENABLE
+struct OldJoystickEvent : dk::AsyncEvent<EventResult> {
+    double right_x = 0;
+    double right_y = 0;
+    double left_x = 0;
+    double left_y = 0;
+};
+
+// @JSON_ENABLE
 struct EnableJoystickEvent : dk::AsyncEvent<EventResult> {
     bool enable = false;
 };

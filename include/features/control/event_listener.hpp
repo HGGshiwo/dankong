@@ -29,7 +29,7 @@ class ControlEventListener
                    RebootFcuEvent, GetWpEvent, GetGpsEvent, GetParamEvent,
                    SetParamEvent, DisarmEvent, RestartEvent, JoystickEvent,
                    EnableJoystickEvent, TestEvent, ReportEvent, FlightModeEvent,
-                   LoiterEvent>;
+                   LoiterEvent, OldJoystickEvent>;
 
     void on_tick(double dt, RobotContext& ctx);
     void on_event(const SetPosVelEvent& event, RobotContext& ctx);
@@ -46,6 +46,13 @@ class ControlEventListener
     void on_event(const DisarmEvent& event, RobotContext& ctx);
     void on_event(const RestartEvent& event, RobotContext& ctx);
     void on_event(const JoystickEvent& event, RobotContext& ctx);
+
+    void on_event(const OldJoystickEvent& event, RobotContext& ctx) {
+        ctx.robot->cmd_vel(Eigen::Vector4d{event.right_y, event.right_x,
+                                           event.left_y, event.left_x});
+        event.resolve({"success", "OK"});
+    }
+
     void on_event(const EnableJoystickEvent& event, RobotContext& ctx) {
         ctx.enable_joystick.store(event.enable);
         event.resolve({"success", "OK"});
