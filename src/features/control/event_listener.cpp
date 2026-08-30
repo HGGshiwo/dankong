@@ -287,7 +287,7 @@ void ControlEventListener::on_event(const GetWpEvent& event,
 void ControlEventListener::on_event(const GetGpsEvent& event,
                                     RobotContext& ctx) {
     auto gps = ctx.lon_lat_alt.load();
-    event.resolve({"success", {gps.y(), gps.x(), gps.z()}});
+    event.resolve({"success", {gps.x(), gps.y(), gps.z()}});
 }
 
 void ControlEventListener::on_event(const GetParamEvent& event,
