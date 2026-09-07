@@ -2,7 +2,6 @@
 #include "core/base_assembler.hpp"
 
 // 引入你需要的 Feature
-#include "features/algo/config.hpp"
 #include "features/car/config.hpp"
 #include "features/control/config.hpp"
 #include "features/mavlink/config.hpp"
@@ -13,6 +12,5 @@
 // =================================================================
 // 终极魔法：只需这一段配置，剩下的全交由编译器生成！
 // =================================================================
-using RobotConfig =
-    ConfigGenerator<SystemConfig, AlgoConfig, ControlConfig, MavlinkConfig,
-                    CarConfig, TrackerConfig, ReportConfig>;
+using RobotConfig = ConfigGenerator<SystemConfig, ControlConfig, MavlinkConfig,
+                                    CarConfig, TrackerConfig, ReportConfig>;

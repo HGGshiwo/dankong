@@ -330,7 +330,9 @@ function(create_dankong_target TARGET_TYPE)
     target_copy_post_build(${TARGET_NAME} config config)
     target_copy_post_build(${TARGET_NAME} dk/frontend/dist dist)
 
-    target_precompile_headers(${TARGET_NAME} PRIVATE include/pch.h)
+    target_precompile_headers(${TARGET_NAME} PRIVATE 
+        "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/include/pch.h>"
+    )
 
     message(STATUS "Created target: ${TARGET_NAME} with includes for ${TARGET_TYPE}")
 endfunction()
