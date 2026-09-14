@@ -393,7 +393,8 @@ class LandingDetector : public IThreadRunner, public ILandingDetector {
             } else {
                 output.pnp_pos = pnp_enu;
                 output.los_pos = los_enu;
-                raw_target_enu = solve_fused_pose(pnp_enu, los_enu);
+                // raw_target_enu = solve_fused_pose(pnp_enu, los_enu);
+                raw_target_enu = pnp_enu;  // 完全使用pnp
                 output.target_pos_body = pnp_pos_body;
             }
             output.is_valid = true;
