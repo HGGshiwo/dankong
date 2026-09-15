@@ -51,7 +51,7 @@ done
 PROJECT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." && pwd )"
 BUILD_DIR="$PROJECT_DIR/build_standalone" # 使用独立的 build 文件夹避免污染 ROS 缓存
 DEPLOY_DIR="$PROJECT_DIR/deploy_pkg"      # 最终的打包输出目录
-EXEC_NAME="dankong_drone_node"            # 你的节点名字
+EXEC_NAME="dankong_${ROBOT_TYPE}_node"            # 你的节点名字
 
 echo "🚀 [1/6] 开始准备打包环境..."
 echo "   -> 编译模式: $BUILD_TYPE"
@@ -108,20 +108,20 @@ echo "  -> 动态依赖库提取完毕！(已安全跳过底层系统库)"
 echo "📜 [5/6] 生成绿色版启动脚本..."
 # 将 run.sh 改名为 dankong，防止加入 PATH 后与其他脚本冲突
 RUN_SCRIPT="$DEPLOY_DIR/dankong"
-cat << 'EOF' > "$RUN_SCRIPT"
+cat << EOF > "$RUN_SCRIPT"
 #!/bin/bash
 # 获取当前脚本所在目录的绝对路径
-DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+DIR="\$( cd "\$( dirname "\${BASH_SOURCE[0]}" )" && pwd )"
 
 # 核心魔法：告诉系统优先从我们自带的 libs 文件夹里加载动态库
-export LD_LIBRARY_PATH="$DIR/libs:$LD_LIBRARY_PATH"
+export LD_LIBRARY_PATH="\$DIR/libs:\$LD_LIBRARY_PATH"
 
 # 进入 bin 目录，确保程序能正确读取到同级目录下的 config 和 dist 文件夹
-cd "$DIR/bin"
+cd "\$DIR/bin"
 
 echo "启动 Dankong 无 ROS 独立版..."
 # 运行程序，并将后方传入的参数原样传递给程序
-./dankong_drone_node "$@"
+./${EXEC_NAME} "\$@"
 EOF
 
 # 赋予启动脚本执行权限

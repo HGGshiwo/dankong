@@ -253,6 +253,8 @@ class PlandController : public IThreadRunner, public ILandingController {
     ros::Publisher los_pub_;
     ros::Publisher fused_pub_;
     ros::Publisher vel_pub_;
+    ros::Publisher odom_pub_;
+    ros::Publisher cmd_vel_pub_;
     int log_idx_ = 0;
     double last_step_time_;
 
@@ -271,12 +273,59 @@ class PlandController : public IThreadRunner, public ILandingController {
         los_pub_ = nh.advertise<nav_msgs::Odometry>("/pland/los", 10);
         fused_pub_ = nh.advertise<nav_msgs::Odometry>("/pland/fused", 10);
         vel_pub_ = nh.advertise<geometry_msgs::TwistStamped>("/pland/vel", 10);
+        odom_pub_ = nh.advertise<nav_msgs::Odometry>("/pland/odom", 10);
+        cmd_vel_pub_ =
+            nh.advertise<geometry_msgs::TwistStamped>("/pland/cmd_vel", 10);
         log_idx_ = 0;
         last_step_time_ = 0.0;
 
         if (GlobalConfig.GetConfig().pure_vision.get()) {
             current_mode_ = ServoingMode::PURE_VISUAL_BODY;
         }
+    }
+
+    // 发布给飞机的实时控制指令 /pland/cmd_vel，并同步以同时间戳发布当前位姿
+    // /pland/odom
+    void publish_cmd_vel(const Eigen::Vector3d& vel, double yaw_rate = 0.0,
+                         const std::string& frame_id = "base_link") {
+        ros::Time now = ros::Time::now();
+        geometry_msgs::TwistStamped msg;
+        msg.header.stamp = now;
+        msg.header.frame_id = frame_id;
+        msg.twist.linear.x = vel.x();
+        msg.twist.linear.y = vel.y();
+        msg.twist.linear.z = vel.z();
+        msg.twist.angular.z = yaw_rate;
+        cmd_vel_pub_.publish(msg);
+
+        // 严格时间锁相：保证 odom 与 cmd_vel 使用完全同一纳秒级时间戳发布
+        publish_self_odom(now);
+    }
+
+    // 融入控制循环输出飞机当前位姿(ENU)，保证与控制输出纳秒级严格对齐
+    void publish_self_odom(const ros::Time& stamp = ros::Time::now()) {
+        nav_msgs::Odometry odom;
+        odom.header.stamp = stamp;
+        odom.header.frame_id = "map";
+        odom.child_frame_id = "base_link";
+
+        Eigen::Vector3d pos = ctx_.pos_enu.load();
+        odom.pose.pose.position.x = pos.x();
+        odom.pose.pose.position.y = pos.y();
+        odom.pose.pose.position.z = pos.z();
+
+        Eigen::Quaterniond q = ctx_.orientation.load();
+        odom.pose.pose.orientation.w = q.w();
+        odom.pose.pose.orientation.x = q.x();
+        odom.pose.pose.orientation.y = q.y();
+        odom.pose.pose.orientation.z = q.z();
+
+        Eigen::Vector3d vel = ctx_.vel_enu.load();
+        odom.twist.twist.linear.x = vel.x();
+        odom.twist.twist.linear.y = vel.y();
+        odom.twist.twist.linear.z = vel.z();
+
+        odom_pub_.publish(odom);
     }
 
     void publish_debug_data(RobotContext& ctx, DetectorResult result) {
@@ -320,6 +369,7 @@ class PlandController : public IThreadRunner, public ILandingController {
         // 停止后清空之前的速度
         ctx_.tracker->send_vel_cmd(Eigen::Vector3d::Zero(), std::nullopt,
                                    std::nullopt, CmdFrame::BODY);
+        publish_cmd_vel(Eigen::Vector3d::Zero(), 0.0);
     }
 
     void on_start() override {
@@ -373,6 +423,8 @@ class PlandController : public IThreadRunner, public ILandingController {
                                                std::nullopt, velocity,
                                                std::nullopt, std::nullopt,
                                                std::nullopt, CmdFrame::ENU);
+                    publish_cmd_vel(velocity.value_or(Eigen::Vector3d::Zero()),
+                                    0.0, "map");
                     return;
                 }
             }
@@ -392,7 +444,10 @@ class PlandController : public IThreadRunner, public ILandingController {
             invalid_time_ = 0;
         }
 
-        if (obs.stamp == 0.0) return;
+        if (obs.stamp == 0.0) {
+            publish_self_odom();
+            return;
+        }
 
         double TARGET_PLATFORM_HEIGHT =
             GlobalConfig.GetConfig().platform_height.get();
@@ -410,12 +465,14 @@ class PlandController : public IThreadRunner, public ILandingController {
                 if (is_blind_drop_) {
                     // 【修复】ENU 盲降丢失：继续维持 Z 轴下压，XY 锁死当前位置
                     auto pos_enu = ctx_.pos_enu.load();
+                    double drop_vz =
+                        GlobalConfig.GetConfig().touchdown_velocity + 0.2;
                     ctx_.tracker->send_pos_cmd(
                         {pos_enu.x(), pos_enu.y(),
                          TARGET_PLATFORM_HEIGHT - 0.5},
                         ctx_.yaw_enu.load(), 0.0, Eigen::Vector3d::Zero(), 0.0,
-                        GlobalConfig.GetConfig().touchdown_velocity + 0.2, 0.0,
-                        CmdFrame::ENU, {100.0, 1.0, 100.0}, 0.5);
+                        drop_vz, 0.0, CmdFrame::ENU, {100.0, 1.0, 100.0}, 0.5);
+                    publish_cmd_vel(Eigen::Vector3d(0.0, 0.0, -drop_vz), 0.0);
                 } else {
                     // 原有的正常复飞逻辑
                     auto pos_enu = ctx_.pos_enu.load();
@@ -425,6 +482,7 @@ class PlandController : public IThreadRunner, public ILandingController {
                          GlobalConfig.GetConfig().lost_target_alt.get()},
                         std::nullopt, std::nullopt, std::nullopt, std::nullopt,
                         0.5, std::nullopt, CmdFrame::ENU);
+                    publish_cmd_vel(Eigen::Vector3d(0.0, 0.0, 0.5), 0.0);
                 }
             } else {
                 Eigen::Vector3d safe_vel = Eigen::Vector3d::Zero();
@@ -445,6 +503,7 @@ class PlandController : public IThreadRunner, public ILandingController {
                 }
                 ctx_.tracker->send_vel_cmd(safe_vel, std::nullopt, 0.0,
                                            CmdFrame::BODY);
+                publish_cmd_vel(safe_vel, 0.0);
             }
             return;
         }
@@ -678,6 +737,13 @@ class PlandController : public IThreadRunner, public ILandingController {
              z_cmd.enu_gamma_z},  // ★ 恢复正确的 XY 增益
             pland_acc_xy);
 
+        // 发布当前指令速度（转到机体系 base_link 便于记录和实际响应对比）
+        Eigen::Vector3d vel_enu_cmd(virtual_state_enu.vel.x(),
+                                    virtual_state_enu.vel.y(),
+                                    -z_cmd.descent_vel);
+        Eigen::Vector3d vel_body_cmd = R_wb.transpose() * vel_enu_cmd;
+        publish_cmd_vel(vel_body_cmd, desired_omega, "base_link");
+
         double ff_vel = ff_vel_enu.norm();
         bool is_leash_clamped = tracking_err.norm() > max_leash_length;
 
@@ -791,6 +857,8 @@ class PlandController : public IThreadRunner, public ILandingController {
             omega_z,        // 控制偏航角速度
             CmdFrame::BODY  // ★ 关键：指令参考系为机体坐标系
         );
+
+        publish_cmd_vel(vel_cmd_body, omega_z, "base_link");
 
         double err_yaw_deg = err_yaw * 180.0 / M_PI;
         fglog::publish_value("/drone/pland/err_body", err_body.head<2>());
