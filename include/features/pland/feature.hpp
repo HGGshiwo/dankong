@@ -23,6 +23,7 @@
 #include "ros/publisher.h"
 #include "ros/time.h"
 #include "spdlog/spdlog.h"
+#include "std_msgs/Empty.h"
 #include "std_msgs/Float64.h"
 
 class PlandFeature {
@@ -33,6 +34,12 @@ class PlandFeature {
             GlobalConfig.GetConfig().pland_detect_topic.get(), 10);
 
         ctx.land_controller = std::make_shared<PlandController>(ctx);
+
+        // 外部精准降落模块的启停话题在启动时注册好, 避免 LandState 首次
+        // 触发时才 advertise 导致首条消息因握手未完成被丢弃
+        ctx.pland_start_pub = nh.advertise<std_msgs::Empty>("/pland/start", 1);
+        ctx.pland_cancel_pub =
+            nh.advertise<std_msgs::Empty>("/pland/cancel", 1);
 
         ctx.land_detector = std::make_shared<LandingDetector>(
             GlobalConfig.GetConfig(), ctx,

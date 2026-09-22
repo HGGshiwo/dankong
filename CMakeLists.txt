@@ -69,10 +69,16 @@ dk_create_json_library(my_json_lib "${CMAKE_CURRENT_SOURCE_DIR}")
 # 1. 系统级与 ROS 依赖
 # ------------------------------------------------------------------------------
 if(ROS_SUPPORT STREQUAL "ROS1")
-    find_package(catkin REQUIRED COMPONENTS 
+    find_package(catkin REQUIRED COMPONENTS
         roscpp
         rsos_msgs
         cv_bridge
+        sensor_msgs
+        nav_msgs
+        geometry_msgs
+        mavros_msgs
+        rosbag
+        topic_tools
     )
 elseif(ROS_SUPPORT STREQUAL "ROS2")
     find_package(ament_cmake REQUIRED)

@@ -95,3 +95,28 @@ yaw_tolerance: 0.080000000000000002
 yaw_tolerance_rad: 0.050000000000000003
 yaw_zero_speed_tol: 0.78000000000000003
 z_tolerance: 1
+record_topics:
+  - /mavros/local_position/odom
+  - /mavros/global_position/global
+  - /mavros/global_position/rel_alt
+  - /mavros/distance_sensor/rangefinder_pub
+  - /UAV0/perception/object_location/location_vel
+  - /mavros/setpoint_raw/local
+  - /pland/cmd_vel
+  - /pland/state
+  - /pland/cancel
+  - /pland/inject_target_pose
+  - /pland/inject_target_vel
+  - /pland/start
+  - /pland/target_pose
+  - /pland/target_vel
+  - /pland/detect
+  - /pland/target_pixel
+  - /pland/target_pose
+  - /pland/target_pose_enu
+  - /pland/target_vel
+  - /gimbal/current_pitch
+  - /gimbal/roll
+  - /gimbal/yaw
+  - /pland/reset
+  - /roscam/cam/image_raw

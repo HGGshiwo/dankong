@@ -358,3 +358,142 @@ bool MavsdkDrone::check_sensor_health(uint32_t sensor_health) {
     }
     return false;
 }
+
+bool MavsdkDrone::send_position_target(uint8_t coordinate_frame,
+                                       uint16_t type_mask,
+                                       const Eigen::Vector3d& pos_ned,
+                                       const Eigen::Vector3d& vel_ned,
+                                       float yaw, float yaw_rate) {
+    if (!offboard_) {
+        spdlog::error("Offboard plugin is not initialized.");
+        return false;
+    }
+
+    const bool yaw_rate_ignored = type_mask & 2048;  // IGNORE_YAW_RATE
+
+    // MAVSDK 的 offboard 消息里 yaw 始终为 active; 上游 mask 忽略 yaw 时
+    // 由桥填入当前 NED 航向 (见 mavros_bridge), 保证不引起额外转头
+    float yaw_deg = yaw * 180.0f / static_cast<float>(M_PI);
+    const float yawspeed_deg = yaw_rate * 180.0f / static_cast<float>(M_PI);
+
+    auto send = [&]() -> bool {
+        // BODY 系: 只有速度/yawspeed (pland 的 body 模式即此用法)
+        if (coordinate_frame == 8 /*FRAME_BODY_NED*/ ||
+            coordinate_frame == 9 /*FRAME_BODY_OFFSET_NED*/) {
+            mavsdk::Offboard::VelocityBodyYawspeed vel{};
+            vel.forward_m_s = vel_ned.x();
+            vel.right_m_s = vel_ned.y();
+            vel.down_m_s = vel_ned.z();
+            vel.yawspeed_deg_s = yaw_rate_ignored ? 0.0f : yawspeed_deg;
+            return offboard_->set_velocity_body(vel) ==
+                   mavsdk::Offboard::Result::Success;
+        }
+
+        // LOCAL 系: 按 mask 路由到 MAVSDK 的三种 setpoint
+        const bool pos_ignored =
+            (type_mask & (1 | 2 | 4)) == (1 | 2 | 4);  // IGNORE_PX|PY|PZ
+        const bool vel_ignored =
+            (type_mask & (8 | 16 | 32)) == (8 | 16 | 32);  // IGNORE_VX|VY|VZ
+
+        if (pos_ignored && !vel_ignored) {
+            mavsdk::Offboard::VelocityNedYaw vel{};
+            vel.north_m_s = vel_ned.x();
+            vel.east_m_s = vel_ned.y();
+            vel.down_m_s = vel_ned.z();
+            vel.yaw_deg = yaw_deg;
+            return offboard_->set_velocity_ned(vel) ==
+                   mavsdk::Offboard::Result::Success;
+        }
+        if (!pos_ignored && vel_ignored) {
+            mavsdk::Offboard::PositionNedYaw pos{};
+            pos.north_m = pos_ned.x();
+            pos.east_m = pos_ned.y();
+            pos.down_m = pos_ned.z();
+            pos.yaw_deg = yaw_deg;
+            return offboard_->set_position_ned(pos) ==
+                   mavsdk::Offboard::Result::Success;
+        }
+        if (!pos_ignored && !vel_ignored) {
+            mavsdk::Offboard::PositionNedYaw pos{};
+            pos.north_m = pos_ned.x();
+            pos.east_m = pos_ned.y();
+            pos.down_m = pos_ned.z();
+            pos.yaw_deg = yaw_deg;
+            mavsdk::Offboard::VelocityNedYaw vel{};
+            vel.north_m_s = vel_ned.x();
+            vel.east_m_s = vel_ned.y();
+            vel.down_m_s = vel_ned.z();
+            vel.yaw_deg = yaw_deg;
+            return offboard_->set_position_velocity_ned(pos, vel) ==
+                   mavsdk::Offboard::Result::Success;
+        }
+        return true;  // 全部字段忽略, 无需发送
+    };
+
+    // MAVSDK Offboard 生命周期: 首次使用先 set 提供初始 setpoint, 再 start(),
+    // 之后 MAVSDK 以 20Hz 自动重发最后一次目标。set_* 在未 start 时只缓存
+    // 不发送(返回值不能作为判断依据), 因此这里显式管理生命周期。
+    if (!offboard_started_.exchange(true)) {
+        send();
+        offboard_->start();
+    } else if (!send()) {
+        // offboard 被外部停止等异常场景: 重新 start 后重试
+        offboard_->start();
+        if (!send()) {
+            spdlog::error("Failed to send setpoint via offboard (frame={})",
+                          coordinate_frame);
+            return false;
+        }
+    }
+    return true;
+}
+
+// MavlinkPassthrough::Result -> (service success, MAV_RESULT)
+static IMavlink::CmdLongResult map_command_result(
+    mavsdk::MavlinkPassthrough::Result result) {
+    using R = mavsdk::MavlinkPassthrough::Result;
+    switch (result) {
+        case R::Success:
+            return {true, 0};  // MAV_RESULT_ACCEPTED
+        case R::CommandTemporarilyRejected:
+        case R::CommandBusy:
+        case R::CommandTimeout:
+            return {false, 1};  // MAV_RESULT_TEMPORARILY_REJECTED
+        case R::CommandDenied:
+            return {false, 2};  // MAV_RESULT_DENIED
+        case R::CommandUnsupported:
+            return {false, 3};  // MAV_RESULT_UNSUPPORTED
+        default:
+            return {false, 4};  // MAV_RESULT_FAILED
+    }
+}
+
+IMavlink::CmdLongResult MavsdkDrone::send_command_long(
+    uint16_t command, uint8_t confirmation, float p1, float p2, float p3,
+    float p4, float p5, float p6, float p7) {
+    if (!passthrough_) {
+        spdlog::error("MavlinkPassthrough plugin is not initialized.");
+        return {};
+    }
+
+    mavsdk::MavlinkPassthrough::CommandLong cmd{};
+    cmd.target_sysid = passthrough_->get_target_sysid();
+    cmd.target_compid = passthrough_->get_target_compid();
+    cmd.command = command;
+    cmd.param1 = p1;
+    cmd.param2 = p2;
+    cmd.param3 = p3;
+    cmd.param4 = p4;
+    cmd.param5 = p5;
+    cmd.param6 = p6;
+    cmd.param7 = p7;
+    (void)confirmation;  // MAVSDK 不区分 confirmation, 仅透传指令本身
+
+    auto result = passthrough_->send_command_long(cmd);
+    auto mapped = map_command_result(result);
+    if (!mapped.success) {
+        spdlog::error("COMMAND_LONG {} failed (mav_result={})", command,
+                      mapped.mav_result);
+    }
+    return mapped;
+}

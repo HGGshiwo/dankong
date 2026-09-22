@@ -9,12 +9,32 @@
 #include "robot/drone.hpp"
 #include "robot_context.hpp"
 
+#ifdef USE_ROS1
+#include <ros/ros.h>
+
+#include "features/control/mavros_bridge.hpp"
+#endif
+
 struct DroneFeature {
     static void setup(TagInit, RobotContext& ctx) {
         // 使用 MAVSDK 实例初始化无人机控制端
         ctx.robot = std::make_shared<Drone>(std::make_shared<MavsdkDrone>(
             ctx.engine->get_context().mavsdk_system));
     }
+
+#ifdef USE_ROS1
+    // 启动 mavros 兼容桥 (默认开启, 通过 ~enable_mavros_bridge 参数关闭)
+    static void setup(
+        TagRos, std::shared_ptr<dk::RosAdapter<RobotContext, Engine>>& ros) {
+        bool enable = true;
+        ros::NodeHandle pnh("~");
+        pnh.param("enable_mavros_bridge", enable, true);
+        if (!enable) return;
+
+        auto& ctx = ros->get_engine()->get_context();
+        ctx.mavros_bridge = std::make_shared<MavrosBridge>(ctx);
+    }
+#endif
 
     // 新增 MAVSDK 的数据绑定
     static void setup(

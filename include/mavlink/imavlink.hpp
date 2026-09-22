@@ -2,6 +2,7 @@
 #include <plugins/telemetry/telemetry.h>
 
 #include <Eigen/Dense>
+#include <cstdint>
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <stdexcept>
@@ -36,6 +37,30 @@ class IMavlink {
     virtual void set_target_type(VehicleType type) = 0;
     virtual bool is_prearm_msg(const std::string& text) = 0;
     virtual bool check_sensor_health(uint32_t sensor_health) = 0;
+
+    // COMMAND_LONG (#76) 的执行结果, mav_result 对应 MAV_RESULT 枚举
+    struct CmdLongResult {
+        bool success = false;
+        uint8_t mav_result = 4;  // MAV_RESULT_FAILED
+    };
+
+    // SET_POSITION_TARGET_LOCAL_NED (#84), pos/vel 为 NED, yaw 为 NED 航向
+    // (rad), yaw_rate 为 NED 角速度 (rad/s)。 mavros 兼容桥使用
+    virtual bool send_position_target(uint8_t coordinate_frame,
+                                      uint16_t type_mask,
+                                      const Eigen::Vector3d& pos_ned,
+                                      const Eigen::Vector3d& vel_ned, float yaw,
+                                      float yaw_rate) {
+        return false;
+    }
+
+    // 透传 COMMAND_LONG 给 FCU 并等待 ACK, mavros /mavros/cmd/command 服务使用
+    virtual CmdLongResult send_command_long(uint16_t command,
+                                            uint8_t confirmation, float p1,
+                                            float p2, float p3, float p4,
+                                            float p5, float p6, float p7) {
+        return {};
+    }
     // 获取实际的数据
     template <typename Type>
     static Type unpack(const ApmParam& param) {

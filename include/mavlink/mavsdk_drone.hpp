@@ -8,6 +8,7 @@
 #include <mavsdk/plugins/telemetry/telemetry.h>
 #include <tinyxml2.h>
 
+#include <atomic>
 #include <memory>
 #include <nlohmann/json.hpp>
 
@@ -96,6 +97,7 @@ class MavsdkDrone : public IMavlink {
     std::shared_ptr<mavsdk::Action> action_;
     std::shared_ptr<mavsdk::Param> param_;
     std::shared_ptr<mavsdk::Offboard> offboard_;
+    std::atomic<bool> offboard_started_{false};  // offboard 插件是否已 start
     std::shared_ptr<mavsdk::Telemetry> telemetry_;
     std::shared_ptr<mavsdk::MavlinkPassthrough> passthrough_;
     std::shared_ptr<mavsdk::Rtk> rtk_;
@@ -135,4 +137,11 @@ class MavsdkDrone : public IMavlink {
     void send_rtcm_data(const uint8_t* data, size_t size) override;
     bool is_prearm_msg(const std::string& text) override;
     bool check_sensor_health(uint32_t sensor_health) override;
+    bool send_position_target(uint8_t coordinate_frame, uint16_t type_mask,
+                              const Eigen::Vector3d& pos_ned,
+                              const Eigen::Vector3d& vel_ned, float yaw,
+                              float yaw_rate) override;
+    CmdLongResult send_command_long(uint16_t command, uint8_t confirmation,
+                                    float p1, float p2, float p3, float p4,
+                                    float p5, float p6, float p7) override;
 };

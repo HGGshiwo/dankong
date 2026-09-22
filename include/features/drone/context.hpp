@@ -7,8 +7,17 @@
 #include "mavlink/mavsdk_drone.hpp"
 #include "robot_context.hpp"
 
+#ifdef USE_ROS1
+class MavrosBridge;  // features/control/mavros_bridge.hpp, 由 DroneFeature 创建
+#endif
+
 struct DroneContext {
     std::shared_ptr<IRobot> robot;
+
+#ifdef USE_ROS1
+    // mavros 兼容桥 (发布遥测话题 + setpoint/服务转发), 由 DroneFeature 启动
+    std::shared_ptr<MavrosBridge> mavros_bridge;
+#endif
 
     // =========================================================================
     // 纯净的数据载体 (Data Model)

@@ -165,6 +165,7 @@ class MavlinkFeature {
                         pos.relative_altitude_m;  // 注意：APM 的 relative_alt
                                                   // 通常是相对于 home 点
                 });
+                ctx.amsl_alt.store(pos.absolute_altitude_m);
                 ctx.odom_ok = true;
             });
 

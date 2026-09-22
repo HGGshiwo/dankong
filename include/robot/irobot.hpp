@@ -144,4 +144,21 @@ class IRobot : public ITrackerRuntime {
     virtual bool check_sensor_health(uint32_t sensor_health) {
         return mavlink_->check_sensor_health(sensor_health);
     }
+
+    // mavros 兼容桥使用, 语义与 IMavlink 中声明一致 (pos/vel 为 NED)
+    virtual bool send_position_target(uint8_t coordinate_frame,
+                                      uint16_t type_mask,
+                                      const Eigen::Vector3d& pos_ned,
+                                      const Eigen::Vector3d& vel_ned, float yaw,
+                                      float yaw_rate) {
+        return mavlink_->send_position_target(coordinate_frame, type_mask,
+                                              pos_ned, vel_ned, yaw, yaw_rate);
+    }
+
+    virtual IMavlink::CmdLongResult send_command_long(
+        uint16_t command, uint8_t confirmation, float p1, float p2, float p3,
+        float p4, float p5, float p6, float p7) {
+        return mavlink_->send_command_long(command, confirmation, p1, p2, p3,
+                                           p4, p5, p6, p7);
+    }
 };

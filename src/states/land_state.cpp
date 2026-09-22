@@ -1,10 +1,9 @@
 #include "states/land_state.hpp"
 
 #include <plugins/telemetry/telemetry.h>
+#include <std_msgs/Empty.h>
 
 #include "core/global_config.hpp"
-#include "features/pland/ilanding_controller.hpp"
-#include "features/pland/ilanding_detector.hpp"
 #include "robot_context.hpp"
 #include "states/ground_state.hpp"
 #include "states/state_common.hpp"
@@ -13,8 +12,7 @@
 template <typename T, typename = void>
 struct has_land_target : std::false_type {};
 
-// 2. 偏特化模板：尝试获取 T 的 name 属性。如果获取成功，匹配此模板并继承
-// true_type
+// 2. 偏特化模板：检查 T 是否具有 tag_pos_map 属性
 template <typename T>
 struct has_land_target<T, std::void_t<decltype(std::declval<T>().tag_pos_map)>>
     : std::true_type {};
@@ -22,26 +20,21 @@ struct has_land_target<T, std::void_t<decltype(std::declval<T>().tag_pos_map)>>
 void LandState::on_exit(RobotContext& ctx) {
     StopRecordEvent e2;
     ctx.engine->dispatch(e2);
-    stop_pland(ctx);  // 这里触发停止是安全的
-    spdlog::info("[Pland] stop pland");
+    stop_pland(ctx);  // 触发取消外部精准降落模块
+    spdlog::info("[LandState] Exited land state, stopped pland");
 }
 
-// 该函数是必须的，否则has_land_target仍然会检查该分支
+// 启动外部精准降落模块与参数同步
 template <typename ContextType>
 bool LandState::setup_pland(ContextType& ctx) {
     if (!do_pland_) return false;
-    // 1. 修改：必须判断 ContextType，而不是写死 RobotContext
+
     if constexpr (has_land_target<decltype(GlobalConfig.GetConfig())>::value) {
         ctx.do_pland.store(true);
-        ctx.land_detector->start(30);
-        ctx.land_controller->start(50);
-
+        // 2. 云台转动至垂直下视 90 度
         SetGimbalEvent e1;
         e1.angle = 90.0;
 
-        // 2. 修改：用泛型 lambda 强行让 GlobalConfig 变成依赖类型（Dependent
-        // Type） 这样只要外层 if constexpr 为
-        // false，这段代码就永远不会被实例化和检查。
         [&](auto& global_cfg) {
             auto config = global_cfg.GetConfig();
             if (config.pland_gimbal_abs.get()) {
@@ -49,9 +42,17 @@ bool LandState::setup_pland(ContextType& ctx) {
             } else {
                 e1.mode = "body";
             }
-        }(GlobalConfig);  // 立即调用并传入全局的 GlobalConfig
+        }(GlobalConfig);
 
         ctx.engine->dispatch(e1);
+
+        // 3. 发布 /pland/start 话题激活外部精准降落模块
+        //    (发布器已在 PlandFeature::setup(TagInit) 时注册)
+        std_msgs::Empty start_msg;
+        ctx.pland_start_pub.publish(start_msg);
+        spdlog::info("[LandState] Published /pland/start (subscribers={})",
+                     ctx.pland_start_pub.getNumSubscribers());
+
         return true;
     }
     return false;
@@ -64,7 +65,8 @@ StateAction LandState::on_enter(RobotContext& ctx) {
         ctx.robot->land();
     else
         ctx.robot->set_mode(
-            mavsdk::Telemetry::FlightMode::Offboard);  // 精准降落要求GUIDED模式
+            mavsdk::Telemetry::FlightMode::Offboard);  // 精准降落要求
+                                                       // GUIDED/Offboard 模式
     return StateAction::unhandled();
 }
 
@@ -72,8 +74,14 @@ template <typename ContextType>
 void LandState::stop_pland(ContextType& ctx) {
     if constexpr (has_land_target<decltype(GlobalConfig.GetConfig())>::value) {
         if (do_pland_) {
-            ctx.land_detector->stop();
-            ctx.land_controller->stop();
+            // 发布 /pland/cancel 话题取消外部精准降落模块
+            //    (发布器已在 PlandFeature::setup(TagInit) 时注册)
+            std_msgs::Empty cancel_msg;
+            ctx.pland_cancel_pub.publish(cancel_msg);
+            spdlog::info(
+                "[LandState] Published /pland/cancel to stop precision landing "
+                "module");
+
             ctx.do_pland.store(false);
         }
     }

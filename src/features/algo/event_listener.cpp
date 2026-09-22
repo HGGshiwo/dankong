@@ -7,16 +7,7 @@
 
 // 构造函数实现
 AlgoEventListener::AlgoEventListener() : nh_() {
-    start_record_client_ =
-        std::make_shared<ServiceClient<rsos_msgs::StartBagRecord>>(
-            "/data_recorder/start_recording",
-            [](rsos_msgs::StartBagRecord srv) -> bool {
-                return srv.response.success;
-            });
-
-    stop_record_client_ = std::make_shared<ServiceClient<std_srvs::Trigger>>(
-        "/data_recorder/stop_recording",
-        [](std_srvs::Trigger srv) { return true; });
+    recorder_ = std::make_shared<BagRecorder>(nh_);
 
     set_gimbal_client_ =
         std::make_shared<ServiceClient<rsos_msgs::SetGimbalAngle>>(
@@ -78,24 +69,26 @@ void AlgoEventListener::on_event(const GetDetectEvent& event,
 
 void AlgoEventListener::on_event(const StartRecordEvent& event,
                                  RobotContext& ctx) {
-    rsos_msgs::StartBagRecord srv;
-    srv.request.prefix = event.bag_name;
-    if (start_record_client_->call(srv)) {
+    auto& cfg = GlobalConfig.GetConfig();
+    auto err = recorder_->start(
+        event.bag_name, cfg.record_path.get(), cfg.record_topics.get(),
+        cfg.record_compression.get(), cfg.record_split_mb.get());
+    if (err.empty()) {
         ctx.recording.store(true);
-        event.resolve({"success", srv.response.message});
+        event.resolve({"success", recorder_->bag_path()});
     } else {
-        event.reject(srv.response.message);
+        event.reject(err);
     }
-    return;
 }
 
 void AlgoEventListener::on_event(const StopRecordEvent& event,
                                  RobotContext& ctx) {
-    std_srvs::Trigger srv;
-    if (stop_record_client_->call(srv)) {
+    auto err = recorder_->stop();
+    if (err.empty()) {
+        ctx.recording.store(false);
         event.resolve({"success", "OK"});
     } else {
-        event.reject("stop call failed!");
+        event.reject(err);
     }
 }
 

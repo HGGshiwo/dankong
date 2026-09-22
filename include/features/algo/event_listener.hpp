@@ -3,8 +3,6 @@
 #include <ros/ros.h>
 #include <rsos_msgs/SetCameraExposure.h>
 #include <rsos_msgs/SetGimbalAngle.h>
-#include <rsos_msgs/StartBagRecord.h>
-#include <std_srvs/Trigger.h>
 
 #include <memory>
 #include <unordered_map>
@@ -13,6 +11,7 @@
 #include "core/global_config.hpp"
 #include "dk/event_listener.hpp"
 #include "dk/ros_utils.hpp"
+#include "features/algo/bag_recorder.hpp"
 #include "mavlink/mavsdk_drone.hpp"
 #include "nlohmann/json.hpp"
 #include "robot_context.hpp"
@@ -23,9 +22,8 @@ class AlgoEventListener
     : public dk::BaseEventListener<RobotContext, AlgoEventListener> {
    private:
     ros::NodeHandle nh_;
-    std::shared_ptr<ServiceClient<rsos_msgs::StartBagRecord>>
-        start_record_client_;
-    std::shared_ptr<ServiceClient<std_srvs::Trigger>> stop_record_client_;
+
+    std::shared_ptr<BagRecorder> recorder_;
 
     std::shared_ptr<ServiceClient<rsos_msgs::SetGimbalAngle>>
         set_gimbal_client_;

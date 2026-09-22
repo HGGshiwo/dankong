@@ -235,6 +235,7 @@ struct ControlContext {
     DirtyVar<nlohmann::json> mission_data{nlohmann::json::array()};
 
     DirtyVar<Eigen::Vector3d> lon_lat_alt{Eigen::Vector3d::Zero()};
+    DirtyVar<double> amsl_alt{-1.0};  // AMSL 绝对高度 (mavros global 话题用)
     DirtyVar<Eigen::Vector3d> vel_enu{Eigen::Vector3d::Zero()};
     DirtyVar<Eigen::Vector3d> vel_body{Eigen::Vector3d::Zero()};
     DirtyVar<Eigen::Vector3d> vel_angular_body{Eigen::Vector3d::Zero()};

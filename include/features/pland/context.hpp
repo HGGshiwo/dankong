@@ -5,6 +5,11 @@
 #include <opencv2/opencv.hpp>
 #include <optional>
 
+#ifdef USE_ROS1
+#include <ros/ros.h>
+#include <std_msgs/Empty.h>
+#endif
+
 #include "dk/adapters/udp/udp_client.hpp"
 #include "ilanding_controller.hpp"
 #include "ilanding_detector.hpp"
@@ -34,6 +39,14 @@ struct PlandContext {
 
     std::shared_ptr<ILandingDetector> land_detector;
     std::shared_ptr<ILandingController> land_controller;
+
+#ifdef USE_ROS1
+    // 外部精准降落模块的启停话题, 在节点启动时注册好。
+    // 不能在 LandState 首次触发时才 advertise: 注册后与订阅方的握手是异步的,
+    // 立即 publish 的消息会因零订阅者被静默丢弃 (表现为第一次点击无效)
+    ros::Publisher pland_start_pub;
+    ros::Publisher pland_cancel_pub;
+#endif
 
     explicit PlandContext(StateRegistry& reg) {
         reg.bind("do_pland", do_pland, 2.0);
