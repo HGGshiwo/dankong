@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<launch>
+    <arg name="robot_type" value="drone"/>
+    <include file="$(find dankong)/launch/dankong.launch">
+        <arg name="image_topic" value="/UAV0/sensor/video11_camera/image_raw"/>
+        <arg name="detect_topic" value="/pland_camera/result"/>
+        <arg name="config" value="$(find dankong)/config/$(arg robot_type)-real-config.yaml" />
+    </include>
+    <node name="ros_mobile" pkg="ros_mobile" type="main.py" output="screen">
+        <param name="port" value="8001" />
+    </node>
+</launch>
