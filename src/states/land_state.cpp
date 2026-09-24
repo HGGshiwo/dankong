@@ -61,12 +61,14 @@ bool LandState::setup_pland(ContextType& ctx) {
 StateAction LandState::on_enter(RobotContext& ctx) {
     bool do_pland = setup_pland(ctx);
 
-    if (!do_pland)
-        ctx.robot->land();
-    else
-        ctx.robot->set_mode(
-            mavsdk::Telemetry::FlightMode::Offboard);  // 精准降落要求
-                                                       // GUIDED/Offboard 模式
+    if (!do_pland) {
+        if (!ctx.robot->land())
+            spdlog::error("[LandState] 切换 LAND 模式失败!");
+    } else if (!ctx.robot->set_mode(mavsdk::Telemetry::FlightMode::Offboard)) {
+        // 精准降落要求 GUIDED/Offboard 模式
+        spdlog::error(
+            "[LandState] 切换 GUIDED 失败, pland 的设定值可能不会被执行!");
+    }
     return StateAction::unhandled();
 }
 

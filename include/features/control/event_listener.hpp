@@ -25,7 +25,7 @@ class ControlEventListener
    public:
     using AllowedEvents =
         std::tuple<PrearmEvent, TakeoffEvent, dk::StateChangeEvent,
-                   SetWaypointEvent, SetModeEvent, SetPosVelEvent,
+                   SetWaypointEvent, LandEvent, SetModeEvent, SetPosVelEvent,
                    RebootFcuEvent, GetWpEvent, GetGpsEvent, GetParamEvent,
                    SetParamEvent, DisarmEvent, RestartEvent, JoystickEvent,
                    EnableJoystickEvent, TestEvent, ReportEvent, FlightModeEvent,
@@ -37,6 +37,7 @@ class ControlEventListener
     void on_event(const TakeoffEvent& event, RobotContext& ctx);
     void on_event(const dk::StateChangeEvent& event, RobotContext& ctx);
     void on_event(const SetWaypointEvent& event, RobotContext& ctx);
+    void on_event(const LandEvent& event, RobotContext& ctx);
     void on_event(const SetModeEvent& event, RobotContext& ctx);
     void on_event(const RebootFcuEvent& event, RobotContext& ctx);
     void on_event(const GetWpEvent& event, RobotContext& ctx);

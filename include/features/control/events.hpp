@@ -28,6 +28,11 @@ struct SetWaypointEvent : dk::AsyncEvent<EventResult> {
 };
 
 //@JSON_ENABLE
+struct LandEvent : dk::AsyncEvent<EventResult> {
+    bool do_pland = false;
+};
+
+//@JSON_ENABLE
 struct RebootFcuEvent : dk::AsyncEvent<EventResult> {};
 
 // @JSON_ENABLE

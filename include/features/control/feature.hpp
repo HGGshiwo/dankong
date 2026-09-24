@@ -78,11 +78,8 @@ class ControlFeature {
                 event.finish_action = FinishAction::RETURN;
             });
 
-        web->template register_route<SetWaypointEvent, EventResult>(
-            boost::beast::http::verb::post, "/land", 5000,
-            [](SetWaypointEvent& event) {
-                event.finish_action = FinishAction::LAND;
-            });
+        web->template register_route<LandEvent, EventResult>(
+            boost::beast::http::verb::post, "/land", 5000);
 
         web->template register_route<TestEvent, EventResult>(
             boost::beast::http::verb::post, "/test", 5000);

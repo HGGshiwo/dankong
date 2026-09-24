@@ -218,6 +218,19 @@ void ControlEventListener::on_event(const SetWaypointEvent& event,
     }
 }
 
+void ControlEventListener::on_event(const LandEvent& event, RobotContext& ctx) {
+    // 降落只允许在空中执行
+    if (ctx.engine->is_active_state<InitState>() ||
+        ctx.engine->is_active_state<GroundState>()) {
+        event.reject("当前在地面，无法降落!");
+        return;
+    }
+    event.resolve({"success", "OK"});
+    // 无条件原地降落，不经过航点流程；reenter_all 保证即使已处于降落状态
+    // (例如 pland 未生效) 也会退出重进，重新执行 on_enter 断言模式并重启 pland
+    ctx.engine->step_reenter_all<LandState>(std::tuple(event.do_pland));
+}
+
 void ControlEventListener::on_event(const SetModeEvent& event,
                                     RobotContext& ctx) {
     std::optional<FlightMode> mode;
