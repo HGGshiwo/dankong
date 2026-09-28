@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<launch>
+    <arg name="mjpg_host" default="192.168.2.181" />
+    <arg name="mjpg_port" default="8090" />
+    <arg name="mjpg_fps" default="15" />
+    <arg name="robot_type" default="drone" />
+    <arg name="image_topic" default="/roscam/cam/image_raw" />
+    <arg name="config" default="$(find dankong)/config/dji-config.yaml" />
+
+    <!-- dankong 主节点(与通用 launch 相同,但不带 pland 检测/控制,便于单独调试) -->
+    <include file="$(find dankong)/launch/dankong.launch">
+        <arg name="robot_type" value="$(arg robot_type)" />
+        <arg name="config" value="$(arg config)" />
+        <arg name="image_topic" value="$(arg image_topic)" />
+    </include>
+
+    <!-- 下视相机:MavDrone MJPEG 拉流并发布 ROS topic -->
+    <node pkg="dankong" type="down_cam_node.py" name="dji_down_cam" output="screen">
+        <param name="host" value="$(arg mjpg_host)" />
+        <param name="port" value="$(arg mjpg_port)" />
+        <param name="topic" value="$(arg image_topic)" />
+        <param name="fps" value="$(arg mjpg_fps)" />
+    </node>
+</launch>

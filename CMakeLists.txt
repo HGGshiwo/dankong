@@ -371,6 +371,15 @@ if(ROS_SUPPORT STREQUAL "ROS2")
 endif()
 
 # ==============================================================================
+# ROS 1: 安装 Python 脚本 (下视相机 MJPEG 拉流节点)
+# ==============================================================================
+if(ROS_SUPPORT STREQUAL "ROS1")
+    catkin_install_python(PROGRAMS scripts/down_cam_node.py
+        DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+    )
+endif()
+
+# ==============================================================================
 # 测试部分
 # ==============================================================================
 if(ROS_SUPPORT STREQUAL "ROS1" AND CATKIN_ENABLE_TESTING)

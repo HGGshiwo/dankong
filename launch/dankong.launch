@@ -5,7 +5,7 @@
     <arg name="detect_topic" default="/pland/detect" />
     <arg name="debug" default="false" />
     
-    <node pkg="dankong" name="dankong" type="dankong_$(arg robot_type)_node" args="--config $(arg config)" output="screen" />
+    <node pkg="dankong" name="dankong" type="dankong_$(arg robot_type)_node" args="--config $(arg config)" output="screen" respawn="true" />
     <include file="$(find pland_controller)/launch/pland_controller.launch">
     </include>
 

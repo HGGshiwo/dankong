@@ -7,11 +7,14 @@
 #include <rclcpp/rclcpp.hpp>
 #endif
 #include "core/global_config.hpp"
+#include "crash_handler.hpp"
 #include "robot_assemble.hpp"
 #include "robot_context.hpp"
 #include "utils/get_executable_path.hpp"
 
 int main(int argc, char** argv) {
+    CrashHandler::install("/tmp/dankong.log");
+
     CLI::App app{"dk"};
     CLIArgs args;
 
