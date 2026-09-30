@@ -9,6 +9,7 @@
 
 #ifdef USE_ROS1
 class MavrosBridge;  // features/control/mavros_bridge.hpp, 由 DroneFeature 创建
+class GimbalBridge;  // features/control/gimbal_bridge.hpp, 由 DroneFeature 创建
 #endif
 
 struct DroneContext {
@@ -17,6 +18,9 @@ struct DroneContext {
 #ifdef USE_ROS1
     // mavros 兼容桥 (发布遥测话题 + setpoint/服务转发), 由 DroneFeature 启动
     std::shared_ptr<MavrosBridge> mavros_bridge;
+    // rsos 云台服务桥 (set_gimbal_angle -> MAVLink gimbal manager),
+    // 由 DroneFeature 按配置启动
+    std::shared_ptr<GimbalBridge> gimbal_bridge;
 #endif
 
     // =========================================================================

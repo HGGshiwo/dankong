@@ -2,6 +2,7 @@
 
 #include "./context.hpp"
 #include "core/engine.hpp"
+#include "core/global_config.hpp"
 #include "core/tag.hpp"
 #include "dk/adapters/udp/udp.hpp"
 // 确保包含你的 mavsdk_adapter 头文件
@@ -12,6 +13,7 @@
 #ifdef USE_ROS1
 #include <ros/ros.h>
 
+#include "features/control/gimbal_bridge.hpp"
 #include "features/control/mavros_bridge.hpp"
 #endif
 
@@ -33,6 +35,13 @@ struct DroneFeature {
 
         auto& ctx = ros->get_engine()->get_context();
         ctx.mavros_bridge = std::make_shared<MavrosBridge>(ctx);
+
+        // rsos 云台服务桥: 仅在部署配置 (gimbal_bridge_enable) 打开时注册,
+        // 与串口云台机型的驱动节点提供同名 rsos service
+        if (GlobalConfig.GetConfig().gimbal_bridge_enable.get()) {
+            ctx.gimbal_bridge =
+                std::make_shared<GimbalBridge>(ctx, ctx.mavsdk_system);
+        }
     }
 #endif
 

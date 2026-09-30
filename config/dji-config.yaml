@@ -9,15 +9,16 @@
 tag_family: tag36h11
 
 mavsdk_url: tcp://192.168.2.181:5760
+gimbal_bridge_enable: true
 pland_use_disarm: true
 auto_heading_enable_dist_m: 1
 camera_inner_matrix:
-  - 554.38271282264407
+  - 611.5623570215685
   - 0
-  - 320.5
+  - 320.59928067496867
   - 0
-  - 554.38271282264407
-  - 240.5
+  - 599.1195821461009
+  - 232.1364617682227
   - 0
   - 0
   - 1
@@ -67,7 +68,7 @@ pland_gamma: 0.25
 pland_gamma_yaw: 0.20000000000000001
 pland_gamma_z: 0.5
 pland_gimbal_abs: false
-pland_image_topic: /roscam/cam/image_raw
+pland_image_topic: /UAV0/sensor/video11_camera/image_raw
 pland_limit_start_z: 3
 pland_max_acc_xy: 1
 pland_max_devel_xy: 1

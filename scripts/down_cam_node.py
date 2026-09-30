@@ -13,12 +13,25 @@ Parameters:
     ~fps     target republish rate (default 15)
 """
 
+import os
 import threading
+import traceback
 
 import cv2
 import rospy
-from cv_bridge import CvBridge
 from sensor_msgs.msg import CompressedImage, Image
+
+# 拉流是局域网直连, 忽略系统代理: FFmpeg 会读取 http_proxy 等环境变量,
+# 代理(通常不在机载网段)会导致打开流失败
+for _proxy_var in (
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+):
+    os.environ.pop(_proxy_var, None)
 
 
 class DownCamNode:
@@ -30,7 +43,6 @@ class DownCamNode:
         self.topic = rospy.get_param("~topic", "dji/down_camera/image_raw").strip("/")
         self.rate = rospy.Rate(rospy.get_param("~fps", 15.0))
 
-        self.bridge = CvBridge()
         self.pub_image = rospy.Publisher(self.topic, Image, queue_size=1)
 
         if not self.host:
@@ -47,6 +59,7 @@ class DownCamNode:
         # Bind the condition to stamp_lock: wait()/notify_all() must run while the
         # caller holds exactly this lock
         self.frame_condition = threading.Condition(self.stamp_lock)
+        self.conversion_traceback_logged = False
 
     def grab_loop(self):
         cap = cv2.VideoCapture(self.url, cv2.CAP_FFMPEG)
@@ -85,15 +98,38 @@ class DownCamNode:
                 continue
 
             try:
-                msg = self.bridge.cv2_to_imgmsg(cv_image, encoding="bgr8")
+                # FFMPEG 解码偶发返回 4 通道帧, 统一转成 BGR
+                if cv_image.ndim == 3 and cv_image.shape[2] == 4:
+                    cv_image = cv2.cvtColor(cv_image, cv2.COLOR_BGRA2BGR)
+                # 手工填充 Image (绕开系统 cv_bridge 与当前 numpy/OpenCV
+                # 组合的 KeyError: 16 兼容性问题)
+                msg = Image()
+                msg.height, msg.width = cv_image.shape[0], cv_image.shape[1]
+                msg.encoding = "bgr8"
+                msg.is_bigendian = 0
+                msg.step = int(cv_image.shape[1] * 3)
+                msg.data = cv_image.tobytes()
                 msg.header.stamp = stamp
                 self.pub_image.publish(msg)
             except (
                 Exception
             ) as exc:  # cv_bridge conversion errors must not kill the node
                 rospy.logwarn_throttle(
-                    5.0, "[down_cam] conversion failed: %s", str(exc)
+                    5.0,
+                    "[down_cam] conversion failed: %r frame=%s",
+                    exc,
+                    (
+                        (cv_image.shape, str(cv_image.dtype))
+                        if cv_image is not None
+                        else None
+                    ),
                 )
+                if not self.conversion_traceback_logged:
+                    self.conversion_traceback_logged = True
+                    rospy.logerr(
+                        "[down_cam] first conversion failure traceback:\n%s",
+                        traceback.format_exc(),
+                    )
                 continue
             self.rate.sleep()
 

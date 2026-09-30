@@ -4,6 +4,7 @@
     <arg name="image_topic" default="/roscam/cam/image_raw" />
     <arg name="detect_topic" default="/pland/detect" />
     <arg name="debug" default="false" />
+    <arg name="camera_inner_matrix" default="[554.38271282264407, 0.0, 320.5, 0.0, 554.38271282264407, 240.5, 0.0, 0.0, 1.0]" />
     
     <node pkg="dankong" name="dankong" type="dankong_$(arg robot_type)_node" args="--config $(arg config)" output="screen" respawn="true" />
     <include file="$(find pland_controller)/launch/pland_controller.launch">
@@ -12,5 +13,6 @@
     <include file="$(find pland_detector)/launch/pland_detector.launch">
         <arg name="image_topic" value="$(arg image_topic)" />
         <arg name="detect_topic" value="$(arg detect_topic)" />
+        <arg name="camera_inner_matrix" value="$(arg camera_inner_matrix)" />
     </include>
 </launch>
