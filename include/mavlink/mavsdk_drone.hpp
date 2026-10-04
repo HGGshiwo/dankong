@@ -2,7 +2,6 @@
 #include <mavsdk/mavsdk.h>
 #include <mavsdk/plugins/action/action.h>
 #include <mavsdk/plugins/mavlink_passthrough/mavlink_passthrough.h>
-#include <mavsdk/plugins/offboard/offboard.h>
 #include <mavsdk/plugins/param/param.h>
 #include <mavsdk/plugins/rtk/rtk.h>
 #include <mavsdk/plugins/telemetry/telemetry.h>
@@ -96,8 +95,6 @@ class MavsdkDrone : public IMavlink {
     std::shared_ptr<mavsdk::System> system_;
     std::shared_ptr<mavsdk::Action> action_;
     std::shared_ptr<mavsdk::Param> param_;
-    std::shared_ptr<mavsdk::Offboard> offboard_;
-    std::atomic<bool> offboard_started_{false};  // offboard 插件是否已 start
     std::shared_ptr<mavsdk::Telemetry> telemetry_;
     std::shared_ptr<mavsdk::MavlinkPassthrough> passthrough_;
     std::shared_ptr<mavsdk::Rtk> rtk_;
@@ -105,6 +102,13 @@ class MavsdkDrone : public IMavlink {
     VehicleType vehicle_type_ = VehicleType::Unknown;
     std::function<float(mavsdk::Telemetry::FlightMode)> get_mode_param_ =
         get_copter_mode_param;
+
+    // 原生 MAVLink setpoint 透传 (绕开 MAVSDK offboard 高层 API 的字段裁剪,
+    // MAVLink SET_POSITION_TARGET_LOCAL_NED 原生支持 yaw_rate 与完整 type_mask)
+    bool send_setpoint_raw_local_ned(uint8_t frame, uint16_t type_mask,
+                                     const Eigen::Vector3d& pos_ned,
+                                     const Eigen::Vector3d& vel_ned, float yaw,
+                                     float yaw_rate);
 
     void load_pdef(const std::string& path);
 

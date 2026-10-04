@@ -13,7 +13,6 @@
 MavsdkDrone::MavsdkDrone(std::shared_ptr<mavsdk::System> system)
     : system_(system) {
     action_ = std::make_shared<mavsdk::Action>(system_);
-    offboard_ = std::make_shared<mavsdk::Offboard>(system_);
     param_ = std::make_shared<mavsdk::Param>(system_);
     telemetry_ = std::make_shared<mavsdk::Telemetry>(system_);
     passthrough_ = std::make_shared<mavsdk::MavlinkPassthrough>(system_);
@@ -311,23 +310,22 @@ bool MavsdkDrone::reboot_fcu() {
 }
 
 bool MavsdkDrone::cmd_vel(Eigen::Vector4d vel) {
-    // 注意这里的vel是FLU坐标系的
-    mavsdk::Offboard::VelocityBodyYawspeed cmd{};
-    cmd.forward_m_s = vel[0];
-    cmd.right_m_s = -vel[1];
-    cmd.down_m_s = -vel[2];
-    cmd.yawspeed_deg_s = -vel[3] * (180.0 / M_PI);
+    // 注意这里的 vel 是 FLU 机体系; 经原生 MAVLink BODY_NED 速度 + yaw_rate
+    // 下发 (type_mask: 忽略 位置/加速度/绝对yaw, 保留 VXYZ 与 YAW_RATE)
+    constexpr uint16_t kBodyVelYawMask = 1 | 2 | 4       // IGNORE_AFX|AFY|AFZ
+                                         | 16 | 32 | 64  // IGNORE_PX|PY|PZ
+                                         | 1024;         // IGNORE_YAW
+    const Eigen::Vector3d pos_zero = Eigen::Vector3d::Zero();
+    const Eigen::Vector3d vel_frd(vel[0], -vel[1], -vel[2]);  // FLU -> FRD
+    const float yaw_rate_ned =
+        static_cast<float>(-vel[3]);  // FLU 逆时针正 -> NED 顺时针正 (rad/s)
 
-    // 在 APM 中，Offboard 接口发送的设定值(Setpoint)会在飞控处于 GUIDED
-    // 模式时生效。
-    mavsdk::Offboard::Result result = offboard_->set_velocity_body(cmd);
-    if (result != mavsdk::Offboard::Result::Success) {
-        // MAVSDK 的 offboard_->start() 会尝试将模式切换为 Offboard
-        // (APM端映射为 GUIDED 模式)
-        offboard_->start();
-        result = offboard_->set_velocity_body(cmd);
-    }
-    return result == mavsdk::Offboard::Result::Success;
+    // 在 APM 中, GUIDED 模式下 SET_POSITION_TARGET_LOCAL_NED(BODY_NED) 生效;
+    // 需保证上游已切入 GUIDED (pland GUI/任务流程负责), 不再经 MAVSDK offboard
+    // start 兜底
+    return send_setpoint_raw_local_ned(8 /*MAV_FRAME_BODY_NED*/,
+                                       kBodyVelYawMask, pos_zero, vel_frd, 0.0f,
+                                       yaw_rate_ned);
 }
 
 void MavsdkDrone::send_rtcm_data(const uint8_t* data, size_t size) {
@@ -359,91 +357,48 @@ bool MavsdkDrone::check_sensor_health(uint32_t sensor_health) {
     return false;
 }
 
+// 原生 MAVLink SET_POSITION_TARGET_LOCAL_NED 透传:
+// MAVLink 原生支持 yaw_rate 与完整 type_mask, 不经 MAVSDK 高层 API 的字段裁剪
+// (VelocityNedYaw/PositionNedYaw 仅携带绝对 yaw_deg, 丢失 yaw_rate)。
+// 注意: 不再有 MAVSDK 内部 20Hz 自动重发, 调用方需自行维持 setpoint 流
+// (pland 20Hz 控制环满足); ArduPilot GUIDED 无 setpoint 超时,
+// 停流后保持最后目标。
 bool MavsdkDrone::send_position_target(uint8_t coordinate_frame,
                                        uint16_t type_mask,
                                        const Eigen::Vector3d& pos_ned,
                                        const Eigen::Vector3d& vel_ned,
                                        float yaw, float yaw_rate) {
-    if (!offboard_) {
-        spdlog::error("Offboard plugin is not initialized.");
+    return send_setpoint_raw_local_ned(coordinate_frame, type_mask, pos_ned,
+                                       vel_ned, yaw, yaw_rate);
+}
+
+// 通过 MavlinkPassthrough 发送原生 SET_POSITION_TARGET_LOCAL_NED
+// (type_mask 逐位透传; 位置/速度/yaw/yaw_rate 均为 NED 符号,
+//  已由 mavros_bridge 完成 ENU->NED 转换)
+bool MavsdkDrone::send_setpoint_raw_local_ned(uint8_t frame, uint16_t type_mask,
+                                              const Eigen::Vector3d& pos_ned,
+                                              const Eigen::Vector3d& vel_ned,
+                                              float yaw, float yaw_rate) {
+    if (!passthrough_) {
+        spdlog::error("MavlinkPassthrough plugin is not initialized.");
         return false;
     }
 
-    const bool yaw_rate_ignored = type_mask & 2048;  // IGNORE_YAW_RATE
+    mavlink_message_t msg;
+    mavlink_msg_set_position_target_local_ned_pack(
+        passthrough_->get_our_sysid(), passthrough_->get_our_compid(), &msg,
+        0,  // time_boot_ms
+        passthrough_->get_target_sysid(), passthrough_->get_target_compid(),
+        frame, type_mask, static_cast<float>(pos_ned.x()),
+        static_cast<float>(pos_ned.y()), static_cast<float>(pos_ned.z()),
+        static_cast<float>(vel_ned.x()), static_cast<float>(vel_ned.y()),
+        static_cast<float>(vel_ned.z()), 0.0f, 0.0f, 0.0f, yaw, yaw_rate);
 
-    // MAVSDK 的 offboard 消息里 yaw 始终为 active; 上游 mask 忽略 yaw 时
-    // 由桥填入当前 NED 航向 (见 mavros_bridge), 保证不引起额外转头
-    float yaw_deg = yaw * 180.0f / static_cast<float>(M_PI);
-    const float yawspeed_deg = yaw_rate * 180.0f / static_cast<float>(M_PI);
-
-    auto send = [&]() -> bool {
-        // BODY 系: 只有速度/yawspeed (pland 的 body 模式即此用法)
-        if (coordinate_frame == 8 /*FRAME_BODY_NED*/ ||
-            coordinate_frame == 9 /*FRAME_BODY_OFFSET_NED*/) {
-            mavsdk::Offboard::VelocityBodyYawspeed vel{};
-            vel.forward_m_s = vel_ned.x();
-            vel.right_m_s = vel_ned.y();
-            vel.down_m_s = vel_ned.z();
-            vel.yawspeed_deg_s = yaw_rate_ignored ? 0.0f : yawspeed_deg;
-            return offboard_->set_velocity_body(vel) ==
-                   mavsdk::Offboard::Result::Success;
-        }
-
-        // LOCAL 系: 按 mask 路由到 MAVSDK 的三种 setpoint
-        const bool pos_ignored =
-            (type_mask & (1 | 2 | 4)) == (1 | 2 | 4);  // IGNORE_PX|PY|PZ
-        const bool vel_ignored =
-            (type_mask & (8 | 16 | 32)) == (8 | 16 | 32);  // IGNORE_VX|VY|VZ
-
-        if (pos_ignored && !vel_ignored) {
-            mavsdk::Offboard::VelocityNedYaw vel{};
-            vel.north_m_s = vel_ned.x();
-            vel.east_m_s = vel_ned.y();
-            vel.down_m_s = vel_ned.z();
-            vel.yaw_deg = yaw_deg;
-            return offboard_->set_velocity_ned(vel) ==
-                   mavsdk::Offboard::Result::Success;
-        }
-        if (!pos_ignored && vel_ignored) {
-            mavsdk::Offboard::PositionNedYaw pos{};
-            pos.north_m = pos_ned.x();
-            pos.east_m = pos_ned.y();
-            pos.down_m = pos_ned.z();
-            pos.yaw_deg = yaw_deg;
-            return offboard_->set_position_ned(pos) ==
-                   mavsdk::Offboard::Result::Success;
-        }
-        if (!pos_ignored && !vel_ignored) {
-            mavsdk::Offboard::PositionNedYaw pos{};
-            pos.north_m = pos_ned.x();
-            pos.east_m = pos_ned.y();
-            pos.down_m = pos_ned.z();
-            pos.yaw_deg = yaw_deg;
-            mavsdk::Offboard::VelocityNedYaw vel{};
-            vel.north_m_s = vel_ned.x();
-            vel.east_m_s = vel_ned.y();
-            vel.down_m_s = vel_ned.z();
-            vel.yaw_deg = yaw_deg;
-            return offboard_->set_position_velocity_ned(pos, vel) ==
-                   mavsdk::Offboard::Result::Success;
-        }
-        return true;  // 全部字段忽略, 无需发送
-    };
-
-    // MAVSDK Offboard 生命周期: 首次使用先 set 提供初始 setpoint, 再 start(),
-    // 之后 MAVSDK 以 20Hz 自动重发最后一次目标。set_* 在未 start 时只缓存
-    // 不发送(返回值不能作为判断依据), 因此这里显式管理生命周期。
-    if (!offboard_started_.exchange(true)) {
-        send();
-        offboard_->start();
-    } else if (!send()) {
-        // offboard 被外部停止等异常场景: 重新 start 后重试
-        offboard_->start();
-        if (!send()) {
-            spdlog::error("Failed to send setpoint via offboard (frame={})",
-                          coordinate_frame);
-            return false;
-        }
+    const auto result = passthrough_->send_message(msg);
+    if (result != mavsdk::MavlinkPassthrough::Result::Success) {
+        spdlog::error("Failed to send raw setpoint (frame={}): {}",
+                      static_cast<int>(frame), static_cast<int>(result));
+        return false;
     }
     return true;
 }

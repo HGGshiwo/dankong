@@ -112,7 +112,6 @@ record_topics:
   - /pland/target_vel
   - /pland/detect
   - /pland/target_pixel
-  - /pland/target_pose
   - /pland/target_pose_enu
   - /pland/target_vel
   - /gimbal/current_pitch
@@ -120,3 +119,4 @@ record_topics:
   - /gimbal/yaw
   - /pland/reset
   - /roscam/cam/image_raw
+  - /pland/target_err_enu

@@ -24,9 +24,11 @@
 // 供 pland_controller 等按 mavros 接口编写的下游节点直接使用, 无需真实 mavros。
 //
 // 发布 (数据来自 MAVSDK 遥测写入的 ctx):
-//   /mavros/local_position/odom           nav_msgs/Odometry    (pose/twist 均为
-//   ENU) /mavros/global_position/global        sensor_msgs/NavSatFix (altitude
-//   为 AMSL) /mavros/global_position/rel_alt       std_msgs/Float64
+//   /mavros/local_position/odom           nav_msgs/Odometry    (pose 为 ENU,
+//   twist 为 base_link/FLU 机体系, 与 mavros local_position 插件一致)
+//   /mavros/global_position/global        sensor_msgs/NavSatFix (altitude
+//   为 AMSL)
+//   /mavros/global_position/rel_alt       std_msgs/Float64
 //   /mavros/distance_sensor/rangefinder_pub sensor_msgs/Range
 // 订阅 (直通转发给 FCU):
 //   /mavros/setpoint_raw/local            mavros_msgs/PositionTarget
@@ -113,22 +115,35 @@ class MavrosBridge {
         msg.header.frame_id = frame_id_;
         msg.child_frame_id = child_frame_id_;
 
-        // mavros 约定: local_position/odom 的 pose 与 twist 都是 ENU
+        // mavros 约定 (mavros/src/plugins/local_position.cpp): pose 为 ENU,
+        // twist 为 child_frame_id (base_link/FLU) 机体系, 标签与内容一致
         auto pos_enu = ctx_.pos_enu.load();
         msg.pose.pose.position.x = pos_enu.x();
         msg.pose.pose.position.y = pos_enu.y();
         msg.pose.pose.position.z = pos_enu.z();
 
-        auto q = ctx_.orientation.load();
+        auto q = ctx_.orientation.load();  // FLU->ENU (baselink->ENU), 与
+                                           // mavros enu_orientation 同约定
         msg.pose.pose.orientation.w = q.w();
         msg.pose.pose.orientation.x = q.x();
         msg.pose.pose.orientation.y = q.y();
         msg.pose.pose.orientation.z = q.z();
 
+        // 仿照 mavros ftf::transform_frame_enu_baselink(enu_velocity,
+        // enu_orientation.inverse()): twist.linear = q⁻¹ ⊗ vel_enu,
+        // 全姿态 (roll/pitch/yaw) 逆旋转到机体系
         auto vel_enu = ctx_.vel_enu.load();
-        msg.twist.twist.linear.x = vel_enu.x();
-        msg.twist.twist.linear.y = vel_enu.y();
-        msg.twist.twist.linear.z = vel_enu.z();
+        Eigen::Vector3d vel_flu = q.conjugate() * vel_enu;
+        msg.twist.twist.linear.x = vel_flu.x();
+        msg.twist.twist.linear.y = vel_flu.y();
+        msg.twist.twist.linear.z = vel_flu.z();
+
+        // mavros 的 twist.angular 同样为机体系; ctx 中为 FRD 角速率
+        // (roll,pitch,yaw), 转 FLU 需翻转 Y/Z 轴符号
+        auto ang_frd = ctx_.vel_angular_body.load();
+        msg.twist.twist.angular.x = ang_frd.x();
+        msg.twist.twist.angular.y = -ang_frd.y();
+        msg.twist.twist.angular.z = -ang_frd.z();
 
         odom_pub_.publish(msg);
     }
