@@ -1,0 +1,93 @@
+#!/bin/bash
+# ==============================================================================
+# Dankong 一键安装脚本
+# 用法 (兼容 curl | sh):
+#   curl -fsSL <install.sh 的 raw 地址> | sh
+#   ROBOT=dog curl -fsSL <url> | sh          # 指定机型
+#   GH_PROXY=https://ghproxy.com curl ... | sh  # 走镜像加速
+#
+# 流程: 下载最新 GitHub Release 产物 -> 解压到当前目录 -> 加执行权限
+#       -> 生成 <robot>-real-config.yaml -> 询问串口写入 mavsdk_url
+#       -> 打印启动命令
+# ==============================================================================
+set -e
+
+REPO="HGGshiwo/dankong"
+API="https://api.github.com/repos/$REPO/releases/latest"
+
+log() { echo "[install] $*"; }
+die() { echo "[install] ❌ $*" >&2; exit 1; }
+
+# --- 架构探测 ---
+case "$(uname -m)" in
+    x86_64)  ARCH="amd64" ;;
+    aarch64) ARCH="arm64" ;;
+    *) die "不支持的架构: $(uname -m)" ;;
+esac
+
+# --- 机型: 环境变量优先, 否则交互询问 (curl|sh 时 stdin 被占用, 从 /dev/tty 读) ---
+ROBOT="${ROBOT:-}"
+if [ -z "$ROBOT" ]; then
+    if read -r -p "机器人类型 [drone/dog/car/go2] (默认 drone): " ROBOT < /dev/tty 2>/dev/null; then
+        :
+    fi
+    ROBOT="${ROBOT:-drone}"
+fi
+
+ASSET="dankong-${ROBOT}-linux-${ARCH}.tar.gz"
+log "目标: $ROBOT / linux-$ARCH -> $ASSET"
+
+# --- 获取最新 release 下载地址 ---
+log "查询最新 release..."
+URL=$(curl -fsSL "$API" | grep -o "https://[^\"]*/$ASSET" | head -n 1)
+if [ -z "$URL" ]; then
+    die "最新 release 中找不到资产 $ASSET (请确认已发布并上传该文件)"
+fi
+# 支持镜像前缀 (国内加速)
+if [ -n "$GH_PROXY" ]; then
+    URL="${GH_PROXY%/}/$URL"
+fi
+
+# --- 下载并解压到当前目录 ---
+log "下载: $URL"
+curl -fL --progress-bar -o "$ASSET" "$URL"
+tar -xzf "$ASSET" -C .
+rm -f "$ASSET"
+
+# --- 可执行文件加权限 ---
+chmod +x ./dankong
+chmod +x ./bin/dankong_*_node 2>/dev/null || true
+
+# --- 生成 real 配置并写入 mavsdk_url ---
+if [ ! -f "./bin/config/${ROBOT}-config.yaml" ]; then
+    die "找不到 bin/config/${ROBOT}-config.yaml"
+fi
+REAL_CONFIG="./bin/config/${ROBOT}-real-config.yaml"
+cp "./bin/config/${ROBOT}-config.yaml" "$REAL_CONFIG"
+
+# 串口等连接参数: curl|sh 时必须从 /dev/tty 读取
+TTY_DEV=""
+TTY_BAUD=""
+if read -r -p "飞控串口设备 (如 /dev/ttyS5, 直接回车跳过): " TTY_DEV < /dev/tty 2>/dev/null; then :; fi
+if [ -n "$TTY_DEV" ]; then
+    if read -r -p "波特率 (默认 115200): " TTY_BAUD < /dev/tty 2>/dev/null; then :; fi
+    TTY_BAUD="${TTY_BAUD:-115200}"
+    if echo "$TTY_DEV" | grep -q "://"; then
+        MAVSDK_URL="$TTY_DEV"  # 已是完整 url (serial:///... tcp://...)
+    else
+        MAVSDK_URL="serial://${TTY_DEV}:${TTY_BAUD}"
+    fi
+else
+    MAVSDK_URL="serial:///dev/ttyS5:115200"  # 默认值, 事后可改配置
+fi
+sed -i "s|^mavsdk_url:.*|mavsdk_url: \"$MAVSDK_URL\"|" "$REAL_CONFIG"
+log "已写入 $REAL_CONFIG -> mavsdk_url: \"$MAVSDK_URL\""
+
+INSTALL_DIR="$(pwd)"
+echo ""
+echo "================================================================================"
+echo "🎉 部署完成! 目录: $INSTALL_DIR"
+echo ""
+echo "启动命令:"
+echo "  cd $INSTALL_DIR && ./dankong --config config/${ROBOT}-real-config.yaml"
+echo "================================================================================"

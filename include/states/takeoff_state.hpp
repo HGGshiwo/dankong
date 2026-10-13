@@ -24,6 +24,13 @@ class TakeoffState : public dk::BaseState<RobotContext, TakeoffState, void> {
    public:
     explicit TakeoffState(TakeoffEvent e);
     explicit TakeoffState(double alt);
+    // 完全重入时旧实例被销毁, 未 settle 的事件主动 reject,
+    // 避免对应的调用方 (如 HTTP 请求) 悬挂到超时
+    ~TakeoffState() override {
+        if (event_.has_value() && !event_->is_settled()) {
+            event_->reject("被新的起飞指令取代");
+        }
+    }
 
     static StateAction before_enter(RobotContext& ctx, const TakeoffEvent& e);
     static StateAction before_enter(RobotContext& ctx, double alt);

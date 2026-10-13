@@ -3,7 +3,9 @@
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
+#include <chrono>
 #include <regex>
+#include <thread>
 #include <unordered_map>
 
 #include "core/global_config.hpp"
@@ -72,7 +74,7 @@ bool MavsdkDrone::set_mode(const mavsdk::Telemetry::FlightMode& mode) {
     cmd.target_sysid = passthrough_->get_target_sysid();
     cmd.target_compid = passthrough_->get_target_compid();
 
-    cmd.command = 176;  // 176 = MAV_CMD_DO_SET_MODE
+    cmd.command = MAV_CMD_DO_SET_MODE;
     cmd.param1 = 1.0f;  // MAV_MODE_FLAG_CUSTOM_MODE_ENABLED
     cmd.param2 = custom_mode;
 
@@ -88,7 +90,23 @@ bool MavsdkDrone::set_mode(const mavsdk::Telemetry::FlightMode& mode) {
 }
 
 bool MavsdkDrone::run_prearm_checks() {
+    // 先切入 GUIDED; 模式未真正切过去时 prearm 查询结果不准
     set_mode(mavsdk::Telemetry::FlightMode::Offboard);
+    constexpr int kModeConfirmRetries = 20;  // 100ms x 20 = 2s 有界等待
+    bool guided_confirmed = false;
+    for (int i = 0; i < kModeConfirmRetries; ++i) {
+        if (telemetry_->flight_mode() ==
+            mavsdk::Telemetry::FlightMode::Offboard) {
+            guided_confirmed = true;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    if (!guided_confirmed) {
+        spdlog::error("run_prearm_checks: failed to enter GUIDED mode, abort");
+        return false;
+    }
+
     if (!passthrough_) {
         spdlog::error("MavlinkPassthrough plugin is not initialized.");
         return false;
@@ -98,10 +116,9 @@ bool MavsdkDrone::run_prearm_checks() {
     cmd.target_sysid = passthrough_->get_target_sysid();
     cmd.target_compid = passthrough_->get_target_compid();
 
-    // 401 = MAV_CMD_RUN_PREARM_CHECKS
-    // 这个指令会让飞控立即执行一次完整的起飞检查，并通过 STATUSTEXT
-    // 广播结果
-    cmd.command = 401;
+    // MAV_CMD_RUN_PREARM_CHECKS：让飞控立即执行一次完整的起飞检查，
+    // 并通过 STATUSTEXT 广播结果
+    cmd.command = MAV_CMD_RUN_PREARM_CHECKS;
 
     // 该命令不需要参数，默认全填 0
     cmd.param1 = 0.0f;
@@ -157,9 +174,10 @@ bool MavsdkDrone::set_msg_interval(int msg_id, int rate_hz) {
         (rate_hz > 0) ? (1000000 / rate_hz) : -1;  // -1 意味着禁用该消息
 
     mavsdk::MavlinkPassthrough::CommandLong cmd{};
-    cmd.target_sysid = passthrough_->get_our_sysid();
-    cmd.target_compid = 0;
-    cmd.command = 511;  // MAV_CMD_SET_MESSAGE_INTERVAL
+    // 修正：目标应为飞控 (target_sysid)，而不是我们自己的 sysid
+    cmd.target_sysid = passthrough_->get_target_sysid();
+    cmd.target_compid = passthrough_->get_target_compid();
+    cmd.command = MAV_CMD_SET_MESSAGE_INTERVAL;
     cmd.param1 =
         static_cast<float>(msg_id);  // 消息 ID (例如 33 是 GLOBAL_POSITION_INT)
     cmd.param2 = static_cast<float>(interval_us);  // 间隔 (微秒)
@@ -312,9 +330,13 @@ bool MavsdkDrone::reboot_fcu() {
 bool MavsdkDrone::cmd_vel(Eigen::Vector4d vel) {
     // 注意这里的 vel 是 FLU 机体系; 经原生 MAVLink BODY_NED 速度 + yaw_rate
     // 下发 (type_mask: 忽略 位置/加速度/绝对yaw, 保留 VXYZ 与 YAW_RATE)
-    constexpr uint16_t kBodyVelYawMask = 1 | 2 | 4       // IGNORE_AFX|AFY|AFZ
-                                         | 16 | 32 | 64  // IGNORE_PX|PY|PZ
-                                         | 1024;         // IGNORE_YAW
+    // 忽略位置/加速度/绝对yaw, 保留 VXYZ 与 YAW_RATE
+    const uint16_t kVelYawRateMask =
+        POSITION_TARGET_TYPEMASK_X_IGNORE | POSITION_TARGET_TYPEMASK_Y_IGNORE |
+        POSITION_TARGET_TYPEMASK_Z_IGNORE | POSITION_TARGET_TYPEMASK_AX_IGNORE |
+        POSITION_TARGET_TYPEMASK_AY_IGNORE |
+        POSITION_TARGET_TYPEMASK_AZ_IGNORE |
+        POSITION_TARGET_TYPEMASK_YAW_IGNORE;
     const Eigen::Vector3d pos_zero = Eigen::Vector3d::Zero();
     const Eigen::Vector3d vel_frd(vel[0], -vel[1], -vel[2]);  // FLU -> FRD
     const float yaw_rate_ned =
@@ -323,9 +345,8 @@ bool MavsdkDrone::cmd_vel(Eigen::Vector4d vel) {
     // 在 APM 中, GUIDED 模式下 SET_POSITION_TARGET_LOCAL_NED(BODY_NED) 生效;
     // 需保证上游已切入 GUIDED (pland GUI/任务流程负责), 不再经 MAVSDK offboard
     // start 兜底
-    return send_setpoint_raw_local_ned(8 /*MAV_FRAME_BODY_NED*/,
-                                       kBodyVelYawMask, pos_zero, vel_frd, 0.0f,
-                                       yaw_rate_ned);
+    return send_setpoint_raw_local_ned(MAV_FRAME_BODY_NED, kVelYawRateMask,
+                                       pos_zero, vel_frd, 0.0f, yaw_rate_ned);
 }
 
 void MavsdkDrone::send_rtcm_data(const uint8_t* data, size_t size) {

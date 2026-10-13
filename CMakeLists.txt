@@ -105,6 +105,11 @@ pkg_check_modules(GeographicLib REQUIRED geographiclib)
 # ------------------------------------------------------------------------------
 include(FetchContent)
 
+# 显示 FetchContent 的 git clone 命令与进度 (否则克隆 eigen 等大仓库时零输出, 像卡死)
+if(NOT DEFINED FETCHCONTENT_QUIET)
+    set(FETCHCONTENT_QUIET OFF)
+endif()
+
 FetchContent_Declare(cli11 GIT_REPOSITORY https://github.com/CLIUtils/CLI11.git GIT_TAG v2.4.1 GIT_SHALLOW TRUE)
 FetchContent_Declare(eigen GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git GIT_TAG 3.4.0 GIT_SHALLOW TRUE)
 FetchContent_Declare(tinyxml2 GIT_REPOSITORY https://github.com/leethomason/tinyxml2.git GIT_TAG 9.0.0 GIT_SHALLOW TRUE)

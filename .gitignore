@@ -12,3 +12,11 @@ config/*-real-config.yaml
 test_log/
 .clangd
 compile_commands.json
+terrain/S36E149.DAT
+pytest/logs/sitl.log
+pytest/logs/dankong.log
+pytest/report.md
+logs/LASTLOG.TXT
+logs/*.BIN
+eeprom.bin
+dist/*

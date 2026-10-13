@@ -124,13 +124,14 @@ void ControlEventListener::on_event(const TakeoffEvent& event,
         event.reject("初始状态无法起飞!");
         return;
     }
-    if (!ctx.engine->is_active_state<GroundState>()) {
-        event.reject("只允许在地面状态起飞!");
-        return;
-    }
+    // 除 InitState 外均允许 (重入) 起飞: reenter_all 强制完全重入,
+    // 即使当前已处于 TakeoffState 也会销毁旧实例、重新构造并执行 on_enter
     ctx.engine->plan().clear();
     ctx.engine->plan()
-        .push_back<TakeoffState>(std::tuple(std::move(event)))
+        .push_back([event](RobotContext&) {
+            return StateAction::step<TakeoffState>(std::tuple(event))
+                .reenter_all();
+        })
         .fallback<HoverState>()
         .start();
 }
