@@ -10,7 +10,7 @@ set -e
 
 # --- 0. 默认参数与命令行解析 ---
 BUILD_TYPE="Release"
-ROBOT_TYPE="DEFAULT"
+ROBOT_TYPE="drone"
 ADD_TO_BASHRC=0
 
 # 解析命令行参数
@@ -66,7 +66,7 @@ cd "$BUILD_DIR"
 
 # 将解析出的参数传递给 CMake
 cmake .. \
-    -DBUILD_WITH_ROS=OFF \
+    -DROS_SUPPORT=NONE \
     -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
     -DROBOT="$ROBOT_TYPE"
 

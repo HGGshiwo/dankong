@@ -1,5 +1,9 @@
 #pragma once
-#ifdef USE_ROS
+// 注: 原有 #ifdef USE_ROS 守卫已注释。本文件仅为配置结构体定义, 依赖的标准库与
+// utils/config_param.hpp 在非 ROS 构建下同样可用; 若保留守卫, dk/scripts/gen_json.py
+// 按文本扫描 @JSON_ENABLE 标记时会在非 ROS 构建中生成引用不存在类型的序列化代码,
+// 导致编译失败。功能实现层(feature.hpp/event_listener.hpp)仍保留 USE_ROS 守卫。
+// #ifdef USE_ROS
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -41,4 +45,4 @@ struct AlgoConfig {
         INIT_PARAM("record_topics", {},
                    "开始录制时订阅并写入 bag 的话题, 为空则无法开始录制");
 };
-#endif
+// #endif

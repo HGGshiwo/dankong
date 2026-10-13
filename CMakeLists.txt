@@ -110,7 +110,6 @@ FetchContent_Declare(eigen GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git 
 FetchContent_Declare(tinyxml2 GIT_REPOSITORY https://github.com/leethomason/tinyxml2.git GIT_TAG 9.0.0 GIT_SHALLOW TRUE)
 FetchContent_Declare(apriltag GIT_REPOSITORY https://github.com/AprilRobotics/apriltag.git GIT_TAG v3.3.0 GIT_SHALLOW TRUE)
 FetchContent_Declare(yaml-cpp GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git GIT_TAG 0.8.0 GIT_SHALLOW TRUE)
-FetchContent_Declare(paho_mqtt_cpp GIT_REPOSITORY https://github.com/eclipse/paho.mqtt.cpp.git GIT_TAG v1.3.2 GIT_SHALLOW TRUE)
 
 set(YAML_CPP_INSTALL OFF CACHE BOOL "Disable yaml-cpp install" FORCE)
 set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "Disable yaml-cpp tests" FORCE)
@@ -119,23 +118,8 @@ set(YAML_CPP_BUILD_CONTRIB OFF CACHE BOOL "Disable yaml-cpp contrib" FORCE)
 
 set(tinyxml2_BUILD_TESTING OFF CACHE BOOL "Disable tinyxml2 tests" FORCE)
 
-# 禁用所有无关的测试、样例、文档及动态库生成，极大缩短构建耗时！
-set(PAHO_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(PAHO_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(PAHO_BUILD_DOCUMENTATION OFF CACHE BOOL "" FORCE)
-set(PAHO_BUILD_STATIC ON CACHE BOOL "" FORCE)
-set(PAHO_BUILD_SHARED ON CACHE BOOL "" FORCE)
-set(PAHO_WITH_MQTT_C ON CACHE BOOL "" FORCE)
-# [可选]: 是否启用 SSL/TLS 支持？需要本地安装了 OpenSSL (没有安装可设为 OFF)
-set(PAHO_ENABLE_SSL OFF CACHE BOOL "" FORCE)
-
-# 禁用底层 paho-mqtt-c 的测试和样例
-set(PAHO_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
-set(PAHO_BUILD_SAMPLES OFF CACHE BOOL "" FORCE)
-set(PAHO_BUILD_DEB_PACKAGE OFF CACHE BOOL "" FORCE)
-
 # 下载并使得库可用
-FetchContent_MakeAvailable(cli11 tinyxml2 apriltag yaml-cpp paho_mqtt_cpp)
+FetchContent_MakeAvailable(cli11 tinyxml2 apriltag yaml-cpp)
 
 # 3. 单独处理 Eigen (因为它是 Header-Only，直接拉取并提取路径，不执行其 CMakeLists)
 FetchContent_GetProperties(eigen)
@@ -200,7 +184,6 @@ set(BASE_ADAPTER_SRC
     src/adapters/udp_adapter_inst.cpp
     src/adapters/can_adapter_inst.cpp
     src/adapters/ros_adapter_inst.cpp
-    src/adapters/mqtt_adapter_inst.cpp
 )
 
 # ==============================================================================
@@ -297,7 +280,6 @@ function(create_dankong_target TARGET_TYPE)
         MAVSDK::mavsdk
         Boost::system
         Boost::filesystem
-        paho-mqttpp3-static
         pthread
         OpenSSL::SSL      # 链接 SSL 库 (负责 TLS/SSL 协议层)
         OpenSSL::Crypto   # 链接 Crypto 库 (负责底层的加密算法)

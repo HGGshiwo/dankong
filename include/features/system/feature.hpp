@@ -1,5 +1,8 @@
 #pragma once
 #include <boost/filesystem/path.hpp>
+// make_iterator_range 需要; ROS 构建下常被其他头文件间接引入, 非 ROS 独立构建
+// 下必须显式包含
+#include <boost/range/iterator_range.hpp>
 #include <memory>
 #include <set>
 

@@ -1,7 +1,11 @@
 #include "states/land_state.hpp"
 
 #include <plugins/telemetry/telemetry.h>
+// std_msgs 为 ROS 专有头文件, 非 ROS 独立构建下无此头文件路径;
+// 下文 pland 发布逻辑均由 if constexpr 编译期裁剪, 仅 ROS 构建实例化。
+#ifdef USE_ROS
 #include <std_msgs/Empty.h>
+#endif
 
 #include "core/global_config.hpp"
 #include "robot_context.hpp"
@@ -13,9 +17,14 @@ template <typename T, typename = void>
 struct has_land_target : std::false_type {};
 
 // 2. 偏特化模板：检查 T 是否具有 tag_pos_map 属性
+// 注: 仅在 USE_ROS 下启用。pland 精准降落依赖 ROS 话题(/pland/start 等)与
+// ctx 中的 ros::Publisher, 非 ROS 构建下即使配置含 tag_pos_map 也无法执行,
+// 恒按 false_type 处理, 使 pland 相关代码在编译期被整体裁剪。
+#ifdef USE_ROS
 template <typename T>
 struct has_land_target<T, std::void_t<decltype(std::declval<T>().tag_pos_map)>>
     : std::true_type {};
+#endif
 
 void LandState::on_exit(RobotContext& ctx) {
     StopRecordEvent e2;
@@ -25,10 +34,13 @@ void LandState::on_exit(RobotContext& ctx) {
 }
 
 // 启动外部精准降落模块与参数同步
+// 注: pland 依赖 ROS 话题与 ctx 中的 ros::Publisher, 整个分支用 USE_ROS 守卫;
+// 不能仅依赖 if constexpr 裁剪——分支里的 std_msgs::Empty 等非依赖名在模板
+// 定义阶段就会被语法检查, 非 ROS 构建下该名字不存在会直接报错。
 template <typename ContextType>
 bool LandState::setup_pland(ContextType& ctx) {
     if (!do_pland_) return false;
-
+#ifdef USE_ROS
     if constexpr (has_land_target<decltype(GlobalConfig.GetConfig())>::value) {
         ctx.do_pland.store(true);
         // 2. 云台转动至垂直下视 90 度
@@ -55,6 +67,7 @@ bool LandState::setup_pland(ContextType& ctx) {
 
         return true;
     }
+#endif
     return false;
 }
 
@@ -74,6 +87,7 @@ StateAction LandState::on_enter(RobotContext& ctx) {
 
 template <typename ContextType>
 void LandState::stop_pland(ContextType& ctx) {
+#ifdef USE_ROS
     if constexpr (has_land_target<decltype(GlobalConfig.GetConfig())>::value) {
         if (do_pland_) {
             // 发布 /pland/cancel 话题取消外部精准降落模块
@@ -87,6 +101,7 @@ void LandState::stop_pland(ContextType& ctx) {
             ctx.do_pland.store(false);
         }
     }
+#endif
 }
 StateAction LandState::on_tick(double dt, RobotContext& ctx) {
     if (ctx.robot->is_landed(ctx) || !ctx.robot->check_hover(ctx)) {

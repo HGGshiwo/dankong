@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <launch>
-    <arg name="mjpg_host" default="192.168.2.181" />
+    <arg name="mjpg_host" default="10.19.205.69" />
     <arg name="mjpg_port" default="8090" />
     <arg name="mjpg_fps" default="15" />
     <arg name="robot_type" default="drone" />
