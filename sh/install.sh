@@ -13,7 +13,6 @@
 set -e
 
 REPO="HGGshiwo/dankong"
-API="https://api.github.com/repos/$REPO/releases/latest"
 
 log() { echo "[install] $*"; }
 die() { echo "[install] ❌ $*" >&2; exit 1; }
@@ -37,18 +36,14 @@ fi
 ASSET="dankong-${ROBOT}-linux-${ARCH}.tar.gz"
 log "目标: $ROBOT / linux-$ARCH -> $ASSET"
 
-# --- 获取最新 release 下载地址 ---
-log "查询最新 release..."
-URL=$(curl -fsSL "$API" | grep -o "https://[^\"]*/$ASSET" | head -n 1)
-if [ -z "$URL" ]; then
-    die "最新 release 中找不到资产 $ASSET (请确认已发布并上传该文件)"
-fi
+# --- 下载并解压到当前目录 ---
+# 固定地址, 自动指向最新 release 的同名资产, 无需查询 API
+URL="https://github.com/$REPO/releases/latest/download/$ASSET"
 # 支持镜像前缀 (国内加速)
 if [ -n "$GH_PROXY" ]; then
     URL="${GH_PROXY%/}/$URL"
 fi
 
-# --- 下载并解压到当前目录 ---
 log "下载: $URL"
 curl -fL --progress-bar -o "$ASSET" "$URL"
 tar -xzf "$ASSET" -C .
