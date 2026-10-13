@@ -17,6 +17,13 @@ REPO="HGGshiwo/dankong"
 log() { echo "[install] $*"; }
 die() { echo "[install] ❌ $*" >&2; exit 1; }
 
+# 交互询问 (curl|sh 时 stdin 是脚本本身, 必须从 /dev/tty 读写;
+# 兼容 dash: 提示用 printf 输出, read 不用 -p)
+ask() {
+    printf "%s" "$1" > /dev/tty
+    read -r "$2" < /dev/tty
+}
+
 # --- 架构探测 ---
 case "$(uname -m)" in
     x86_64)  ARCH="amd64" ;;
@@ -27,9 +34,7 @@ esac
 # --- 机型: 环境变量优先, 否则交互询问 (curl|sh 时 stdin 被占用, 从 /dev/tty 读) ---
 ROBOT="${ROBOT:-}"
 if [ -z "$ROBOT" ]; then
-    if read -r -p "机器人类型 [drone/dog/car/go2] (默认 drone): " ROBOT < /dev/tty 2>/dev/null; then
-        :
-    fi
+    ask "机器人类型 [drone/dog/car/go2] (默认 drone): " ROBOT || ROBOT=""
     ROBOT="${ROBOT:-drone}"
 fi
 
@@ -63,9 +68,9 @@ cp "./bin/config/${ROBOT}-config.yaml" "$REAL_CONFIG"
 # 串口等连接参数: curl|sh 时必须从 /dev/tty 读取
 TTY_DEV=""
 TTY_BAUD=""
-if read -r -p "飞控串口设备 (如 /dev/ttyS5, 直接回车跳过): " TTY_DEV < /dev/tty 2>/dev/null; then :; fi
+ask "飞控串口设备 (如 /dev/ttyS5, 直接回车跳过): " TTY_DEV || TTY_DEV=""
 if [ -n "$TTY_DEV" ]; then
-    if read -r -p "波特率 (默认 115200): " TTY_BAUD < /dev/tty 2>/dev/null; then :; fi
+    ask "波特率 (默认 115200): " TTY_BAUD || TTY_BAUD=""
     TTY_BAUD="${TTY_BAUD:-115200}"
     if echo "$TTY_DEV" | grep -q "://"; then
         MAVSDK_URL="$TTY_DEV"  # 已是完整 url (serial:///... tcp://...)
