@@ -1,3 +1,9 @@
+一键安装：
+
+```
+curl -fsSL https://raw.githubusercontent.com/HGGshiwo/dankong/master/sh/install.sh | sh
+```
+
 - 单控：[https://github.com/HGGshiwo/dankong.git](https://github.com/HGGshiwo/dankong.git)
 
 - 事件引擎：[https://github.com/HGGshiwo/dk](https://github.com/HGGshiwo/dk)
@@ -5,6 +11,8 @@
 - 前端：[https://github.com/HGGshiwo/dk/tree/main/frontend](https://github.com/HGGshiwo/dk/tree/main/frontend)
 
 - 仿真：[https://github.com/HGGshiwo/gazebo_sim](https://github.com/HGGshiwo/gazebo_sim)
+
+
 
 # Dankong 机器人控制系统 - 架构与开发指南
 
