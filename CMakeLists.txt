@@ -42,6 +42,12 @@ endif()
 # 将 FetchContent 的下载目录移到当前工作空间根目录下的 .deps 文件夹中
 set(FETCHCONTENT_BASE_DIR ${CMAKE_SOURCE_DIR}/../.deps CACHE PATH "Directory for fetched content")
 
+# .deps 中已有克隆时跳过 git fetch/update, 避免每次 configure 都联网拉取;
+# 首次构建(或删除 .deps 中对应项)仍会正常克隆。要强制更新, 传 -DFETCHCONTENT_UPDATES_DISCONNECTED=OFF
+if(NOT DEFINED FETCHCONTENT_UPDATES_DISCONNECTED)
+    set(FETCHCONTENT_UPDATES_DISCONNECTED ON)
+endif()
+
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Release")
     set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG -march=native")

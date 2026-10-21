@@ -1,5 +1,6 @@
 #ifdef USE_ROS
 #pragma once
+#include <geometry_msgs/PointStamped.h>
 #include <ros/ros.h>
 #include <rsos_msgs/SetCameraExposure.h>
 #include <rsos_msgs/SetGimbalAngle.h>
@@ -31,13 +32,15 @@ class AlgoEventListener
     std::shared_ptr<ServiceClient<rsos_msgs::SetCameraExposure>>
         set_exposure_client_;
 
+    ros::Publisher target_lla_pub_;
+
    public:
     using AllowedEvents =
         std::tuple<EnableDetectEvent, DisableDetectEvent, GetDetectEvent,
                    StartRecordEvent, StopRecordEvent, SetGimbalEvent,
                    GetGimbalEvent, GetExposureEvent, SetExposureEvent,
-                   DetectEvent, StopFollowEvent, EnablePlannerEvent,
-                   DisablePlannerEvent>;
+                   DetectEvent, DetectTargetEvent, StopFollowEvent,
+                   EnablePlannerEvent, DisablePlannerEvent>;
 
     AlgoEventListener();
 
@@ -51,6 +54,7 @@ class AlgoEventListener
     void on_event(const GetExposureEvent& event, RobotContext& ctx);
     void on_event(const SetExposureEvent& event, RobotContext& ctx);
     void on_event(const DetectEvent& event, RobotContext& ctx);
+    void on_event(const DetectTargetEvent& event, RobotContext& ctx);
     void on_event(const StopFollowEvent& event, RobotContext& ctx);
     void on_event(const EnablePlannerEvent& event, RobotContext& ctx);
     void on_event(const DisablePlannerEvent& event, RobotContext& ctx);

@@ -67,6 +67,8 @@ class RobotClient:
         self.lock = threading.Lock()
         self.connected = threading.Event()
         self._stop = threading.Event()
+        self.state_ts = 0.0  # 最近一次收到 state 帧的时刻 (判断快照新鲜度)
+        self.takeoff_pos = (0.0, 0.0)  # 由 RecordTakeoffPos 步骤刷新
         self._thread = threading.Thread(
             target=asyncio.run, args=(self._loop(),), daemon=True
         )
@@ -83,9 +85,24 @@ class RobotClient:
                         if data.get("type") == "state":
                             with self.lock:
                                 self.state.update(data)
+                            self.state_ts = time.time()
             except Exception:  # noqa: BLE001
                 self.connected.clear()
             time.sleep(1)
+
+    def wait_state_fresh(self, max_age=10, timeout=30):
+        """等待快照来自当前存活节点 (节点重启后/未连上时的旧快照不可信)。"""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if time.time() - self.state_ts < max_age:
+                return
+            time.sleep(0.2)
+        with self.lock:
+            snapshot = dict(self.state)
+        raise TimeoutError(
+            f"等待新鲜状态帧超时 (最近一帧 {time.time() - self.state_ts:.0f}s 前, "
+            f"快照: {snapshot})"
+        )
 
     def snapshot(self):
         with self.lock:
@@ -173,9 +190,9 @@ class Step:
 class MissionRunner:
     """按顺序执行 Step 列表并汇总报告。对扩展封闭: 只认 Step 接口。"""
 
-    def __init__(self, robot):
+    def __init__(self, robot, report=None):
         self.robot = robot
-        self.report = MissionReport()
+        self.report = report if report is not None else MissionReport()
 
     def run(self, steps):
         failed = []
@@ -230,12 +247,20 @@ class EnsureGround(Step):
 
     name = "确保地面状态"
 
-    def __init__(self, settle=3):
+    def __init__(self, settle=5):
         self.settle = settle
 
     def run(self, robot):
+        robot.wait_state_fresh()
+        robot.wait_pos_ready(60)
         if robot.get_state_name() != STATE_GROUND:
-            print("当前不在地面, 先降落")
+            with robot.lock:
+                state_name = robot.state.get("state")
+                age = time.time() - robot.state_ts
+            print(
+                f"当前不在地面 (state={state_name!r}, 快照 {age:.1f}s 前, "
+                f"keys={sorted(robot.state.keys())}), 先降落"
+            )
             res = http_post("/land", data=dict(do_pland=False))
             if res.get("status") != "success":
                 raise RuntimeError(f"land 被拒: {res}")
@@ -273,34 +298,67 @@ def _wait_prearm_ok(timeout=120):
     raise RuntimeError("prearm 检查超时")
 
 
-def _takeoff_until_climbing(robot, alt, retries=3, climb_check=15):
-    """下发起飞并确认真正爬升。
+def _ensure_disarmed(robot, timeout=10):
+    """确保飞控已上锁。
 
-    每次尝试先做 prearm 检查再调 /takeoff; 若假 ACK (APM ACK 成功但
-    不执行) 则直接再次调用起飞 (重入机制允许重复下发), 不做 land。
+    上个用例刚降落时, APM 处于落地检测/待自动上锁的收尾窗口, 此时
+    arm + NAV_TAKEOFF 会被 ACK 但电机不转 (DISARM_DELAY 后自动上锁)。
+    起飞前显式上锁并等待确认, 保证从干净的解锁状态起飞。
     """
+    if robot.snapshot().get("arm", False) is not True:
+        return
+    print("起飞前飞控仍在解锁状态, 先上锁")
+    http_post("/disarm")
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if robot.snapshot().get("arm", True) is not True:
+            time.sleep(2)  # 避开 APM 落地检测收尾窗口
+            return
+        time.sleep(0.5)
+    raise RuntimeError("等待飞控上锁超时")
+
+
+def _takeoff_until_climbing(
+    robot, alt, retries=3, z_tol=1.5, stale_check=15, total_timeout=60
+):
+    """下发起飞, success 即视为已接受, 轮询高度直到到达预定值。
+
+    唯一成功判据是高度 |z - alt| <= z_tol; 不再用"是否开始爬升 +
+    状态名快照"做二次确认 (起飞初期 地面->解锁->起飞 切换期间 WS
+    快照滞后, 曾导致正常起飞被误判假 ACK 而同秒重复下发, 触发引擎
+    'Broken Promise: Event was dropped')。
+
+    仅当下发后 stale_check 秒高度仍 <0.5m (指令确实未被执行) 或响应
+    非 success (含事件被丢弃) 时才重试, 最多 retries 次。
+    """
+    deadline = time.time() + total_timeout
     for attempt in range(1, retries + 1):
+        _ensure_disarmed(robot)
         _wait_prearm_ok()
         res = http_post("/takeoff", data=dict(alt=alt))
         if res.get("status") != "success":
-            raise RuntimeError(f"takeoff 被拒 (第{attempt}次): {res}")
-        if _is_climbing(robot, climb_check):
-            return
-        print(f"第{attempt}次起飞未爬升 (假 ACK), 直接重试起飞")
-    raise RuntimeError(f"起飞重试{retries}次仍未爬升")
-
-
-def _is_climbing(robot, climb_check=15):
-    """climb_check 秒内高度超过 0.5m 即认为起飞真正执行。"""
-    deadline = time.time() + climb_check
-    while time.time() < deadline:
-        pos = robot.get_pos()
-        if pos and pos[2] > 0.5:
-            return True
-        if robot.get_state_name() == STATE_GROUND:
-            return False
-        time.sleep(0.5)
-    return False
+            print(f"第{attempt}次起飞被拒 (重试): {res}")
+            time.sleep(3)
+            continue
+        # success: 轮询高度到位
+        stale_deadline = time.time() + stale_check
+        while time.time() < deadline:
+            pos = robot.get_pos()
+            z = pos[2] if pos else 0.0
+            if abs(z - alt) <= z_tol:
+                return
+            if time.time() > stale_deadline:
+                if z < 0.5:
+                    break  # 指令确实未执行, 重新下发
+                # 在爬但未到位: 继续轮询到 total_timeout
+                stale_deadline = time.time() + stale_check
+            time.sleep(0.5)
+        if time.time() >= deadline:
+            break
+        print(f"第{attempt}次起飞 {stale_check}s 高度仍<0.5m (假 ACK), 重试")
+    raise RuntimeError(
+        f"起飞重试{retries}次仍未达到高度 {alt}m (当前: {robot.get_pos()})"
+    )
 
 
 class Takeoff(Step):
@@ -389,19 +447,39 @@ class Land(Step):
         return (pos2[2] - pos[2]) / 0.3
 
 
-class FlyWaypoint(Step):
-    """POST /set_waypoint (local=true, ENU 米制), 等待逐点到达后回到悬停。"""
+def gps_distance(lon1, lat1, lon2, lat2):
+    """两点 GPS 水平距离 (米), haversine。"""
+    from math import asin, cos, radians, sin, sqrt
 
-    def __init__(self, waypoints, speed=None, xy_tol=3.0, z_tol=1.5, timeout=600):
-        self.name = f"飞航点({len(waypoints)}个)"
+    dlat = radians(lat2 - lat1)
+    dlon = radians(lon2 - lon1)
+    a = (
+        sin(dlat / 2) ** 2
+        + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2) ** 2
+    )
+    return 2 * 6371000 * asin(sqrt(a))
+
+
+class FlyWaypoint(Step):
+    """POST /set_waypoint, 等待逐点到达后回到悬停。
+
+    local=True (默认): ENU 米制 [x, y, z];
+    local=False: GPS [lat, lon, alt], 到达判定用 haversine 距离。
+    """
+
+    def __init__(
+        self, waypoints, speed=None, xy_tol=3.0, z_tol=1.5, timeout=600, local=True
+    ):
+        self.name = f"飞航点({len(waypoints)}个, {'ENU' if local else 'GPS'})"
         self.waypoints = [list(w) for w in waypoints]
         self.speed = speed
         self.xy_tol = xy_tol
         self.z_tol = z_tol
         self.timeout = timeout
+        self.local = local
 
     def run(self, robot):
-        data = dict(waypoint=self.waypoints, local=True)
+        data = dict(waypoint=self.waypoints, local=self.local)
         if self.speed is not None:
             data["speed"] = self.speed
         res = http_post("/set_waypoint", data=data)
@@ -410,29 +488,52 @@ class FlyWaypoint(Step):
         robot.wait_for_state_any(WAYPOINT_STATES, 60)
         self._wait_all_reached(robot)
 
+    def _not_reached(self, robot):
+        """返回尚未到达的航点列表。"""
+        pos = robot.get_pos()
+        if not pos:
+            return self.waypoints
+        if self.local:
+            return [
+                w
+                for w in self.waypoints
+                if self._dist2d(pos, w) > self.xy_tol or abs(pos[2] - w[2]) > self.z_tol
+            ]
+        state = robot.snapshot()
+        if not state.get("lat") or not state.get("lon"):
+            return self.waypoints
+        # GPS 航点顺序为 [lon, lat, alt] (dankong 约定)
+        return [
+            w
+            for w in self.waypoints
+            if gps_distance(state["lon"], state["lat"], w[0], w[1]) > self.xy_tol
+            or abs(pos[2] - w[2]) > self.z_tol
+        ]
+
     def _wait_all_reached(self, robot):
         deadline = time.time() + self.timeout
         while time.time() < deadline:
             if robot.get_state_name() == STATE_HOVER:
                 return  # 航点完成 fallback 回悬停
-            pos = robot.get_pos()
-            if pos:
-                remaining = [
-                    w
-                    for w in self.waypoints
-                    if self._dist2d(pos, w) > self.xy_tol
-                    or abs(pos[2] - w[2]) > self.z_tol
-                ]
-                print(f"剩余未达航点: {len(remaining)}")
+            remaining = self._not_reached(robot)
+            print(f"剩余未达航点: {len(remaining)}")
             time.sleep(1)
         raise RuntimeError("航点飞行超时")
 
     def check(self, robot):
-        pos = robot.get_pos()
         last = self.waypoints[-1]
-        d = self._dist2d(pos, last)
-        if d > self.xy_tol or abs(pos[2] - last[2]) > self.z_tol:
-            raise RuntimeError(f"终点偏差过大: xy={d:.2f}m dz={pos[2] - last[2]:.2f}m")
+        if self.local:
+            pos = robot.get_pos()
+            d = self._dist2d(pos, last)
+            dz = pos[2] - last[2]
+        else:
+            state = robot.snapshot()
+            pos = robot.get_pos()
+            # GPS 航点顺序为 [lon, lat, alt] (dankong 约定)
+            d = gps_distance(state["lon"], state["lat"], last[0], last[1])
+            dz = pos[2] - last[2]
+        if d > self.xy_tol or abs(dz) > self.z_tol:
+            raise RuntimeError(f"终点偏差过大: xy={d:.2f}m dz={dz:.2f}m")
 
     @staticmethod
     def _dist2d(a, b):

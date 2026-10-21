@@ -56,7 +56,7 @@ StateAction FollowState<ParentState>::on_event(const DetectEvent& event,
     Eigen::Vector3d cmd_vel =
         event.score >= 0 ? event.cmd_vel : Eigen::Vector3d::Zero();
 
-    if (event.score > 0) {
+    if (event.score >= 0) {
         auto gps = state_utils::enu_to_gps(
             ctx.lon_lat_alt.load(), ctx.pos_enu.load(), event.target_pos);
         DetectTargetEvent target_event;

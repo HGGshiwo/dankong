@@ -1,5 +1,7 @@
 #include "features/algo/event_listener.hpp"
 
+#include <cstdlib>
+
 #include "states/follow_state.hpp"
 #include "states/hover_state.hpp"
 #include "states/state_utils.hpp"
@@ -20,6 +22,9 @@ AlgoEventListener::AlgoEventListener() : nh_() {
             [](rsos_msgs::SetCameraExposure srv) {
                 return srv.response.success;
             });
+
+    target_lla_pub_ = nh_.advertise<geometry_msgs::PointStamped>(
+        "/UAV0/perception/object_location/obj_lla", 10);
 }
 
 // on_event 各重载实现
@@ -156,7 +161,17 @@ void AlgoEventListener::on_event(const SetExposureEvent& event,
 }
 
 void AlgoEventListener::on_event(const DetectEvent& event, RobotContext& ctx) {
-    double FOLLOW_COOL_TIME = 100.0;  // 100秒内不响应
+    // 冷却时间可用环境变量 DK_FOLLOW_COOL_TIME 覆盖 (SITL 测试用), 默认100s
+    static const double FOLLOW_COOL_TIME = [] {
+        if (const char* s = std::getenv("DK_FOLLOW_COOL_TIME")) {
+            auto v = std::atof(s);
+            if (v >= 0) {
+                spdlog::warn("[Algo] DK_FOLLOW_COOL_TIME override: {}s", v);
+                return v;
+            }
+        }
+        return 100.0;
+    }();
     if (ctx.engine->get_time_provider()->now() - ctx.stop_follow_stamp.load() <
         FOLLOW_COOL_TIME) {
         return;
@@ -174,6 +189,19 @@ void AlgoEventListener::on_event(const DetectEvent& event, RobotContext& ctx) {
     }
     // 不支持的类型
     return;
+}
+
+void AlgoEventListener::on_event(const DetectTargetEvent& event,
+                                 RobotContext& ctx) {
+    // 与 mavproxy_ros target_cb 对齐: ENU 目标已由 FollowState 转成
+    // {lon, lat, alt}, 这里原样发布给下游 (obj_lla)
+    geometry_msgs::PointStamped goal;
+    goal.header.frame_id = "map";
+    goal.header.stamp = ros::Time::now();
+    goal.point.x = event.pos.x();
+    goal.point.y = event.pos.y();
+    goal.point.z = event.pos.z();
+    target_lla_pub_.publish(goal);
 }
 
 void AlgoEventListener::on_event(const StopFollowEvent& event,
