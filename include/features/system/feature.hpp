@@ -6,6 +6,10 @@
 #include <memory>
 #include <set>
 
+#ifdef USE_ROS1
+#include <ros/package.h>
+#endif
+
 #include "./event_listener.hpp"
 #include "./events.hpp"
 #include "core/engine.hpp"
@@ -50,6 +54,15 @@ class SystemFeature {
         // 注册静态目录
         web->register_static_dir("/", get_config_dir(cfg.static_dir.get()));
         web->register_static_dir("/home", get_config_dir(cfg.static_dir.get()));
+#ifdef USE_ROS1
+        // 附加文件目录: dankong 包根下 file/ (等价 $(find dankong)/file),
+        // 放文件免构建直接生效; 仅 ROS1 支持
+        std::string pkg_dir = ros::package::getPath("dankong");
+        if (!pkg_dir.empty()) {
+            web->register_static_dir(
+                "/file", (boost::filesystem::path(pkg_dir) / "file").string());
+        }
+#endif
 
         web->template register_route<GetConfigEvent, EventResult>(
             boost::beast::http::verb::get, "/config/get");
