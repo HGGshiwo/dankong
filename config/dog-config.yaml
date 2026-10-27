@@ -16,7 +16,6 @@ json_path: "config/config.json"
 # Control Settings
 fcu_data_rate: 10
 pdef_path: "config/apm.pdef.xml"
-follow_timeout: 1.0
 prearm_timeout: 3.0
 takeoff_timeout: 100.0
 posvel_timeout: 3.0

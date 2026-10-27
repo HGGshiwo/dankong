@@ -81,6 +81,8 @@ class MavlinkFeature {
                 fglog_publish_hz("/hz/pose", 1.0);
 
                 ctx.pos_enu.emplace(enu_x, enu_y, enu_z);
+                // odom 侧触发：收到飞控局部位置即认为定位可用
+                ctx.odom_ok = true;
 
                 double vel_enu_x = pos_vel.velocity.east_m_s;
                 double vel_enu_y = pos_vel.velocity.north_m_s;
@@ -166,7 +168,6 @@ class MavlinkFeature {
                                                   // 通常是相对于 home 点
                 });
                 ctx.amsl_alt.store(pos.absolute_altitude_m);
-                ctx.odom_ok = true;
             });
 
         adapter->bind_telemetry_context(

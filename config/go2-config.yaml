@@ -22,7 +22,6 @@ fcu_data_rate: 10
 fcu_timeout: 5
 fg_log_dir: logs/fg_log.jsonl
 fix_yaw_dist: 1
-follow_timeout: 1
 go2_server_url: http://127.0.0.1:8444/api/push
 heartbeat_hz: 0.5
 is_omnidirectional: true

@@ -17,6 +17,8 @@
   <depend condition="$ROS_VERSION == 1">mavros_msgs</depend>
   <depend condition="$ROS_VERSION == 1">rosbag</depend>
   <depend condition="$ROS_VERSION == 1">topic_tools</depend>
+  <depend condition="$ROS_VERSION == 1">tf2</depend>
+  <depend condition="$ROS_VERSION == 1">tf2_ros</depend>
   <depend>libgeographic-dev</depend>
   <depend condition="$ROS_VERSION == 1">rospy</depend>
   <depend>cv_bridge</depend>

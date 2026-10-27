@@ -256,6 +256,17 @@ button:
     group: "算法控制"
     target: { config_type: "toast", url: "/stop_detect", method: "POST" }
 
+  - key: btn_start_loc
+    name: "开启定位"
+    group: "算法控制"
+    target: { config_type: "toast", url: "/loc_output/enable", method: "POST", data: {"enable": true} }
+
+  - key: btn_stop_loc
+    name: "关闭定位"
+    group: "算法控制"
+    target: { config_type: "toast", url: "/loc_output/enable", method: "POST", data: {"enable": false} }
+
+
   - key: btn_start_record
     name: "开始录制"
     group: "算法控制"

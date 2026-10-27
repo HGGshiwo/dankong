@@ -7,8 +7,6 @@
 struct ControlConfig {
     static constexpr const char* __group_name = "Control";
 
-    dk::Param<double> follow_timeout =
-        INIT_PARAM("follow_timeout", 1.0, "跟随指令失效时间(s)");
     dk::Param<double> prearm_timeout =
         INIT_PARAM("prearm_timeout", 3.0, "等待解锁前检查通过的超时时间(s)");
     dk::Param<double> takeoff_timeout =

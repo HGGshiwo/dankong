@@ -2,8 +2,10 @@
 
 #ifdef USE_ROS1
 #include <mavros_msgs/CommandLong.h>
+#include <mavros_msgs/GPSRAW.h>
 #include <mavros_msgs/PositionTarget.h>
 #include <mavros_msgs/SetMode.h>
+#include <mavros_msgs/State.h>
 #include <nav_msgs/Odometry.h>
 #include <ros/ros.h>
 #include <sensor_msgs/NavSatFix.h>
@@ -15,6 +17,16 @@
 #include <atomic>
 #include <cmath>
 #include <string>
+#include <type_traits>
+
+// rangefinder_alt 只存在于含 DroneContext 的 target (drone),
+// 其他 target (如 go2) 的 RobotContext 无此成员, 用于编译期跳过测距发布
+template <typename C, typename = void>
+struct has_rangefinder_alt : std::false_type {};
+template <typename C>
+struct has_rangefinder_alt<
+    C, std::void_t<decltype(std::declval<C>().rangefinder_alt.load())>>
+    : std::true_type {};
 
 #include "core/flight_mode.hpp"
 #include "robot_context.hpp"
@@ -30,6 +42,8 @@
 //   为 AMSL)
 //   /mavros/global_position/rel_alt       std_msgs/Float64
 //   /mavros/distance_sensor/rangefinder_pub sensor_msgs/Range
+//   /mavros/state                         mavros_msgs/State
+//   /mavros/gpsstatus/gps1/raw            mavros_msgs/GPSRAW
 // 订阅 (直通转发给 FCU):
 //   /mavros/setpoint_raw/local            mavros_msgs/PositionTarget
 // 服务:
@@ -48,6 +62,9 @@ class MavrosBridge {
                                "/mavros/global_position/rel_alt");
         pnh.param<std::string>("range_topic", range_topic_,
                                "/mavros/distance_sensor/rangefinder_pub");
+        pnh.param<std::string>("state_topic", state_topic_, "/mavros/state");
+        pnh.param<std::string>("gps_raw_topic", gps_raw_topic_,
+                               "/mavros/gpsstatus/gps1/raw");
         pnh.param<std::string>("setpoint_topic", setpoint_topic_,
                                "/mavros/setpoint_raw/local");
         pnh.param<std::string>("frame_id", frame_id_, "map");
@@ -65,6 +82,8 @@ class MavrosBridge {
         global_pub_ = nh_.advertise<sensor_msgs::NavSatFix>(global_topic_, 10);
         rel_alt_pub_ = nh_.advertise<std_msgs::Float64>(rel_alt_topic_, 10);
         range_pub_ = nh_.advertise<sensor_msgs::Range>(range_topic_, 10);
+        state_pub_ = nh_.advertise<mavros_msgs::State>(state_topic_, 10);
+        gps_raw_pub_ = nh_.advertise<mavros_msgs::GPSRAW>(gps_raw_topic_, 10);
 
         setpoint_sub_ = nh_.subscribe<mavros_msgs::PositionTarget>(
             setpoint_topic_, 10, &MavrosBridge::setpoint_callback, this);
@@ -95,6 +114,8 @@ class MavrosBridge {
         global_pub_.shutdown();
         rel_alt_pub_.shutdown();
         range_pub_.shutdown();
+        state_pub_.shutdown();
+        gps_raw_pub_.shutdown();
     }
 
    private:
@@ -105,6 +126,8 @@ class MavrosBridge {
         publish_global();
         publish_rel_alt();
         publish_range();
+        publish_state();
+        publish_gps_raw();
     }
 
     void publish_odom() {
@@ -175,20 +198,57 @@ class MavrosBridge {
         rel_alt_pub_.publish(msg);
     }
 
+    // 经依赖类型 C 的引用访问成员: 直接用 ctx_.rangefinder_alt 属于非依赖
+    // 表达式, 模板定义期即被检查 (丢弃分支也一样), 编译不过
+    template <typename C = RobotContext>
     void publish_range() {
-        double range = ctx_.rangefinder_alt.load();
-        if (range < 0) return;  // 尚无有效测距数据
+        if constexpr (has_rangefinder_alt<C>::value) {
+            C& c = ctx_;
+            double range = c.rangefinder_alt.load();
+            if (range < 0) return;  // 尚无有效测距数据
 
-        sensor_msgs::Range msg;
+            sensor_msgs::Range msg;
+            msg.header.stamp = ros::Time::now();
+            msg.header.frame_id = child_frame_id_;
+            msg.radiation_type = static_cast<uint8_t>(range_radiation_type_);
+            msg.field_of_view = static_cast<float>(range_fov_);
+            msg.min_range = static_cast<float>(range_min_);
+            msg.max_range = static_cast<float>(range_max_);
+            msg.range = static_cast<float>(range);
+
+            range_pub_.publish(msg);
+        }
+    }
+
+    void publish_state() {
+        mavros_msgs::State msg;
         msg.header.stamp = ros::Time::now();
-        msg.header.frame_id = child_frame_id_;
-        msg.radiation_type = static_cast<uint8_t>(range_radiation_type_);
-        msg.field_of_view = static_cast<float>(range_fov_);
-        msg.min_range = static_cast<float>(range_min_);
-        msg.max_range = static_cast<float>(range_max_);
-        msg.range = static_cast<float>(range);
+        msg.connected = ctx_.fcu_connected.load();
+        msg.armed = ctx_.arm.load();
+        msg.guided = false;
+        msg.mode = ctx_.mode.load().mode_str.c_str();
 
-        range_pub_.publish(msg);
+        state_pub_.publish(msg);
+    }
+
+    void publish_gps_raw() {
+        auto lon_lat_alt = ctx_.lon_lat_alt.load();
+        double lon = lon_lat_alt.x(), lat = lon_lat_alt.y();
+        if (lon == 0 && lat == 0) return;  // 尚无有效 GPS 位置
+
+        mavros_msgs::GPSRAW msg;
+        msg.header.stamp = ros::Time::now();
+        msg.fix_type = static_cast<uint8_t>(ctx_.gps_fix_type.load());
+        msg.lat = static_cast<int32_t>(lat * 1e7);
+        msg.lon = static_cast<int32_t>(lon * 1e7);
+        msg.alt = static_cast<int32_t>(ctx_.amsl_alt.load() * 1e3);
+        msg.eph = UINT16_MAX;  // ctx 中无 HDOP/VDOP, 按 MAVLink 约定填未知
+        msg.epv = UINT16_MAX;
+        msg.vel = UINT16_MAX;
+        msg.cog = UINT16_MAX;
+        msg.satellites_visible = static_cast<uint8_t>(ctx_.gps_nsats.load());
+
+        gps_raw_pub_.publish(msg);
     }
 
     // ---------------- setpoint 直通转发 ----------------
@@ -284,13 +344,14 @@ class MavrosBridge {
     ros::NodeHandle nh_;
 
     std::string odom_topic_, global_topic_, rel_alt_topic_, range_topic_,
-        setpoint_topic_;
+        setpoint_topic_, state_topic_, gps_raw_topic_;
     std::string frame_id_, child_frame_id_;
     double telemetry_rate_ = 30.0;
     double range_min_ = 0.1, range_max_ = 20.0, range_fov_ = 0.1;
     int range_radiation_type_ = sensor_msgs::Range::INFRARED;
 
-    ros::Publisher odom_pub_, global_pub_, rel_alt_pub_, range_pub_;
+    ros::Publisher odom_pub_, global_pub_, rel_alt_pub_, range_pub_, state_pub_,
+        gps_raw_pub_;
     ros::Subscriber setpoint_sub_;
     ros::ServiceServer set_mode_srv_, command_srv_;
     ros::Timer timer_;

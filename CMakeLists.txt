@@ -84,6 +84,8 @@ if(ROS_SUPPORT STREQUAL "ROS1")
         geometry_msgs
         mavros_msgs
         rosbag
+        tf2
+        tf2_ros
         topic_tools
     )
 elseif(ROS_SUPPORT STREQUAL "ROS2")

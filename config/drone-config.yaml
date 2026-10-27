@@ -24,7 +24,6 @@ camera_inner_matrix:
 command_timeout_sec: 0.5
 fcu_data_rate: 10
 fix_yaw_dist: 1
-follow_timeout: 1
 gimbal_pitch_topic: /gimbal/current_pitch
 gimbal_roll_topic: /gimbal/roll
 gimbal_yaw_topic: /gimbal/yaw

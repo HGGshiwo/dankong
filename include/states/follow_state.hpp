@@ -15,13 +15,11 @@ template <typename ParentState>
 class FollowState : public dk::BaseState<RobotContext, FollowState<ParentState>,
                                          ParentState> {
    public:
-    double last_time_;
     DetectEvent event_;
 
     using AllowedEvents = std::tuple<DetectEvent>;
 
     FollowState(const DetectEvent& event, RobotContext& ctx) : event_(event) {
-        last_time_ = ctx.engine->get_time_provider()->now();
         on_event(event, ctx);
     }
 
@@ -52,7 +50,6 @@ class FollowState : public dk::BaseState<RobotContext, FollowState<ParentState>,
 template <typename ParentState>
 StateAction FollowState<ParentState>::on_event(const DetectEvent& event,
                                                RobotContext& ctx) {
-    last_time_ = ctx.engine->get_time_provider()->now();
     Eigen::Vector3d cmd_vel =
         event.score >= 0 ? event.cmd_vel : Eigen::Vector3d::Zero();
 
@@ -71,12 +68,6 @@ StateAction FollowState<ParentState>::on_event(const DetectEvent& event,
 
 template <typename ParentState>
 StateAction FollowState<ParentState>::on_tick(double dt, RobotContext& ctx) {
-    double now = ctx.engine->get_time_provider()->now();
-    if (state_utils::get_time_span(last_time_, now) >
-        GlobalConfig.GetConfig().follow_timeout) {
-        spdlog::error("[FollowState] follow timeout!");
-        return StateAction::next();
-    }
     // 必须handle住，否则走的是Hover的
     return StateAction::handled();
 }
