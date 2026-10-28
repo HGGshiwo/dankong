@@ -68,13 +68,11 @@ class Go2Feature {
         ros->bind_json_context(
             "/dank/status",
             [](const Go2StateData& msg, RobotContext& ctx) -> void {
+                // ctx.arm 以飞控 MAVLink 遥测 (subscribe_armed) 为唯一来源,
+                // 此处不再用 go2 工作模式改写 arm, 否则两者互相覆盖导致
+                // /mavros/state 的 armed 来回抖动
                 ctx.go2_state.store(msg.mode);
                 ctx.battery_remaining.store(msg.battery);
-                bool is_arm = msg.mode == 1;
-                if (is_arm != ctx.arm.load()) {
-                    ctx.arm.store(is_arm);
-                    ctx.engine->dispatch_internal(ArmEvent{is_arm});
-                }
             });
     };
 };
