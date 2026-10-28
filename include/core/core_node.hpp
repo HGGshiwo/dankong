@@ -50,7 +50,7 @@ extern template class dk::RosAdapter<RobotContext, Engine>;
 
 struct CLIArgs {
     std::string config_path;
-    std::optional<unsigned int> port = std::nullopt;
+    std::optional<std::string> port = std::nullopt;
     std::optional<unsigned int> camera_port = std::nullopt;
     std::optional<std::string> mavsdk_url = std::nullopt;
 };
@@ -155,7 +155,11 @@ class CoreNode {
         YamlHelper::save(json_cfg, get_config_dir(cfg.json_path.get()));
 
         // 创建适配器
-        unsigned int server_port = args.port.value_or(cfg.server_port.get());
+        // 空串视为未提供，回退到配置文件中的 server_port
+        unsigned int server_port =
+            (args.port.has_value() && !args.port->empty())
+                ? static_cast<unsigned int>(std::stoul(*args.port))
+                : cfg.server_port.get();
         web_adapter_ = std::make_shared<WebAdapterType>(engine_, server_port);
         auto ws_mgr = web_adapter_->get_manager();
         engine_->get_context().ws_manager = ws_mgr;
