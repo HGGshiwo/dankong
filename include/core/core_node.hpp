@@ -110,7 +110,11 @@ class CoreNode {
             mavsdk::ComponentType::GroundStation);
         mavsdk_ = std::make_shared<mavsdk::Mavsdk>(config);
 
-        std::string mavsdk_url = args.mavsdk_url.value_or(cfg.mavsdk_url.get());
+        // 空串视为未提供，回退到配置文件中的 mavsdk_url
+        std::string mavsdk_url =
+            (args.mavsdk_url.has_value() && !args.mavsdk_url->empty())
+                ? *args.mavsdk_url
+                : cfg.mavsdk_url.get();
         mavsdk::ConnectionResult connection_result =
             mavsdk_->add_any_connection(mavsdk_url);
         if (connection_result != mavsdk::ConnectionResult::Success) {

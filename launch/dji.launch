@@ -6,6 +6,7 @@
     <arg name="robot_type" default="drone" />
     <arg name="image_topic" default="/UAV0/sensor/video11_camera/image_raw" />
     <arg name="config" default="$(find dankong)/config/dji-config.yaml" />
+    <arg name="mavsdk_url" default="" />
 
     <!-- dankong 主节点(与通用 launch 相同,但不带 pland 检测/控制,便于单独调试) -->
     <include file="$(find dankong)/launch/dankong.launch">
@@ -13,6 +14,7 @@
         <arg name="config" value="$(arg config)" />
         <arg name="image_topic" value="$(arg image_topic)" />
         <arg name="camera_inner_matrix" value="[611.5623570215685, 0, 320.59928067496867, 0, 599.1195821461009, 232.1364617682227, 0, 0, 1]" />
+        <arg name="mavsdk_url" value="$(arg mavsdk_url)" />
     </include>
 
     <!-- 下视相机:MavDrone MJPEG 拉流并发布 ROS topic -->
