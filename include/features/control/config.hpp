@@ -13,6 +13,10 @@ struct ControlConfig {
         INIT_PARAM("takeoff_timeout", 100.0, "起飞过程最大允许时间(s)");
     dk::Param<double> posvel_timeout =
         INIT_PARAM("posvel_timeout", 3.0, "指点指令失效保护时间(s)");
+    dk::Param<double> posvel_arrive_tolerance = INIT_PARAM(
+        "posvel_arrive_tolerance", 0.5, "指点指令到达目标点的判定距离(m)");
+    dk::Param<double> posvel_stop_speed = INIT_PARAM(
+        "posvel_stop_speed", 0.3, "指点指令判定到达所需的速度上限(m/s)");
 
     dk::Param<double> pos_tolerance =
         INIT_PARAM("pos_tolerance", 1.0, "判定到达目标点的距离偏差(m)");

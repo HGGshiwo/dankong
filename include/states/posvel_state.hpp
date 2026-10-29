@@ -5,6 +5,7 @@
 #include <cmath>
 #include <optional>
 #include <string_view>
+#include <type_traits>
 
 #include "core/global_config.hpp"
 #include "dk/state.hpp"
@@ -64,6 +65,12 @@ class PosVelState : public dk::BaseState<RobotContext, PosVelState<ParentState>,
 
     StateAction on_event(const SetPosVelEvent& e, RobotContext& ctx);
 
+    // 是否指定了目标朝向 (yaw 未传时不锁定朝向、不进转向子状态)
+    bool has_yaw() const { return event_.yaw.has_value(); }
+
+    // fix_yaw 的实际生效值 (不传默认 true, 同 mavproxy)
+    bool fix_yaw() const { return event_.fix_yaw.value_or(true); }
+
     StateAction get_next_state();
 
     class MoveState;
@@ -76,7 +83,9 @@ template <typename ParentState>
 class PosVelState<ParentState>::MoveState
     : public dk::BaseState<RobotContext, MoveState, PosVelState<ParentState>> {
    public:
-    using AllowedEvents = std::tuple<>;
+    // 必须声明处理 SetPosVelEvent: 否则飞行中的新指令冒泡到父状态后
+    // 只更新 event_ 而不重入本状态, base_move 不执行, Tracker 仍追旧目标
+    using AllowedEvents = std::tuple<SetPosVelEvent>;
 
     // 父状态已接管初始化，这里可以保持为空，或者仅做特定子状态的日志等
     StateAction on_enter(RobotContext& ctx) override;
@@ -105,14 +114,14 @@ class PosVelState<ParentState>::LaterTurnState
 template <typename ParentState>
 PosVelState<ParentState>::PosVelState(SetPosVelEvent e)
     : event_(e), start_time_(0.0) {
-    event_.yaw = state_utils::yaw_ned_to_enu(event_.yaw);
+    if (event_.yaw) event_.yaw = state_utils::yaw_ned_to_enu(*event_.yaw);
 }
 
 // 工具函数，设置posvel目标
 template <typename ParentState>
 void PosVelState<ParentState>::set_target(const SetPosVelEvent& e) {
     event_ = e;
-    event_.yaw = state_utils::yaw_ned_to_enu(event_.yaw);
+    if (event_.yaw) event_.yaw = state_utils::yaw_ned_to_enu(*event_.yaw);
 
     // 由于目标更新，重置首次 tick 标志，使得下一次重新计算 dt
     // 此时不会归零当前速度 (current_xy_speed_ /
@@ -134,14 +143,26 @@ StateAction PosVelState<ParentState>::on_event(const SetPosVelEvent& e,
 
 template <typename ParentState>
 StateAction PosVelState<ParentState>::get_next_state() {
-    return StateAction::next();
+    // follow 式退出: 到达/超时/转向完成后显式 step 回父状态对应的状态,
+    // 不再依赖 plan next()+fallback (残留 fallback 会在任务完成后被误触发)。
+    // LiftingState 的无参 step 与 StopFollowEvent 的处理一致:
+    // WaypointState 走 try_reuse 保留任务进度, 从 wp_idx_ 断点续飞。
+    if constexpr (std::is_same_v<ParentState, WaypointState>) {
+        // 必须无参 (与 StopFollowEvent 处理一致); 带空元组会被当成
+        // WaypointState 的构造参数导致 build_path 抛 logic_error
+        return this->template step<WaypointState::LiftingState>();
+    } else {
+        return this->template step<HoverState>();
+    }
 }
 
 template <typename ParentState>
 StateAction PosVelState<ParentState>::on_tick(double dt, RobotContext& ctx) {
     double now = ctx.engine->get_time_provider()->now();
-    if (state_utils::get_time_span(start_time_, now) >
-        GlobalConfig.GetConfig().posvel_timeout) {
+    // 超时阈值: 请求可指定, 不传用配置 (同 mavproxy 的 timeout 字段)
+    double timeout =
+        event_.timeout.value_or(GlobalConfig.GetConfig().posvel_timeout.get());
+    if (state_utils::get_time_span(start_time_, now) > timeout) {
         spdlog::error("[PosvelState] set_posvel timeout!");
         return get_next_state();
     }
@@ -155,12 +176,28 @@ void PosVelState<ParentState>::MoveState::base_move(RobotContext& ctx) {
     auto current_pos = ctx.pos_enu.load();
     auto target_pos = state_utils::gps_to_enu(ctx.lon_lat_alt.load(),
                                               current_pos, p->event_.pos);
-    // [可选] 如果固定角度，就传；否则传 nullopt，Tracker 会自动计算朝向
+    // [可选] 固定朝向: 仅当 fix_yaw 且指定了 yaw 时生效; 否则传 nullopt,
+    // Tracker 会自动计算朝向 (机头朝运动方向)
     std::optional<double> target_yaw = std::nullopt;
-    if (p->event_.fix_yaw) {
+    if (p->fix_yaw() && p->has_yaw()) {
         target_yaw = p->event_.yaw;
     }
     // 只在进入状态时下发一次指令 (Tracker 内部会接管 50Hz 的连续控制)
+    {
+        auto cur_gps = ctx.lon_lat_alt.load();
+        spdlog::info(
+            "[Posvel] 下发: gps=({:.7f}, {:.7f}, {:.2f}) -> enu=({:.2f}, "
+            "{:.2f}, "
+            "{:.2f}) cur_enu=({:.2f}, {:.2f}, {:.2f}) cur_gps=({:.7f}, {:.7f}, "
+            "{:.2f}) vel={:.1f} fix_yaw={} yaw={} timeout={}",
+            p->event_.pos.x(), p->event_.pos.y(), p->event_.pos.z(),
+            target_pos.x(), target_pos.y(), target_pos.z(), current_pos.x(),
+            current_pos.y(), current_pos.z(), cur_gps.x(), cur_gps.y(),
+            cur_gps.z(), p->event_.vel, p->fix_yaw(),
+            p->has_yaw() ? std::to_string(*p->event_.yaw) : std::string("无"),
+            p->event_.timeout.has_value() ? std::to_string(*p->event_.timeout)
+                                          : std::string("配置值"));
+    }
     ctx.tracker->send_pos_cmd(
         target_pos,    // 目标位置
         target_yaw,    // 目标偏航角
@@ -187,6 +224,8 @@ template <typename ParentState>
 StateAction PosVelState<ParentState>::MoveState::on_event(
     const SetPosVelEvent& e, RobotContext& ctx) {
     this->parent()->set_target(e);
+    // 对齐 mavproxy: 每次新请求刷新超时计时 (无新指令才算超时)
+    this->parent()->start_time_ = ctx.engine->get_time_provider()->now();
     base_move(ctx);
     return StateAction::handled();
 }
@@ -207,14 +246,21 @@ StateAction PosVelState<ParentState>::MoveState::on_tick(double dt,
     double dist_3d = pos_err.norm();
     double dist_xy = xy_err.norm();
 
-    bool arrive = ctx.robot->is_alt_enable() ? (dist_3d < cfg.pos_tolerance)
-                                             : (dist_xy < cfg.pos_tolerance);
-    // 1. 检查是否到达
-    if (arrive) {
-        if (p->event_.fix_yaw) {
-            return p->get_next_state();
-        } else {
+    // 到达判定: 距离到位 且 水平速度已收敛。提前切出位置控制会让
+    // Tracker 的减速刹车被零速指令替代, 动量导致滑过目标后折返振荡
+    double speed = ctx.vel_enu.load().head<2>().norm();
+    bool dist_ok = ctx.robot->is_alt_enable()
+                       ? (dist_3d < cfg.posvel_arrive_tolerance.get())
+                       : (dist_xy < cfg.posvel_arrive_tolerance.get());
+    // 1. 检查是否到达 (分流语义同 mavproxy):
+    //    fix_yaw&&有yaw: 全程已锁定, 直接完成
+    //    !fix_yaw&&有yaw: 到达后进转向子状态调整朝向
+    //    无yaw: 到达直接完成 (mavproxy 的 POSVEL_YAW 无 yaw 直接退回)
+    if (dist_ok && speed < cfg.posvel_stop_speed.get()) {
+        if (!p->fix_yaw() && p->has_yaw()) {
             return this->template step<LaterTurnState>();
+        } else {
+            return p->get_next_state();
         }
     }
 
@@ -224,11 +270,6 @@ StateAction PosVelState<ParentState>::MoveState::on_tick(double dt,
 template <typename ParentState>
 StateAction PosVelState<ParentState>::LaterTurnState::on_enter(
     RobotContext& ctx) {
-    auto p = this->parent();
-    double target_yaw = p->event_.yaw;
-    auto current_pos = ctx.pos_enu.load();
-    auto target_pos = state_utils::gps_to_enu(ctx.lon_lat_alt.load(),
-                                              current_pos, p->event_.pos);
     return StateAction::unhandled();
 }
 
@@ -237,8 +278,12 @@ StateAction PosVelState<ParentState>::LaterTurnState::on_tick(
     double dt, RobotContext& ctx) {
     auto p = this->parent();
     auto& cfg = GlobalConfig.GetConfig();
+    // 无目标朝向时不调整, 直接完成 (同 mavproxy POSVEL_YAW 无 yaw 直接退回)
+    if (!p->has_yaw()) {
+        return p->get_next_state();
+    }
     double current_yaw = ctx.yaw_enu;
-    double target_yaw = p->event_.yaw;
+    double target_yaw = *p->event_.yaw;
 
     if (state_utils::get_yaw_diff(target_yaw, current_yaw) <
         cfg.yaw_tolerance) {

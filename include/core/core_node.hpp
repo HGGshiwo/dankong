@@ -115,6 +115,12 @@ class CoreNode {
             (args.mavsdk_url.has_value() && !args.mavsdk_url->empty())
                 ? *args.mavsdk_url
                 : cfg.mavsdk_url.get();
+        spdlog::info(
+            "[MAVSDK] add_any_connection url=\"{}\" (cli: {}, config: {})",
+            mavsdk_url,
+            args.mavsdk_url.has_value() ? "\"" + *args.mavsdk_url + "\""
+                                        : "<未传>",
+            "\"" + cfg.mavsdk_url.get() + "\"");
         mavsdk::ConnectionResult connection_result =
             mavsdk_->add_any_connection(mavsdk_url);
         if (connection_result != mavsdk::ConnectionResult::Success) {

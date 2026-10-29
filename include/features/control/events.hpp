@@ -70,10 +70,14 @@ struct PrearmEvent : dk::AsyncEvent<EventResult> {};
 
 // @JSON_ENABLE
 struct SetPosVelEvent : dk::AsyncEvent<EventResult> {
-    Eigen::Vector3d pos;
-    double vel;
-    double yaw;  // enu坐标系的yaw
-    bool fix_yaw;
+    Eigen::Vector3d pos;  // 目标 GPS [lon, lat, alt]
+    double vel = 2;  // XY 巡航速度限制 (m/s), 不传默认 2 (同 mavproxy)
+    std::optional<double>
+        yaw;  // 到达后的期望偏航 (NED 系弧度); 不传=不指定朝向
+    std::optional<bool> fix_yaw =
+        true;  // true: 运动全程锁定目标yaw; false: 机头朝运动方向
+    std::optional<double>
+        timeout;  // 指令失效时间 (s); 不传用配置 posvel_timeout
 };
 
 // @JSON_ENABLE

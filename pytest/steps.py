@@ -13,6 +13,7 @@ dankong 任务流测试框架与步骤库 (满足开闭原则)
 """
 import asyncio
 import json
+import math
 import threading
 import time
 from dataclasses import dataclass, field
@@ -25,6 +26,7 @@ PORT = 8000
 
 # 状态名 (与各 State 的 static_name() 对应)
 STATE_GROUND = "地面状态"
+STATE_INIT = "初始状态"  # 节点刚 respawn 时先处于初始状态, 连上飞控后才切地面
 STATE_TAKEOFF = "起飞状态"
 STATE_HOVER = "悬停状态"
 STATE_WAYPOINT = "航点模式"
@@ -33,6 +35,8 @@ STATE_WP_EXEC = "执行航点"  # WaypointState::ExcuteState 叶子名
 STATE_LAND = "降落状态"
 # 航点任务的任一子状态 (WS state 帧上报的是叶子状态名)
 WAYPOINT_STATES = (STATE_WAYPOINT, STATE_WP_LIFT, STATE_WP_EXEC)
+# 在地面的状态集合 (初始状态同样"在地面", 不可降落)
+GROUND_STATES = (STATE_GROUND, STATE_INIT)
 
 
 def http_post(path, data=None):
@@ -253,7 +257,7 @@ class EnsureGround(Step):
     def run(self, robot):
         robot.wait_state_fresh()
         robot.wait_pos_ready(60)
-        if robot.get_state_name() != STATE_GROUND:
+        if robot.get_state_name() not in GROUND_STATES:
             with robot.lock:
                 state_name = robot.state.get("state")
                 age = time.time() - robot.state_ts
@@ -262,8 +266,14 @@ class EnsureGround(Step):
                 f"keys={sorted(robot.state.keys())}), 先降落"
             )
             res = http_post("/land", data=dict(do_pland=False))
+            msg = str(res.get("msg", ""))
             if res.get("status") != "success":
-                raise RuntimeError(f"land 被拒: {res}")
+                if "当前在地面" in msg:
+                    # 后端认定在地面而 WS 快照仍是其他状态名 (快照滞后),
+                    # 视为已在地面, 等状态机切到地面状态即可
+                    print(f"land 被拒但后端认定在地面 ({msg}), 继续等待")
+                else:
+                    raise RuntimeError(f"land 被拒: {res}")
             robot.wait_for_state(STATE_GROUND, 240)
         time.sleep(self.settle)
 
@@ -538,6 +548,291 @@ class FlyWaypoint(Step):
     @staticmethod
     def _dist2d(a, b):
         return ((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) ** 0.5
+
+
+class RecordTakeoffPos(Step):
+    """记录当前位置 (地面) 为起飞点, 供 Return 校验使用。"""
+
+    name = "记录起飞点"
+
+    def run(self, robot):
+        pos = robot.get_pos()
+        robot.takeoff_pos = (pos[0], pos[1])
+
+
+# ---------------- 指点控制 (/set_posvel) ----------------
+
+# PosVelState 及其子状态叶子名 (WS state 帧上报叶子)
+POSVEL_STATES = ("指点控制", "指点移动", "指点转向")
+
+
+def gps_offset(lon, lat, dx_m, dy_m):
+    """从 (lon, lat) 出发按米制偏移 (dx=东, dy=北) 求目标 GPS [lon, lat]。"""
+    from math import cos, radians
+
+    return [
+        lon + dx_m / (111320.0 * cos(radians(lat))),
+        lat + dy_m / 111320.0,
+    ]
+
+
+class _PosVelTargetStreamer:
+    """后台线程: 以固定频率向 /set_posvel 下发按恒速移动的目标点。
+
+    模拟 mavproxy 式用法 —— 目标持续刷新 (每次请求都会刷新 dankong 内部
+    超时计时); 移动结束后对终点再连发 finish_repeat 次然后停止下发。
+    """
+
+    def __init__(
+        self,
+        start_lon,
+        start_lat,
+        alt,
+        dir_e,
+        dir_n,
+        speed,
+        duration,
+        rate=1.0,
+        cmd_timeout=3.0,
+        vel=2,
+        finish_repeat=3,
+    ):
+        norm = (dir_e**2 + dir_n**2) ** 0.5
+        self._unit = (dir_e / norm, dir_n / norm)
+        self._start = (start_lon, start_lat)
+        self._alt = alt
+        self._speed = speed
+        self._duration = duration
+        self._interval = 1.0 / rate
+        self._cmd_timeout = cmd_timeout
+        self._vel = vel
+        self._finish_repeat = finish_repeat
+        self.max_lag = 0.0  # 跟随过程中观测到的最大滞后 (m)
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def _target(self, t):
+        e, n = self._unit[0] * self._speed * t, self._unit[1] * self._speed * t
+        return gps_offset(self._start[0], self._start[1], e, n) + [self._alt]
+
+    def _post(self, pos):
+        res = http_post(
+            "/set_posvel", data=dict(pos=pos, vel=self._vel, timeout=self._cmd_timeout)
+        )
+        return res.get("status") == "success"
+
+    def _run(self):
+        t0 = time.time()
+        while not self._stop.is_set():
+            t = time.time() - t0
+            if t >= self._duration:
+                break
+            self._post(self._target(t))
+            time.sleep(self._interval)
+        # 目标已停: 对终点补发数次, 让飞机明确"停在这里"
+        final = self._target(self._duration)
+        for _ in range(self._finish_repeat):
+            if self._stop.is_set():
+                return
+            self._post(final)
+            time.sleep(self._interval)
+
+    def stop(self):
+        self._stop.set()
+        self._thread.join(timeout=10)
+
+
+class FollowMovingTarget(Step):
+    """1Hz 持续下发恒速移动目标, 验证跟随精度; 目标停止后飞机应停在
+    终点 (≤1m), 不能冲过头继续飞。
+
+    需要从悬停状态进入 (waypoint 场景传 back_states=WAYPOINT_STATES)。
+    """
+
+    def __init__(
+        self,
+        alt,
+        dir_e=1.0,
+        dir_n=0.0,
+        speed=2.0,
+        duration=20.0,
+        rate=1.0,
+        follow_tol=5.0,
+        arrive_tol=1.0,
+        drift_tol=1.0,
+        stop_sample=2.0,
+        check_stop=True,
+        back_states=(STATE_HOVER,),
+        settle_timeout=60,
+        enter_timeout=30,
+    ):
+        self.name = f"跟随移动目标({speed}m/s x {duration}s @ {rate}Hz)"
+        self.alt = alt
+        self.dir = (dir_e, dir_n)
+        self.speed = speed
+        self.duration = duration
+        self.rate = rate
+        self.follow_tol = follow_tol
+        self.arrive_tol = arrive_tol
+        self.drift_tol = drift_tol
+        self.stop_sample = stop_sample
+        # 悬停场景应停稳; 航点场景指点结束后续飞剩余航点, 停止校验不适用
+        self.check_stop = check_stop
+        self.back_states = back_states
+        self.settle_timeout = settle_timeout
+        self.enter_timeout = enter_timeout
+        self.lags = []  # (t, lag_m) 采样
+
+    def run(self, robot):
+        robot.wait_state_fresh()
+        state = robot.snapshot()
+        if not state.get("lon") or not state.get("lat"):
+            raise RuntimeError(f"WS 快照无 GPS: {sorted(state.keys())}")
+        self._stream_start = (state["lon"], state["lat"])
+        streamer = _PosVelTargetStreamer(
+            state["lon"],
+            state["lat"],
+            self.alt,
+            self.dir[0],
+            self.dir[1],
+            self.speed,
+            self.duration,
+            self.rate,
+        )
+        try:
+            robot.wait_for_state_any(POSVEL_STATES, self.enter_timeout)
+            # 跟随过程: 抽样飞机与"当前理论目标点"的滞后
+            deadline = time.time() + self.duration + 5
+            start = time.time()
+            while time.time() < deadline:
+                if robot.get_state_name() not in POSVEL_STATES:
+                    break
+                t = time.time() - start
+                if t < self.duration:
+                    tgt = self._target_of(streamer, t, state)
+                    lag = self._lag(robot, tgt)
+                    if lag is not None:
+                        self.lags.append((t, lag))
+                time.sleep(1.0)
+            # 目标已停止, 等状态机回退 (自动停止)
+            robot.wait_for_state_any(self.back_states, self.settle_timeout)
+        finally:
+            streamer.stop()
+        self.max_lag = max((lag for _, lag in self.lags), default=0.0)
+        if self.max_lag > self.follow_tol:
+            raise RuntimeError(
+                f"跟随滞后超限: max={self.max_lag:.1f}m > {self.follow_tol}m "
+                f"(采样 {len(self.lags)} 次)"
+            )
+
+    def _target_of(self, streamer, t, state):
+        return streamer._target(t)
+
+    def _lag(self, robot, tgt):
+        state = robot.snapshot()
+        if not state.get("lon") or not state.get("lat"):
+            return None
+        return gps_distance(state["lon"], state["lat"], tgt[0], tgt[1])
+
+    def check(self, robot):
+        if not self.check_stop:
+            # 航点场景: 指点结束后任务续飞剩余航点, 终点精度/不过冲/停止
+            # 校验均不适用 (续飞正确性由用例最后的悬停等待覆盖)
+            print("航点场景, 跳过终点精度/停止校验")
+            return
+        stream_start = self._stream_start
+        state = robot.snapshot()
+        pos = robot.get_pos()
+        # ① 终点精度 ≤1m
+        final = gps_offset(
+            stream_start[0],
+            stream_start[1],
+            self.dir[0] * self.speed * self.duration,
+            self.dir[1] * self.speed * self.duration,
+        )
+        d = gps_distance(state["lon"], state["lat"], final[0], final[1])
+        dz = pos[2] - self.alt
+        if d > self.arrive_tol or abs(dz) > self.arrive_tol:
+            raise RuntimeError(f"终点精度不足: xy={d:.2f}m dz={dz:.2f}m")
+        # ② 不越过终点: 航向方向投影超出终点 ≤ arrive_tol
+        e = (
+            (state["lon"] - stream_start[0])
+            * 111320.0
+            * math.cos(math.radians(state["lat"]))
+        )
+        n = (state["lat"] - stream_start[1]) * 111320.0
+        proj = e * self.dir[0] + n * self.dir[1]  # 航向方向投影 (m)
+        track_len = self.speed * self.duration
+        overshoot = proj - track_len
+        if overshoot > self.arrive_tol:
+            raise RuntimeError(
+                f"冲过终点 {overshoot:.1f}m (投影 {proj:.1f}m / 航迹 {track_len:.1f}m)"
+            )
+        # ③ 停止: 采样位移
+        p1 = robot.get_pos()
+        time.sleep(self.stop_sample)
+        p2 = robot.get_pos()
+        drift = (
+            (p2[0] - p1[0]) ** 2 + (p2[1] - p1[1]) ** 2 + (p2[2] - p1[2]) ** 2
+        ) ** 0.5
+        if drift > self.drift_tol:
+            raise RuntimeError(f"到达后未停止: {self.stop_sample}s 内位移 {drift:.2f}m")
+
+
+class PosVelTimeout(Step):
+    """只发一次远目标 (不刷新): 超时后应自动回退且远未到达目标。"""
+
+    def __init__(
+        self,
+        pos,
+        timeout=5,
+        vel=2,
+        back_states=(STATE_HOVER,),
+        enter_timeout=30,
+        far_tol=50.0,
+    ):
+        self.name = f"指点超时(timeout={timeout}s)"
+        self.pos = list(pos)
+        self.timeout = timeout
+        self.vel = vel
+        self.back_states = back_states
+        self.enter_timeout = enter_timeout
+        self.far_tol = far_tol
+
+    def run(self, robot):
+        robot.wait_state_fresh()
+        res = http_post(
+            "/set_posvel", data=dict(pos=self.pos, vel=self.vel, timeout=self.timeout)
+        )
+        if res.get("status") != "success":
+            raise RuntimeError(f"set_posvel 被拒: {res}")
+        robot.wait_for_state_any(POSVEL_STATES, self.enter_timeout)
+        # 超时后状态机回退 (留裕量覆盖网络/状态帧延迟)
+        robot.wait_for_state_any(self.back_states, self.timeout + 20)
+
+    def check(self, robot):
+        state = robot.snapshot()
+        d = gps_distance(state["lon"], state["lat"], self.pos[0], self.pos[1])
+        if d < self.far_tol:
+            raise RuntimeError(
+                f"超时回退后不应已到达目标: 距目标仅 {d:.1f}m (<{self.far_tol}m)"
+            )
+
+
+class ExpectPosVelRejected(Step):
+    """非 waypoint/hover 状态下 /set_posvel 应被拒绝。"""
+
+    name = "指点指令应被拒绝"
+
+    def __init__(self, pos=None):
+        self.pos = pos or [116.0, 39.0, 10.0]
+
+    def run(self, robot):
+        res = http_post("/set_posvel", data=dict(pos=self.pos, vel=2, timeout=10))
+        if res.get("status") == "success":
+            raise RuntimeError(f"set_posvel 未被拒绝: {res}")
+        print(f"set_posvel 按预期被拒: {res}")
 
 
 class RecordTakeoffPos(Step):

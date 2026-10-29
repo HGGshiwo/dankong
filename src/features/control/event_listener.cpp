@@ -40,16 +40,17 @@ void ControlEventListener::on_event(const SetPosVelEvent& event,
         return;
     }
     if (ctx.engine->is_active_state<WaypointState>()) {
-        ctx.engine->plan().clear();
+        // follow 式注入: 不 clear plan、不覆盖 fallback, 航线任务自己的
+        // 收尾 (悬停/降落) 原样保留, 否则任务完成后会误触发残留 fallback
+        // (LiftingState 在 wp_idx_ 越界处重入)。
+        // 指点完成后由 get_next_state() 显式 step 回 LiftingState 续飞。
         ctx.engine->plan()
             .push_back<PosVelState<WaypointState>::MoveState>(std::tuple(event),
                                                               std::tuple<>())
-            .fallback<WaypointState::LiftingState>()
             .start();
         event.resolve({"success", "OK"});
         return;
     } else if (ctx.engine->is_active_state<HoverState>()) {
-        ctx.engine->plan().clear();
         ctx.engine->plan()
             .push_back<PosVelState<HoverState>::MoveState>(std::tuple(event),
                                                            std::tuple<>())
