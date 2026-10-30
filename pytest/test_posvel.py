@@ -52,11 +52,20 @@ def test_posvel_follow_moving_target(check, robot):
 
 
 def test_posvel_2element_target(check, robot):
-    """pos 只传 [lon, lat]: 高度应保持当前高度, 水平移动到目标后停稳。"""
+    """pos 高度值被忽略: 2 元素与 3 元素(故意给错误高度)都应保持当前高度。
+
+    传 [lon, lat, 5] (高度 5 != 当前 10) 与 [lon, lat] 行为一致:
+    水平移动到目标, 高度保持 10m, 不报错。
+    """
     _hover(check, alt=10)
     state = robot.snapshot()
-    tgt = gps_offset(state["lon"], state["lat"], 20.0, 0.0)  # 2 元素, 无高度
-    check([PosVelGo(pos=tgt, expected_alt=10.0, vel=2, timeout=60)])
+    lon, lat = state["lon"], state["lat"]
+    # 3 元素, 故意给错误高度 5 —— 应被忽略
+    tgt3 = gps_offset(lon, lat, 20.0, 0.0) + [5.0]
+    check([PosVelGo(pos=tgt3, expected_alt=10.0, vel=2, timeout=60)])
+    # 2 元素
+    tgt2 = gps_offset(state["lon"], state["lat"], 20.0, 0.0)
+    check([PosVelGo(pos=tgt2, expected_alt=10.0, vel=2, timeout=60)])
 
 
 def test_posvel_timeout(check, robot):

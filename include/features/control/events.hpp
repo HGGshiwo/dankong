@@ -70,7 +70,8 @@ struct PrearmEvent : dk::AsyncEvent<EventResult> {};
 
 // @JSON_ENABLE
 struct SetPosVelEvent : dk::AsyncEvent<EventResult> {
-    // 目标位置 GPS, 支持 [lon,lat,alt] 或 [lon,lat] (高度取当前 rel_alt)
+    // 目标位置 GPS, 支持 [lon,lat,alt] 或 [lon,lat]; 第三值 (alt) 忽略,
+    // 目标高度始终为飞机当前高度
     nlohmann::json pos;
     double vel = 2;  // XY 巡航速度限制 (m/s), 不传默认 2 (同 mavproxy)
     std::optional<double>

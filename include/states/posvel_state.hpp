@@ -72,15 +72,15 @@ class PosVelState : public dk::BaseState<RobotContext, PosVelState<ParentState>,
     // fix_yaw 的实际生效值 (不传默认 true, 同 mavproxy)
     bool fix_yaw() const { return event_.fix_yaw.value_or(true); }
 
-    // pos 支持 [lon,lat] 或 [lon,lat,alt]; 2 元素时高度用当前 rel_alt
+    // pos 支持 [lon,lat] 或 [lon,lat,alt], 第三值 (alt) 一律忽略,
+    // 目标高度始终取飞机当前高度 (cur_alt)
     static Eigen::Vector3d resolve_target(const nlohmann::json& j,
-                                          double cur_rel_alt) {
+                                          double cur_alt) {
         if (!j.is_array() || (j.size() != 2 && j.size() != 3)) {
             throw std::invalid_argument(
                 "pos 必须是 [lon,lat] 或 [lon,lat,alt]");
         }
-        double alt = j.size() == 3 ? j[2].get<double>() : cur_rel_alt;
-        return {j[0].get<double>(), j[1].get<double>(), alt};
+        return {j[0].get<double>(), j[1].get<double>(), cur_alt};
     }
 
     StateAction get_next_state();
@@ -186,8 +186,7 @@ template <typename ParentState>
 void PosVelState<ParentState>::MoveState::base_move(RobotContext& ctx) {
     auto p = this->parent();
     auto current_pos = ctx.pos_enu.load();
-    auto target_gps =
-        p->resolve_target(p->event_.pos, ctx.lon_lat_alt.load().z());
+    auto target_gps = p->resolve_target(p->event_.pos, ctx.pos_enu.load().z());
     auto target_pos = state_utils::gps_to_enu(ctx.lon_lat_alt.load(),
                                               current_pos, target_gps);
     // [可选] 固定朝向: 仅当 fix_yaw 且指定了 yaw 时生效; 否则传 nullopt,
@@ -251,8 +250,7 @@ StateAction PosVelState<ParentState>::MoveState::on_tick(double dt,
     auto& cfg = GlobalConfig.GetConfig();
     auto current_pos = ctx.pos_enu.load();
     double current_yaw = ctx.yaw_enu;
-    auto target_gps =
-        p->resolve_target(p->event_.pos, ctx.lon_lat_alt.load().z());
+    auto target_gps = p->resolve_target(p->event_.pos, ctx.pos_enu.load().z());
     auto target_pos = state_utils::gps_to_enu(ctx.lon_lat_alt.load(),
                                               current_pos, target_gps);
 

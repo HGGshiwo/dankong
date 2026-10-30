@@ -783,8 +783,8 @@ class FollowMovingTarget(Step):
 class PosVelGo(Step):
     """静态指点: POST /set_posvel, 等待到达目标点后回退并停稳。
 
-    pos 支持 [lon,lat] (高度保持 expected_alt, 需显式传入) 或
-    [lon,lat,alt]。
+    pos 支持 [lon,lat] 或 [lon,lat,alt] —— 后端忽略第三值, 目标高度
+    始终为当前高度; expected_alt 显式传入期望保持的高度用于校验。
     """
 
     def __init__(
@@ -804,11 +804,7 @@ class PosVelGo(Step):
         self.pos = list(pos)
         self.vel = vel
         self.timeout = timeout
-        self.expected_alt = (
-            expected_alt
-            if expected_alt is not None
-            else (self.pos[2] if len(self.pos) > 2 else None)
-        )
+        self.expected_alt = expected_alt
         self.xy_tol = xy_tol
         self.z_tol = z_tol
         self.drift_tol = drift_tol
