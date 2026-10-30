@@ -55,10 +55,10 @@ constexpr uint32_t get_command_extension_type(CommandType type) {
     }
 }
 
-// -------------------------- 内存紧凑型数据结构 (Zero-Copy 基础)
-// --------------------------
-#pragma pack(push, 1)  // 强制 1 字节对齐，严格匹配网络协议包
-
+// -------------------------- 协议数据结构 (Zero-Copy 基础)
+// -------------------------- 注意：狗端为 C++ 自然对齐布局（sizeof
+// 含隐式填充，如 MotionStateData=60、RcsData=88）， 禁止使用 #pragma
+// pack(1)，否则与真机 wire 格式不一致（真机 0x1009 parameter_size=60）。
 struct CommandHead {
     uint32_t command_id;
     uint32_t parameter_size;
@@ -128,7 +128,7 @@ struct RcsData {
         v ? error_bits |= (1U << 31) : error_bits &= ~(1U << 31);
     }
 };
-static_assert(sizeof(RcsData) == 85, "Size mismatch");
+static_assert(sizeof(RcsData) == 88, "Size mismatch");
 
 struct MotionStateData {
     uint8_t basic_state;
@@ -144,7 +144,7 @@ struct MotionStateData {
     uint8_t pos_ctrl_state;
     uint8_t task_reserved[8];
 };
-static_assert(sizeof(MotionStateData) == 56, "Size mismatch");
+static_assert(sizeof(MotionStateData) == 60, "Size mismatch");
 
 struct ControllerSensorData {
     ImuSensorData imu_data;
@@ -160,8 +160,6 @@ struct ControllerSafeData {
     CpuInfo cpu_info;
 };
 static_assert(sizeof(ControllerSafeData) == 68, "Size mismatch");
-
-#pragma pack(pop)
 
 // -------------------------- 封包 (Serialization) --------------------------
 

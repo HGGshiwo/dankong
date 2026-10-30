@@ -1,4 +1,6 @@
 #pragma once
+#include <spdlog/spdlog.h>
+
 #include <cstdint>
 #include <memory>
 #include <unordered_map>
@@ -45,6 +47,13 @@ class DogFeature {
             [](const std::vector<uint8_t>& data, RobotContext& ctx) {
                 UdpPacketView msg(data);
                 auto payload = msg.get_payload<MotionStateData>();
+                if (payload == nullptr) {
+                    spdlog::error(
+                        "[Dog] bad MOTION_STATE_REPORT packet: "
+                        "size={}, parameter_size={}",
+                        data.size(), msg.header()->parameter_size);
+                    return;
+                }
                 ctx.gait_state = payload->gait_state;
 
                 auto it = state_map.find(payload->basic_state);
