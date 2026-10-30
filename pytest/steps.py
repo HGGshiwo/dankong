@@ -780,6 +780,76 @@ class FollowMovingTarget(Step):
             raise RuntimeError(f"到达后未停止: {self.stop_sample}s 内位移 {drift:.2f}m")
 
 
+class PosVelGo(Step):
+    """静态指点: POST /set_posvel, 等待到达目标点后回退并停稳。
+
+    pos 支持 [lon,lat] (高度保持 expected_alt, 需显式传入) 或
+    [lon,lat,alt]。
+    """
+
+    def __init__(
+        self,
+        pos,
+        vel=2,
+        timeout=60,
+        expected_alt=None,
+        xy_tol=1.5,
+        z_tol=1.5,
+        drift_tol=1.0,
+        stop_sample=2.0,
+        back_states=(STATE_HOVER,),
+        enter_timeout=30,
+    ):
+        self.name = f"静态指点({pos}, vel={vel})"
+        self.pos = list(pos)
+        self.vel = vel
+        self.timeout = timeout
+        self.expected_alt = (
+            expected_alt
+            if expected_alt is not None
+            else (self.pos[2] if len(self.pos) > 2 else None)
+        )
+        self.xy_tol = xy_tol
+        self.z_tol = z_tol
+        self.drift_tol = drift_tol
+        self.stop_sample = stop_sample
+        self.back_states = back_states
+        self.enter_timeout = enter_timeout
+
+    def run(self, robot):
+        robot.wait_state_fresh()
+        res = http_post(
+            "/set_posvel", data=dict(pos=self.pos, vel=self.vel, timeout=self.timeout)
+        )
+        if res.get("status") != "success":
+            raise RuntimeError(f"set_posvel 被拒: {res}")
+        robot.wait_for_state_any(POSVEL_STATES, self.enter_timeout)
+        robot.wait_for_state_any(self.back_states, self.timeout + 60)
+
+    def check(self, robot):
+        state = robot.snapshot()
+        pos = robot.get_pos()
+        d = gps_distance(state["lon"], state["lat"], self.pos[0], self.pos[1])
+        if d > self.xy_tol:
+            raise RuntimeError(f"到达精度不足: xy={d:.2f}m")
+        if (
+            self.expected_alt is not None
+            and abs(pos[2] - self.expected_alt) > self.z_tol
+        ):
+            raise RuntimeError(
+                f"高度偏差过大: z={pos[2]:.2f} != {self.expected_alt:.2f}"
+            )
+        # 停稳: 采样位移
+        p1 = robot.get_pos()
+        time.sleep(self.stop_sample)
+        p2 = robot.get_pos()
+        drift = (
+            (p2[0] - p1[0]) ** 2 + (p2[1] - p1[1]) ** 2 + (p2[2] - p1[2]) ** 2
+        ) ** 0.5
+        if drift > self.drift_tol:
+            raise RuntimeError(f"到达后未停稳: {self.stop_sample}s 内漂移 {drift:.2f}m")
+
+
 class PosVelTimeout(Step):
     """只发一次远目标 (不刷新): 超时后应自动回退且远未到达目标。"""
 

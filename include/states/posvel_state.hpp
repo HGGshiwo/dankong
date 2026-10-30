@@ -4,6 +4,7 @@
 #include <algorithm>  // 包含 std::clamp, std::min, std::max
 #include <cmath>
 #include <optional>
+#include <stdexcept>
 #include <string_view>
 #include <type_traits>
 
@@ -70,6 +71,17 @@ class PosVelState : public dk::BaseState<RobotContext, PosVelState<ParentState>,
 
     // fix_yaw 的实际生效值 (不传默认 true, 同 mavproxy)
     bool fix_yaw() const { return event_.fix_yaw.value_or(true); }
+
+    // pos 支持 [lon,lat] 或 [lon,lat,alt]; 2 元素时高度用当前 rel_alt
+    static Eigen::Vector3d resolve_target(const nlohmann::json& j,
+                                          double cur_rel_alt) {
+        if (!j.is_array() || (j.size() != 2 && j.size() != 3)) {
+            throw std::invalid_argument(
+                "pos 必须是 [lon,lat] 或 [lon,lat,alt]");
+        }
+        double alt = j.size() == 3 ? j[2].get<double>() : cur_rel_alt;
+        return {j[0].get<double>(), j[1].get<double>(), alt};
+    }
 
     StateAction get_next_state();
 
@@ -174,8 +186,10 @@ template <typename ParentState>
 void PosVelState<ParentState>::MoveState::base_move(RobotContext& ctx) {
     auto p = this->parent();
     auto current_pos = ctx.pos_enu.load();
+    auto target_gps =
+        p->resolve_target(p->event_.pos, ctx.lon_lat_alt.load().z());
     auto target_pos = state_utils::gps_to_enu(ctx.lon_lat_alt.load(),
-                                              current_pos, p->event_.pos);
+                                              current_pos, target_gps);
     // [可选] 固定朝向: 仅当 fix_yaw 且指定了 yaw 时生效; 否则传 nullopt,
     // Tracker 会自动计算朝向 (机头朝运动方向)
     std::optional<double> target_yaw = std::nullopt;
@@ -190,10 +204,10 @@ void PosVelState<ParentState>::MoveState::base_move(RobotContext& ctx) {
             "{:.2f}, "
             "{:.2f}) cur_enu=({:.2f}, {:.2f}, {:.2f}) cur_gps=({:.7f}, {:.7f}, "
             "{:.2f}) vel={:.1f} fix_yaw={} yaw={} timeout={}",
-            p->event_.pos.x(), p->event_.pos.y(), p->event_.pos.z(),
-            target_pos.x(), target_pos.y(), target_pos.z(), current_pos.x(),
-            current_pos.y(), current_pos.z(), cur_gps.x(), cur_gps.y(),
-            cur_gps.z(), p->event_.vel, p->fix_yaw(),
+            target_gps.x(), target_gps.y(), target_gps.z(), target_pos.x(),
+            target_pos.y(), target_pos.z(), current_pos.x(), current_pos.y(),
+            current_pos.z(), cur_gps.x(), cur_gps.y(), cur_gps.z(),
+            p->event_.vel, p->fix_yaw(),
             p->has_yaw() ? std::to_string(*p->event_.yaw) : std::string("无"),
             p->event_.timeout.has_value() ? std::to_string(*p->event_.timeout)
                                           : std::string("配置值"));
@@ -237,8 +251,10 @@ StateAction PosVelState<ParentState>::MoveState::on_tick(double dt,
     auto& cfg = GlobalConfig.GetConfig();
     auto current_pos = ctx.pos_enu.load();
     double current_yaw = ctx.yaw_enu;
+    auto target_gps =
+        p->resolve_target(p->event_.pos, ctx.lon_lat_alt.load().z());
     auto target_pos = state_utils::gps_to_enu(ctx.lon_lat_alt.load(),
-                                              current_pos, p->event_.pos);
+                                              current_pos, target_gps);
 
     // 计算误差向量
     Eigen::Vector3d pos_err = target_pos - current_pos;

@@ -19,6 +19,7 @@ from steps import (
     ExpectPosVelRejected,
     FlyWaypoint,
     FollowMovingTarget,
+    PosVelGo,
     PosVelTimeout,
     PrearmCheck,
     Takeoff,
@@ -48,6 +49,14 @@ def test_posvel_follow_moving_target(check, robot):
             )
         ]
     )  # 1.0 会被 GPS 噪声卡边
+
+
+def test_posvel_2element_target(check, robot):
+    """pos 只传 [lon, lat]: 高度应保持当前高度, 水平移动到目标后停稳。"""
+    _hover(check, alt=10)
+    state = robot.snapshot()
+    tgt = gps_offset(state["lon"], state["lat"], 20.0, 0.0)  # 2 元素, 无高度
+    check([PosVelGo(pos=tgt, expected_alt=10.0, vel=2, timeout=60)])
 
 
 def test_posvel_timeout(check, robot):
