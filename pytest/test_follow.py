@@ -19,7 +19,9 @@ from steps import (
     Sleep,
     Step,
     Takeoff,
+    gps_distance,
     http_post,
+    mk_gps_points,
 )
 
 STATE_FOLLOW = "跟随模式"
@@ -204,22 +206,10 @@ class VerifyObjLla(Step):
 
         state = robot.snapshot()
         if state.get("lon") and state.get("lat"):
-            d = self._gps_dist(lon, lat, state["lon"], state["lat"])
+            d = gps_distance(lon, lat, state["lon"], state["lat"])
             print(f"obj_lla 距飞机: {d:.1f}m")
             if d > self.dist_tol:
                 raise RuntimeError(f"obj_lla 目标点距飞机 {d:.1f}m > {self.dist_tol}m")
-
-    @staticmethod
-    def _gps_dist(lon1, lat1, lon2, lat2):
-        from math import asin, cos, radians, sin, sqrt
-
-        dlat = radians(lat2 - lat1)
-        dlon = radians(lon2 - lon1)
-        a = (
-            sin(dlat / 2) ** 2
-            + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2) ** 2
-        )
-        return 2 * 6371000 * asin(sqrt(a))
 
 
 class StopFollow(Step):
@@ -269,15 +259,21 @@ class AssertNotFollow(Step):
 
 
 class StartWaypoint(Step):
-    """下发远处航点并进入航点模式 (不等飞完, 供跟随打断用)。"""
+    """下发远处航点并进入航点模式 (不等飞完, 供跟随打断用)。
 
-    def __init__(self, waypoints, timeout=60):
-        self.name = f"下发航点({len(waypoints)}个, 不等完成)"
-        self.waypoints = [list(w) for w in waypoints]
+    specs 为 [(东偏移, 北偏移, 高度), ...], 以当前位置为锚转成 GPS;
+    首个点为起飞占位 (空中整点抛弃), 航线从第二个开始。
+    """
+
+    def __init__(self, specs, timeout=60):
+        self.name = f"下发航点({len(specs)}个, 不等完成)"
+        self.specs = list(specs)
         self.timeout = timeout
 
     def run(self, robot):
-        res = http_post("/set_waypoint", data=dict(waypoint=self.waypoints, local=True))
+        robot.wait_state_fresh()
+        wps = mk_gps_points(robot, self.specs)
+        res = http_post("/set_waypoint", data=dict(waypoint=wps))
         if res.get("status") != "success":
             raise RuntimeError(f"set_waypoint 被拒: {res}")
         robot.wait_for_state_any(WAYPOINT_STATES, self.timeout)
@@ -339,9 +335,9 @@ def test_follow_hover(check, robot):
         time.sleep(1)
         check([VerifyObjLla()])
 
-        # 停止跟随 -> 恢复悬停; 冷却期内不响应 (时长自动随冷却值缩放)
+        # 停止跟随 -> 恢复悬停; 冷却期内不响应 (窗口取冷却值的 40%, 上限 10s)
         check([StopFollow(recover_states=(STATE_HOVER,))])
-        check([AssertNotFollow()])
+        check([AssertNotFollow(seconds=min(max(0.6, COOLDOWN_BASE * 0.4), 10.0))])
 
         # 冷却期过后应恢复响应: 等满保护期再发目标, 应重新进入跟随
         wait_cooldown_clear()
@@ -383,8 +379,9 @@ def test_follow_waypoint(check, robot):
         check(
             [
                 StartWaypoint(
-                    # 4 个航点: 先正常飞完前两个, 在飞往第 3 个途中打断
-                    waypoints=[[0, 0, 8], [20, 0, 8], [60, 0, 8], [120, 0, 8]],
+                    # 4 个点: 首个为起飞占位 (空中抛弃), 航线 = 后三个;
+                    # 先正常飞完前两个, 在飞往第 3 个途中打断
+                    specs=[(0, 0, 8), (20, 0, 8), (60, 0, 8), (120, 0, 8)],
                     timeout=60,
                 ),
                 # 前两个航点已飞过 (当前在 [20,0,8] 附近)

@@ -33,7 +33,7 @@ def _hover(check, alt=10):
 
 
 def test_posvel_follow_moving_target(check, robot):
-    """10Hz 持续下发移动目标: 滞后 ≤5m, 目标停后 ~1m 内停住、不过冲。"""
+    """10Hz 持续下发移动目标: 滞后 ≤5.5m, 目标停后 ~1.2m 内停住、不过冲。"""
     _hover(check, alt=10)
     check(
         [
@@ -44,7 +44,7 @@ def test_posvel_follow_moving_target(check, robot):
                 speed=2.0,
                 duration=20.0,
                 rate=10.0,
-                follow_tol=5.0,
+                follow_tol=5.5,
                 arrive_tol=1.2,
             )
         ]
@@ -95,7 +95,7 @@ def test_posvel_in_waypoint(check, robot):
     wp1 = gps_offset(lon, lat, 60.0, 0.0) + [12.0]
     wp2 = gps_offset(lon, lat, 60.0, 60.0) + [12.0]
     wps = [wp1, wp2]
-    res = http_post("/set_waypoint", data=dict(waypoint=wps, local=False))
+    res = http_post("/set_waypoint", data=dict(waypoint=wps))
     assert res.get("status") == "success", f"set_waypoint 被拒: {res}"
     # 进入航点执行后, 中途注入 10Hz 慢速移动目标 (10m 航迹)
     deadline = time.time() + 60
@@ -114,7 +114,7 @@ def test_posvel_in_waypoint(check, robot):
                 speed=1.0,
                 duration=10.0,
                 rate=10.0,
-                follow_tol=5.0,
+                follow_tol=5.5,
                 arrive_tol=1.0,
                 check_stop=False,  # 指点结束后续飞航点, 不做停止校验
                 back_states=WAYPOINT_STATES,

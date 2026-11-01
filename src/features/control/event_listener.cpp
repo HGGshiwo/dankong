@@ -158,20 +158,75 @@ void ControlEventListener::on_event(const SetWaypointEvent& event,
     }
 
     // 2. 规则校验：航点数为0时的限制
-    if (wp_empty) {
-        // 如果在地面，且要求返航或降落 -> 报错 (因为这两者只允许在空中执行)
-        if (is_ground &&
-            (action == FinishAction::RETURN || action == FinishAction::LAND)) {
-            event.reject("航点个数为0，不具备返航或降落条件!");
-            return;
-        }
-        // 注：如果是地面且要求悬停(HOVER)，允许放行，后续会在 is_ground
-        // 分支触发起飞并悬停
+    if (wp_empty && is_ground) {
+        // 地面时无法执行任何空航点指令：返航/降落只允许空中执行，
+        // 起飞悬停需要明确高度，空列表没有起飞高度可用
+        event.reject("航点个数为0，地面无法执行返航、降落或起飞悬停!");
+        return;
     }
 
-    // 3. 状态流转 (航点数 >= 1 的情况会直接走到这里，全都允许执行)
+    // 3. 起飞高度提取 + 多点时删除首点:
+    //    首点高度 = 起飞高度; 多点时首点是独立占位 (仅高度, x,y 抛弃), 删除;
+    //    单点时该点就是航线点, 保留 (其 z 已提取为起飞高度)
+    double takeoff_alt = 0.0;
+    if (!wp_empty) {
+        takeoff_alt = event.waypoint.at(0).z();
+        if (event.waypoint.size() >= 2) {
+            auto& ev = const_cast<SetWaypointEvent&>(event);
+            ev.waypoint.erase(ev.waypoint.begin());
+        }
+    }
+
+    // 4. 航点坐标转换 (对"高度 + 完整航线"统一转换, 无需跳过首点):
+    //    提前到受理阶段, 失败直接 reject 返回给调用方
+    //    (on_enter 里的异常发生在 resolve 之后, 调用方不可见)
+    if (!event.local && !event.waypoint.empty()) {
+        try {
+            auto lon_lat_alt = ctx.lon_lat_alt.load();
+            auto pos = ctx.pos_enu.load();
+            auto& ev = const_cast<SetWaypointEvent&>(event);
+            for (auto& wp : ev.waypoint) {
+                wp = state_utils::gps_to_enu(lon_lat_alt, pos, wp);
+            }
+            ev.local = true;  // 已转为 ENU
+        } catch (std::exception& e) {
+            event.reject(std::string("航点坐标转换失败: ") + e.what());
+            return;
+        }
+    }
+
+    // 5. RETURN: 直接算出返航点 (任务起点 -> 起飞点 -> 飞控 home),
+    //    飞控 home 的 GPS->ENU 转换失败同样 reject 返回给调用方
+    if (action == FinishAction::RETURN) {
+        auto& ev = const_cast<SetWaypointEvent&>(event);
+        // 返航点高度:
+        //   有航点 -> 最后一个航点的高度
+        //   无航点 -> 空中用当前高度, 地面用起飞高度
+        double return_z =
+            event.waypoint.empty()
+                ? (is_ground ? takeoff_alt : ctx.pos_enu.load().z())
+                : event.waypoint.back().z();
+        if (auto m = ctx.mission_home_enu.load()) {
+            ev.return_enu = *m;
+        } else if (auto t = ctx.takeoff_enu.load()) {
+            ev.return_enu = *t;
+        } else if (auto g = ctx.fcu_home_gps.load()) {
+            try {
+                ev.return_enu = state_utils::gps_to_enu(ctx.lon_lat_alt.load(),
+                                                        ctx.pos_enu.load(), *g);
+            } catch (std::exception& e) {
+                event.reject(std::string("返航点坐标转换失败: ") + e.what());
+                return;
+            }
+        } else {
+            event.reject("无可用的返航点，请使用降落");
+            return;
+        }
+        ev.return_enu->z() = return_z;
+    }
+
+    // 6. 状态流转 (on_enter 已不可能失败, resolve 在此之后调用是安全的)
     if (is_ground) {
-        double takeoff_alt = event.waypoint.at(0).z();
         auto finish_action = event.finish_action;
         bool do_pland = event.do_pland;
 
@@ -186,40 +241,31 @@ void ControlEventListener::on_event(const SetWaypointEvent& event,
         } else {
             ctx.engine->plan().fallback<LandState>(std::tuple(do_pland));
         }
-        event.resolve({"success", "OK"});
         ctx.engine->plan().start();
     } else {
         // 空中执行逻辑分流
         if (wp_empty && action == FinishAction::LAND) {
             // 空中原地降落（无航点）：直接进入 LandState
-            event.resolve({"success", "OK"});
             ctx.engine->step<LandState>(std::tuple(event.do_pland));
         } else {
-            // 检查是不是半路进入hover，其实没有记录起飞点
-            auto takeoff_enu = ctx.takeoff_enu.load();
-            if (action == FinishAction::RETURN && !takeoff_enu.has_value()) {
-                event.reject("未记录起飞点，请使用降落");
+            auto finish_action = event.finish_action;
+            bool do_pland = event.do_pland;
+
+            ctx.engine->plan().clear();
+            ctx.engine->plan().push_back<WaypointState::LiftingState>(
+                std::make_tuple(std::move(event)), std::tuple<>());
+
+            if (finish_action == FinishAction::HOVER) {
+                ctx.engine->plan().fallback<HoverState>();
             } else {
-                event.resolve({"success", "OK"});
-                auto finish_action = event.finish_action;
-                bool do_pland = event.do_pland;
-
-                ctx.engine->plan().clear();
-                ctx.engine->plan().push_back<WaypointState::LiftingState>(
-                    std::make_tuple(std::move(event)), std::tuple<>());
-
-                if (finish_action == FinishAction::HOVER) {
-                    ctx.engine->plan().fallback<HoverState>();
-                } else {
-                    ctx.engine->plan().fallback<LandState>(
-                        std::tuple(do_pland));
-                }
-                ctx.engine->plan().start();
+                ctx.engine->plan().fallback<LandState>(std::tuple(do_pland));
             }
+            ctx.engine->plan().start();
         }
     }
+    // 统一 resolve: reject 路径提前 return 已结算, 重复调用不会改变结果
+    event.resolve({"success", "OK"});
 }
-
 void ControlEventListener::on_event(const LandEvent& event, RobotContext& ctx) {
     // 降落只允许在空中执行
     if (ctx.engine->is_active_state<InitState>() ||
@@ -346,6 +392,7 @@ void ControlEventListener::on_event(const RestartEvent& event,
                                     RobotContext& ctx) {
     ctx.odom_ok = false;
     ctx.fcu_connected.store(false);
+    ctx.mission_home_enu.store(std::nullopt);
     ctx.engine->step<InitState>();
 }
 

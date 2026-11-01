@@ -171,6 +171,15 @@ class MavlinkFeature {
             });
 
         adapter->bind_telemetry_context(
+            &mavsdk::Telemetry::subscribe_home,
+            [](mavsdk::Telemetry::Position home, RobotContext& ctx) -> void {
+                // dankong 约定 [lon, lat, alt]
+                ctx.fcu_home_gps.store(
+                    Eigen::Vector3d{home.longitude_deg, home.latitude_deg,
+                                    home.relative_altitude_m});
+            });
+
+        adapter->bind_telemetry_context(
             &mavsdk::Telemetry::subscribe_gps_info,
             [](mavsdk::Telemetry::GpsInfo msg, RobotContext& ctx) -> void {
                 ctx.gps_fix_type.store(static_cast<int>(msg.fix_type));

@@ -230,6 +230,9 @@ struct ControlContext {
     DirtyVar<Eigen::Vector3d> pos_enu{Eigen::Vector3d::Zero()};
 
     DirtyVar<std::optional<Eigen::Vector3d>> takeoff_enu{std::nullopt};
+    DirtyVar<std::optional<Eigen::Vector3d>> mission_home_enu{std::nullopt};
+    DirtyVar<std::optional<Eigen::Vector3d>> fcu_home_gps{
+        std::nullopt};  // lon/lat/relative_alt
 
     DirtyVar<double> yaw_ned{0.0};
     DirtyVar<nlohmann::json> mission_data{nlohmann::json::array()};

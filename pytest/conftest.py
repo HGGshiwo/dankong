@@ -7,7 +7,10 @@ import socket
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
+
+import psutil
 
 import pytest
 
@@ -20,9 +23,9 @@ SITL_LOG = Path(__file__).parent / "logs" / "sitl.log"
 # 报告跨用例累积 (每用例的 robot/WS 客户端全新, 但报告汇总是一份)
 _SHARED_REPORT = MissionReport()
 
-# 本 fixture 拉起的 SITL 进程 (按进程组整组杀, 连同 sim 二进制/MAVProxy
-# 子进程; 只 pkill sim_vehicle.py 会留下孤儿仿真进程继续占用 5760)
+# 本 fixture 拉起的 SITL 进程与会话狗牌 (清理时按狗牌精确击杀)
 _sitl_proc = None
+_sitl_session_id = None
 
 
 def _wait_fcu_tcp(port=5760, timeout=120):
@@ -46,27 +49,60 @@ def _read_log_tail(n=15):
         return "(sitl.log 不存在)"
 
 
-def _stop_sitl():
-    """停掉 SITL 并确认 5760 端口已释放。
-
-    先按进程组杀自己拉起的实例; 再用模式兜底清理外部启动的实例
-    (如 run_test.sh 起的), 覆盖包装脚本与仿真二进制两类进程名。
+def session_cleanup(session_id):
+    """按环境变量狗牌精确清理: sim_vehicle 与 arducopter/xterm 等子进程
+    全部继承 MY_ROS_SITL_SESSION, 逐个 SIGKILL; 最后进程组再补一刀。
+    (与 test/test/test_helper.py::sitl_env 的清理逻辑一致)
     """
-    global _sitl_proc
+    for p in psutil.process_iter(["pid", "name", "environ"]):
+        try:
+            env = p.info.get("environ")
+            if env and env.get("MY_ROS_SITL_SESSION") == session_id:
+                p.kill()
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+    try:
+        os.killpg(os.getpgid(_sitl_proc.pid), 9)
+    except OSError:
+        pass
+    time.sleep(2.0)
+
+
+def _kill_sitl_binaries():
+    """按进程查询并击杀所有 SITL 仿真二进制 (含 xterm 包装进程)。
+
+    匹配: cmdline 含 ardupilot/build/sitl/bin/arducopter, 或进程名
+    为 arducopter/ArduCopter。
+    """
+    for p in psutil.process_iter(["pid", "name", "cmdline"]):
+        try:
+            cmd = " ".join(p.info.get("cmdline") or [])
+            name = p.info.get("name") or ""
+            if "ardupilot/build/sitl/bin" in cmd or name in (
+                "arducopter",
+                "ArduCopter",
+            ):
+                p.kill()
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+
+
+def _stop_sitl():
+    """停掉 SITL 并确认 5760 端口已释放。"""
+    global _sitl_proc, _sitl_session_id
     if _sitl_proc is not None:
         try:
             os.killpg(os.getpgid(_sitl_proc.pid), signal.SIGTERM)
         except (ProcessLookupError, PermissionError):
             pass
-        _sitl_proc = None
-    for pattern in (
-        "sim_vehicle.py",
-        "mavproxy",
-        "arducopter",
-        "ArduCopter",
-        "autotest/sim.py",
-    ):
-        subprocess.run(["pkill", "-f", pattern], check=False)
+    if _sitl_session_id is not None:
+        session_cleanup(_sitl_session_id)
+    _sitl_proc = None
+    _sitl_session_id = None
+    # 按仿真二进制路径兜底击杀 (覆盖无狗牌的遗留实例), 连杀两轮
+    _kill_sitl_binaries()
+    time.sleep(1)
+    _kill_sitl_binaries()
     # 等端口真正释放, 避免新实例 bind 失败或连上旧飞控
     deadline = time.time() + 15
     while time.time() < deadline:
@@ -75,7 +111,10 @@ def _stop_sitl():
                 time.sleep(1)  # 仍有连接, 旧实例还活着
         except OSError:
             return
-    print("[警告] SITL 端口 5760 在 15s 内未释放, 可能存在残留实例")
+    print(
+        "[警告] SITL 端口 5760 在 15s 内未释放, 可能存在残留实例, "
+        "请手动检查: pgrep -af arducopter"
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -83,7 +122,7 @@ def fresh_dankong(request):
     """每个用例开始前整组重启 SITL 飞控和 dankong 节点 (所有用例同一路径)。
 
     顺序保证 dankong 总在飞控就绪后才被 respawn (其 web 服务依赖飞控):
-      1) 停 SITL (进程组杀 + pkill 兜底, 等 5760 释放);
+      1) 停 SITL (进程组 + 按狗牌击杀, 等 5760 释放);
       2) 启动 SITL, 等 tcp:5760 (飞控参数/航点/EKF home 全部复位);
       3) 飞控就绪后 kill dankong, roslaunch respawn 拉起全新节点
          (状态机/跟随冷却/参数缓存复位), 睁眼即有活飞控;
@@ -94,17 +133,23 @@ def fresh_dankong(request):
     if request.node.get_closest_marker("no_restart"):
         yield
         return
-    global _sitl_proc
+    global _sitl_proc, _sitl_session_id
     t0 = time.time()
     print("\n[fresh_dankong] 停旧 SITL...")
     _stop_sitl()
     SITL_LOG.parent.mkdir(parents=True, exist_ok=True)
+    # 唯一会话狗牌: 注入环境, 子进程 (xterm/arducopter/mavproxy) 全部继承,
+    # 清理时按狗牌精确击杀, 见 test/test/test_helper.py::sitl_env 同款实现
+    _sitl_session_id = f"sitl_test_{uuid.uuid4().hex[:8]}"
+    custom_env = os.environ.copy()
+    custom_env["MY_ROS_SITL_SESSION"] = _sitl_session_id
     with open(SITL_LOG, "ab") as log:
         _sitl_proc = subprocess.Popen(
             ["sim_vehicle.py", "-v", "Copter", "--no-mavproxy", "--no-rebuild"],
             stdout=log,
             stderr=subprocess.STDOUT,
-            start_new_session=True,
+            env=custom_env,
+            preexec_fn=os.setsid,
             cwd=str(Path(__file__).parents[1]),
         )
     print(f"[fresh_dankong] SITL pid={_sitl_proc.pid}, 等待存活...")
@@ -125,6 +170,10 @@ def fresh_dankong(request):
     wait_prearms_ready(180)
     print(f"\n[飞控+dankong 已重启并就绪, 耗时 {time.time() - t0:.0f}s]")
     yield
+    # 用例结束即清理本用例的 SITL (下个用例开头还会再清一次, 幂等双保险);
+    # 否则最后一个用例的 SITL 会残留到进程退出, 直接跑 pytest 时占端口
+    print("[fresh_dankong] 用例结束, 停 SITL...")
+    _stop_sitl()
 
 
 @pytest.fixture

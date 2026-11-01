@@ -48,17 +48,11 @@ constexpr double TURN_ANGLE_THRESH =
 }  // namespace
 
 StateAction WaypointState::on_enter(RobotContext& ctx) {
-    // 直接全部转为局部坐标
-    if (!event_.local) {
-        Eigen::Vector3d lon_lat_alt = ctx.lon_lat_alt.load();
-        Eigen::Vector3d pos_enu = ctx.pos_enu.load();
-        for (auto& wp : wp_list_) {
-            wp = state_utils::gps_to_enu(lon_lat_alt, pos_enu, wp);
-        }
-    }
+    // 航点已在受理阶段 (event_listener) 完成起飞高度提取、首点删除与
+    // GPS->ENU 转换, wp_list_ 即纯航线 (ENU)
 
     // 初始化暂留点标记列表
-    is_dwell_point_.assign(event_.waypoint.size(), !skip_lifting_);
+    is_dwell_point_.assign(wp_list_.size(), !skip_lifting_);
     if (skip_lifting_) {
         for (int idx : event_.dwell_indices) {
             if (idx >= 0 && idx < (int)is_dwell_point_.size()) {
@@ -67,12 +61,22 @@ StateAction WaypointState::on_enter(RobotContext& ctx) {
         }
     }
 
-    // 保证一定是有局部坐标的
-    Eigen::Vector3d takeoff_pos = ctx.takeoff_enu.load().value();
+    // 记录任务起点，RETURN 时优先作为返航点。
+    // 首条航线优先: 连发多条航线时保留第一条的开始位置, 降落到地面后清理;
+    // 清理后再发的航线会重新记录。纯 /return (不带航点) 不记录。
+    if (!wp_list_.empty() && !ctx.mission_home_enu.load().has_value()) {
+        Eigen::Vector3d cur_pos = ctx.pos_enu.load();
+        ctx.mission_home_enu.emplace(
+            Eigen::Vector3d{cur_pos.x(), cur_pos.y(), cur_pos.z()});
+    }
 
-    // return 转为land情况
+    // return: 返航点追加到航线末尾 (受理阶段已解析)
     if (action_ == FinishAction::RETURN) {
-        wp_list_.push_back(takeoff_pos);
+        if (!event_.return_enu.has_value()) {
+            // 受理阶段保证有值, 兜底防御
+            throw std::logic_error("RETURN without return_enu!");
+        }
+        wp_list_.push_back(*event_.return_enu);
         is_dwell_point_.push_back(true);
     }
     if (wp_list_.size() == 0) {
@@ -86,11 +90,6 @@ StateAction WaypointState::on_enter(RobotContext& ctx) {
             throw std::logic_error("invalid finish action!");
         }
         return StateAction::unhandled();
-    }
-    if (wp_list_.size() == 1) {
-        // 偷懒没有传第一个点
-        wp_list_.insert(wp_list_.begin(), takeoff_pos);
-        is_dwell_point_.insert(is_dwell_point_.begin(), true);
     }
 
     // 相邻航段夹角大于阈值时（>60度），自动标记为暂留点，先停下来调整朝向和高度再飞下一段
@@ -117,27 +116,28 @@ StateAction WaypointState::on_enter(RobotContext& ctx) {
         is_dwell_point_.back() = true;
     }
 
-    // 计算真实的航点
+    // 计算真实的航点 (首项为起飞占位展示: 当前位置 xy + 起飞高度)
     std::vector<json> wp_data;
-    wp_data.reserve(wp_list_.size());
-
+    wp_data.reserve(wp_list_.size() + 1);
+    Eigen::Vector3d cur_pos = ctx.pos_enu.load();
+    wp_data.push_back(json{{"num", 0},
+                           {"enu_x", cur_pos.x()},
+                           {"enu_y", cur_pos.y()},
+                           {"enu_z", cur_pos.z()},
+                           {"command", "takeoff"}});
     for (uint i = 0; i < wp_list_.size(); ++i) {
         std::string command = "wp";
-        if (i == 0) {
-            command = "takeoff";
-        } else if (i == wp_list_.size() - 1 && action_ != FinishAction::HOVER) {
+        if (i == wp_list_.size() - 1 && action_ != FinishAction::HOVER) {
             command = "land";
         }
         auto cur_wp = wp_list_[i];
-        wp_data.push_back(json{{"num", i},
+        wp_data.push_back(json{{"num", i + 1},
                                {"enu_x", cur_wp.x()},
                                {"enu_y", cur_wp.y()},
                                {"enu_z", cur_wp.z()},
                                {"command", command}});
     }
     ctx.mission_data.store(wp_data);
-    wp_list_.erase(wp_list_.begin());
-    is_dwell_point_.erase(is_dwell_point_.begin());
     ctx.wp_idx.store(0);
     return StateAction::unhandled();
 }

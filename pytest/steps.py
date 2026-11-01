@@ -214,6 +214,9 @@ class MissionRunner:
                     StepResult(step.name, False, str(e), time.time() - t0)
                 )
                 failed.append(f"{step.name}: {e}")
+                # 立即打印并中止: 失败后继续跑后续步骤只会产生噪声
+                print(f"[步骤失败] {step.name}: {e}")
+                break
         return failed
 
 
@@ -257,6 +260,10 @@ class EnsureGround(Step):
     def run(self, robot):
         robot.wait_state_fresh()
         robot.wait_pos_ready(60)
+        # 初始状态下所有指令都被拒 ("初始状态下无法执行指令"),
+        # 必须等状态机迁到地面状态后才可发指令
+        if robot.get_state_name() == STATE_INIT:
+            robot.wait_for_state(STATE_GROUND, 120)
         if robot.get_state_name() not in GROUND_STATES:
             with robot.lock:
                 state_name = robot.state.get("state")
@@ -471,79 +478,114 @@ def gps_distance(lon1, lat1, lon2, lat2):
 
 
 class FlyWaypoint(Step):
-    """POST /set_waypoint, 等待逐点到达后回到悬停。
+    """POST /set_waypoint (或 finish_return=True 时 POST /return),
+    逐个按序校验到达, 完成后回到悬停 (返航收尾则降落回地面)。
 
-    local=True (默认): ENU 米制 [x, y, z];
-    local=False: GPS [lat, lon, alt], 到达判定用 haversine 距离。
+    航点统一用 GPS [lon, lat, alt] (dankong 约定顺序), 到达判定用 haversine。
+    第一个点是起飞占位 (地面仅 z 作起飞高度, 空中抛弃), 发送时由用例
+    自行补在首位。
     """
 
     def __init__(
-        self, waypoints, speed=None, xy_tol=3.0, z_tol=1.5, timeout=600, local=True
+        self,
+        waypoints,
+        speed=None,
+        xy_tol=3.0,
+        z_tol=1.5,
+        timeout=600,
+        local=False,
+        finish_return=False,
+        expected=None,
     ):
-        self.name = f"飞航点({len(waypoints)}个, {'ENU' if local else 'GPS'})"
+        self.name = f"飞航点({len(waypoints)}个, {'ENU' if local else 'GPS'}{', 返航' if finish_return else ''})"
         self.waypoints = [list(w) for w in waypoints]
+        # expected: 实际需要逐点按序校验的航点 (默认为发送列表)。
+        # 第一个点是起飞占位 (被后端忽略/仅取高度), 调用方按语义传入。
+        self._expected = (
+            [list(w) for w in expected] if expected is not None else self.waypoints
+        )
         self.speed = speed
         self.xy_tol = xy_tol
         self.z_tol = z_tol
         self.timeout = timeout
         self.local = local
+        self.finish_return = finish_return
+        self.arrivals = []  # 按序记录到达时刻 [(序号, 时刻), ...]
 
     def run(self, robot):
         data = dict(waypoint=self.waypoints, local=self.local)
         if self.speed is not None:
             data["speed"] = self.speed
-        res = http_post("/set_waypoint", data=data)
+        path = "/return" if self.finish_return else "/set_waypoint"
+        res = http_post(path, data=data)
         if res.get("status") != "success":
-            raise RuntimeError(f"set_waypoint 被拒: {res}")
+            raise RuntimeError(f"{path} 被拒: {res}")
         robot.wait_for_state_any(WAYPOINT_STATES, 60)
         self._wait_all_reached(robot)
+        if self.finish_return:
+            # 返航收尾: 最后一个点后自动降落
+            robot.wait_for_state(STATE_GROUND, self.timeout)
 
-    def _not_reached(self, robot):
-        """返回尚未到达的航点列表。"""
+    def _reached(self, robot, idx):
+        """expected 中第 idx 个航点当前是否在容差内。"""
         pos = robot.get_pos()
         if not pos:
-            return self.waypoints
+            return False
+        wp = self._expected[idx]
         if self.local:
-            return [
-                w
-                for w in self.waypoints
-                if self._dist2d(pos, w) > self.xy_tol or abs(pos[2] - w[2]) > self.z_tol
-            ]
+            return (
+                self._dist2d(pos, wp) <= self.xy_tol
+                and abs(pos[2] - wp[2]) <= self.z_tol
+            )
         state = robot.snapshot()
         if not state.get("lat") or not state.get("lon"):
-            return self.waypoints
+            return False
         # GPS 航点顺序为 [lon, lat, alt] (dankong 约定)
-        return [
-            w
-            for w in self.waypoints
-            if gps_distance(state["lon"], state["lat"], w[0], w[1]) > self.xy_tol
-            or abs(pos[2] - w[2]) > self.z_tol
-        ]
+        return (
+            gps_distance(state["lon"], state["lat"], wp[0], wp[1]) <= self.xy_tol
+            and abs(pos[2] - wp[2]) <= self.z_tol
+        )
 
     def _wait_all_reached(self, robot):
-        deadline = time.time() + self.timeout
+        """逐点按序校验: 只认最靠前的未达点, 保证飞行顺序。"""
+        reached = [False] * len(self._expected)
+        t0 = time.time()
+        deadline = t0 + self.timeout
         while time.time() < deadline:
-            if robot.get_state_name() == STATE_HOVER:
-                return  # 航点完成 fallback 回悬停
-            remaining = self._not_reached(robot)
-            print(f"剩余未达航点: {len(remaining)}")
-            time.sleep(1)
-        raise RuntimeError("航点飞行超时")
+            try:
+                idx = reached.index(False)
+            except ValueError:
+                # 全部按序到达
+                if self.finish_return:
+                    return  # 降落等待交给 run()
+                if robot.get_state_name() == STATE_HOVER:
+                    return
+            else:
+                if self._reached(robot, idx):
+                    reached[idx] = True
+                    self.arrivals.append((idx, time.time() - t0))
+                    print(
+                        f"航点 {idx + 1}/{len(self._expected)} 已按序到达 "
+                        f"(+{time.time() - t0:.1f}s)"
+                    )
+            time.sleep(0.5)
+        idx = reached.index(False) if False in reached else -1
+        raise TimeoutError(
+            f"航点 {idx + 1}/{len(self._expected)} 在 {self.timeout}s 内未按序到达"
+        )
 
     def check(self, robot):
-        last = self.waypoints[-1]
-        if self.local:
-            pos = robot.get_pos()
-            d = self._dist2d(pos, last)
-            dz = pos[2] - last[2]
-        else:
-            state = robot.snapshot()
-            pos = robot.get_pos()
-            # GPS 航点顺序为 [lon, lat, alt] (dankong 约定)
-            d = gps_distance(state["lon"], state["lat"], last[0], last[1])
-            dz = pos[2] - last[2]
-        if d > self.xy_tol or abs(dz) > self.z_tol:
-            raise RuntimeError(f"终点偏差过大: xy={d:.2f}m dz={dz:.2f}m")
+        # 全部航点必须按序到达 (arrivals 由 _wait_all_reached 生成, 顺序天然保证)
+        if len(self.arrivals) != len(self._expected):
+            raise RuntimeError(
+                f"仅到达 {len(self.arrivals)}/{len(self._expected)} 个航点: "
+                f"{[i + 1 for i, _ in self.arrivals]}"
+            )
+        # 到达时刻必须单调递增 (按序)
+        times = [t for _, t in self.arrivals]
+        if times != sorted(times):
+            raise RuntimeError(f"航点到达顺序异常: {self.arrivals}")
+        print(f"逐点校验通过: 到达序号 {[i + 1 for i, _ in self.arrivals]}")
 
     @staticmethod
     def _dist2d(a, b):
@@ -574,6 +616,13 @@ def gps_offset(lon, lat, dx_m, dy_m):
         lon + dx_m / (111320.0 * cos(radians(lat))),
         lat + dy_m / 111320.0,
     ]
+
+
+def mk_gps_points(robot, specs):
+    """把 [(东偏移, 北偏移, 高度), ...] 以当前位置为锚转成 GPS 航点
+    [lon, lat, alt] 列表 (dankong 约定顺序)。纯坐标换算, 不做语义加工。"""
+    s = robot.snapshot()
+    return [gps_offset(s["lon"], s["lat"], de, dn) + [z] for de, dn, z in specs]
 
 
 class _PosVelTargetStreamer:
@@ -901,14 +950,40 @@ class ExpectPosVelRejected(Step):
         print(f"set_posvel 按预期被拒: {res}")
 
 
-class RecordTakeoffPos(Step):
-    """记录当前位置 (地面) 为起飞点, 供 Return 校验使用。"""
+class CheckHoverAtAlt(Step):
+    """校验悬停且高度≈alt (期望值来自用例输入的航点高度), 位置漂移小。"""
 
-    name = "记录起飞点"
+    name = "校验悬停高度"
+
+    def __init__(self, alt, z_tol=1.5, seconds=3, drift_tol=2.0):
+        self.alt = alt
+        self.z_tol = z_tol
+        self.seconds = seconds
+        self.drift_tol = drift_tol
 
     def run(self, robot):
-        pos = robot.get_pos()
-        robot.takeoff_pos = (pos[0], pos[1])
+        robot.wait_state_fresh()
+        deadline = time.time() + 60
+        while time.time() < deadline:
+            if robot.get_state_name() == STATE_HOVER:
+                break
+            time.sleep(0.5)
+        else:
+            raise RuntimeError("未进入悬停状态")
+        time.sleep(self.seconds)
+
+    def check(self, robot):
+        p0 = robot.get_pos()
+        if abs(p0[2] - self.alt) > self.z_tol:
+            raise RuntimeError(f"悬停高度 {p0[2]:.2f}m != {self.alt}m")
+        time.sleep(1)
+        p1 = robot.get_pos()
+        drift = (
+            (p1[0] - p0[0]) ** 2 + (p1[1] - p0[1]) ** 2 + (p1[2] - p0[2]) ** 2
+        ) ** 0.5
+        if drift > self.drift_tol:
+            raise RuntimeError(f"悬停位置漂移 {drift:.2f}m (> {self.drift_tol}m)")
+        print(f"悬停高度校验通过: {p1[2]:.2f}m")
 
 
 class Return(Step):
@@ -920,7 +995,7 @@ class Return(Step):
         self.xy_tol = xy_tol
 
     def run(self, robot):
-        res = http_post("/return", data=dict(waypoint=[], local=True))
+        res = http_post("/return", data=dict(waypoint=[]))
         if res.get("status") != "success":
             raise RuntimeError(f"return 被拒: {res}")
         robot.wait_for_state(STATE_GROUND, self.timeout)

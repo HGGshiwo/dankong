@@ -18,6 +18,7 @@ enum FinishAction {
 //@JSON_ENABLE
 struct SetWaypointEvent : dk::AsyncEvent<EventResult> {
     std::vector<Eigen::Vector3d> waypoint;
+    std::optional<Eigen::Vector3d> return_enu;  // RETURN 时由受理阶段解析填充
     std::optional<std::vector<nlohmann::json>> nodeEventList;
     std::optional<double> speed;
     bool do_pland = false;
