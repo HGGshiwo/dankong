@@ -186,7 +186,8 @@ template <typename ParentState>
 void PosVelState<ParentState>::MoveState::base_move(RobotContext& ctx) {
     auto p = this->parent();
     auto current_pos = ctx.pos_enu.load();
-    auto target_gps = p->resolve_target(p->event_.pos, ctx.pos_enu.load().z());
+    auto target_gps =
+        p->resolve_target(p->event_.pos, ctx.lon_lat_alt.load().z());
     auto target_pos = state_utils::gps_to_enu(ctx.lon_lat_alt.load(),
                                               current_pos, target_gps);
     // [可选] 固定朝向: 仅当 fix_yaw 且指定了 yaw 时生效; 否则传 nullopt,
@@ -250,7 +251,8 @@ StateAction PosVelState<ParentState>::MoveState::on_tick(double dt,
     auto& cfg = GlobalConfig.GetConfig();
     auto current_pos = ctx.pos_enu.load();
     double current_yaw = ctx.yaw_enu;
-    auto target_gps = p->resolve_target(p->event_.pos, ctx.pos_enu.load().z());
+    auto target_gps =
+        p->resolve_target(p->event_.pos, ctx.lon_lat_alt.load().z());
     auto target_pos = state_utils::gps_to_enu(ctx.lon_lat_alt.load(),
                                               current_pos, target_gps);
 
