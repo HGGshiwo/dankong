@@ -6,7 +6,7 @@
     <arg name="robot_type" default="drone" />
     <arg name="image_topic" default="/UAV0/sensor/video11_camera/image_raw" />
     <arg name="config" default="$(find dankong)/config/dji-config.yaml" />
-    <arg name="mavsdk_url" default="" />
+    <arg name="mavsdk_url" default="tcp://$(arg mjpg_host):5760" />
 
     <!-- dankong 主节点(与通用 launch 相同,但不带 pland 检测/控制,便于单独调试) -->
     <include file="$(find dankong)/launch/dankong.launch">
