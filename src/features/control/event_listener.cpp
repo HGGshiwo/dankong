@@ -20,7 +20,75 @@
 #include "utils/logger/fglog.hpp"
 
 // ---------- 成员函数实现 ----------
+
+// rangefinder 仅 drone 类机型 Context 才有, 编译期探测, 缺失时记 nan
+template <typename C, typename = void>
+struct has_rangefinder_alt : std::false_type {};
+template <typename C>
+struct has_rangefinder_alt<
+    C, std::void_t<decltype(std::declval<C>().rangefinder_alt.load())>>
+    : std::true_type {};
+
+template <typename C>
+static double rangefinder_or_nan(C& ctx) {
+    if constexpr (has_rangefinder_alt<C>::value) {
+        return ctx.rangefinder_alt.load();
+    } else {
+        return std::nan("");
+    }
+}
+
+// tracker 仅 drone 等机型 Context 才有, 编译期探测, 缺失时不记限速日志
+template <typename C, typename = void>
+struct has_tracker : std::false_type {};
+template <typename C>
+struct has_tracker<C, std::void_t<decltype(std::declval<C>().tracker)>>
+    : std::true_type {};
+
+template <typename C>
+static void log_tracker_status(C& ctx) {
+    if constexpr (has_tracker<C>::value) {
+        if (ctx.tracker) {
+            auto info = ctx.tracker->get_status_info();
+            spdlog::info(
+                "[Tracker] mode={} wp={}/{} target=({:.2f}, {:.2f}, {:.2f}) "
+                "期望v=({:.2f}, {:.2f}, {:.2f})|{:.2f} "
+                "cmd=({:.2f}, {:.2f}, {:.2f})|{:.2f} "
+                "限速eff={:.2f}/{:.2f}(max {:.2f}) 来源=[{}]",
+                info.mode, info.wp_idx, info.wp_total, info.target_pose.x(),
+                info.target_pose.y(), info.target_pose.z(), info.target_vel.x(),
+                info.target_vel.y(), info.target_vel.z(),
+                info.target_vel.template head<3>().norm(), info.cmd_vel.x(),
+                info.cmd_vel.y(), info.cmd_vel.z(),
+                info.cmd_vel.template head<3>().norm(), info.eff_xy, info.eff_z,
+                info.max_vel_xy, info.sources);
+        }
+    }
+}
+
+// 0.5Hz 记录关键遥测: 飞控模式 + 三个高度基准 (enu/rel_alt/测距仪) +
+// 经纬度, 用于对齐多高度参考系与实机排查
+void ControlEventListener::log_telemetry(RobotContext& ctx) {
+    double now = ctx.engine->get_time_provider()->now();
+    if (now - last_telemetry_log_ < 2.0) {
+        return;
+    }
+    last_telemetry_log_ = now;
+    auto mode = ctx.mode.load();
+    auto enu = ctx.pos_enu.load();
+    auto lon_lat_alt = ctx.lon_lat_alt.load();
+    double rf = rangefinder_or_nan(ctx);
+    spdlog::info(
+        "[遥测] mode={} pos_enu=({:.2f}, {:.2f}, {:.2f}) lon_lat_alt=({:.7f}, "
+        "{:.7f}, {:.2f}) rangefinder={:.2f}",
+        std::string(mode.mode_str), enu.x(), enu.y(), enu.z(), lon_lat_alt.x(),
+        lon_lat_alt.y(), lon_lat_alt.z(), rf);
+    log_tracker_status(ctx);
+}
+
 void ControlEventListener::on_tick(double dt, RobotContext& ctx) {
+    log_telemetry(ctx);
+
     bool on_ground = ctx.engine->is_active_state<GroundState>() ||
                      ctx.engine->is_active_state<InitState>() ||
                      ctx.engine->is_active_state<TakeoffState>() ||
@@ -193,6 +261,15 @@ void ControlEventListener::on_event(const SetWaypointEvent& event,
             event.reject(std::string("航点坐标转换失败: ") + e.what());
             return;
         }
+    } else if (event.local && !event.waypoint.empty()) {
+        // local 航点 z 统一按 rel_alt 语义解释: 补偿 EKF 原点与 FCU home
+        // 的固定偏差 Δ (= pos_enu.z - rel_alt), 使真实高度 = 用户下发值,
+        // 与 GPS 航点 (gps_to_enu 后同为 wp.z + Δ) 及起飞段语义一致。
+        // SITL 中 Δ=0, 行为不变。GPS 分支的 gps_to_enu 换算已隐含此补偿。
+        double delta = ctx.pos_enu.load().z() - ctx.lon_lat_alt.load().z();
+        for (auto& wp : const_cast<SetWaypointEvent&>(event).waypoint) {
+            wp.z() += delta;
+        }
     }
 
     // 5. RETURN: 直接算出返航点 (任务起点 -> 起飞点 -> 飞控 home),
@@ -200,11 +277,14 @@ void ControlEventListener::on_event(const SetWaypointEvent& event,
     if (action == FinishAction::RETURN) {
         auto& ev = const_cast<SetWaypointEvent&>(event);
         // 返航点高度:
-        //   有航点 -> 最后一个航点的高度
-        //   无航点 -> 空中用当前高度, 地面用起飞高度
+        //   有航点 -> 最后一个航点的高度 (已是 EKF 值)
+        //   无航点 -> 空中用当前高度 (EKF), 地面用起飞高度 (rel_alt 语义,
+        //            需补偿 Δ 转为 EKF, 与 local 航点处理一致)
         double return_z =
             event.waypoint.empty()
-                ? (is_ground ? takeoff_alt : ctx.pos_enu.load().z())
+                ? (is_ground ? takeoff_alt + ctx.pos_enu.load().z() -
+                                   ctx.lon_lat_alt.load().z()
+                             : ctx.pos_enu.load().z())
                 : event.waypoint.back().z();
         if (auto m = ctx.mission_home_enu.load()) {
             ev.return_enu = *m;

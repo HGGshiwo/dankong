@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # coding=utf-8
 """pytest 公共 fixture: robot 客户端 + 报告输出 + 每用例重启飞控与 dankong。"""
+import atexit
 import os
 import signal
 import socket
@@ -18,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from steps import MissionReport, MissionRunner, RobotClient, wait_prearms_ready
 
 REPORT_PATH = Path(__file__).parent / "report.md"
+LOG_DIR = Path(__file__).parent / "logs"
 SITL_LOG = Path(__file__).parent / "logs" / "sitl.log"
 
 # 报告跨用例累积 (每用例的 robot/WS 客户端全新, 但报告汇总是一份)
@@ -26,6 +28,83 @@ _SHARED_REPORT = MissionReport()
 # 本 fixture 拉起的 SITL 进程与会话狗牌 (清理时按狗牌精确击杀)
 _sitl_proc = None
 _sitl_session_id = None
+
+# 本 fixture 拉起的 dankong roslaunch 进程与当前参数
+_dankong_proc = None
+_dankong_args = None
+_restore_registered = False
+
+
+def _dankong_roslaunch_alive():
+    """dankong roslaunch / 节点 / 8000 监听任一存活即真。"""
+    for pattern in ("dankong.launch", "dankong_.*_node"):
+        if (
+            subprocess.run(["pgrep", "-f", pattern], capture_output=True).returncode
+            == 0
+        ):
+            return True
+    try:
+        socket.create_connection(("127.0.0.1", 8000), timeout=0.5).close()
+        return True
+    except OSError:
+        return False
+
+
+def _stop_dankong_roslaunch():
+    """确定性停止: SIGINT -> 轮询确认 -> 不灭升级 SIGKILL -> 等 8000 释放。
+
+    只杀 dankong 节点会被 roslaunch respawn 拉回来, 必须连 roslaunch
+    一起停; 残留实例会与新实例争抢 8000/FCU 连接。
+    """
+    subprocess.run(["pkill", "-INT", "-f", "dankong.launch"], check=False)
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        if not _dankong_roslaunch_alive():
+            return
+        time.sleep(0.5)
+    print("[conftest] SIGINT 未停干净, 升级 SIGKILL")
+    subprocess.run(["pkill", "-9", "-f", "dankong.launch"], check=False)
+    subprocess.run(["pkill", "-9", "-f", "dankong_.*_node"], check=False)
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        if not _dankong_roslaunch_alive():
+            return
+        time.sleep(0.5)
+    raise RuntimeError("dankong roslaunch 无法停止 (端口 8000 仍被占用)")
+
+
+def _start_dankong_roslaunch(extra_args=()):
+    global _dankong_proc, _dankong_args
+    log = LOG_DIR / "dankong.log"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    # 继承 pytest 环境 (DK_FOLLOW_COOL_TIME 等经此传给 dankong 节点)
+    _dankong_proc = subprocess.Popen(
+        ["roslaunch", "dankong", "dankong.launch", *extra_args],
+        stdout=open(log, "ab"),
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+    )
+    _dankong_args = tuple(extra_args)
+
+
+def _ensure_dankong_roslaunch(extra_args):
+    """按需启动: 已按相同参数运行则复用, 否则确定性停旧后按参数拉起。"""
+    global _restore_registered
+    extra_args = tuple(extra_args)
+    if (
+        _dankong_proc is not None
+        and _dankong_proc.poll() is None
+        and _dankong_args == extra_args
+    ):
+        return  # 复用本会话已拉起的实例
+    if _dankong_roslaunch_alive():
+        print("\n[fresh_dankong] 停止已存在的 dankong roslaunch...")
+        _stop_dankong_roslaunch()
+    if not _restore_registered:
+        atexit.register(_stop_dankong_roslaunch)
+        _restore_registered = True
+    print(f"[fresh_dankong] 启动 dankong roslaunch (args={list(extra_args)})...")
+    _start_dankong_roslaunch(extra_args)
 
 
 def _wait_fcu_tcp(port=5760, timeout=120):
@@ -129,6 +208,12 @@ def fresh_dankong(request):
       4) 等 GET /prearms success (MAVSDK 连接 + EKF 收敛完成)。
 
     标记 @pytest.mark.no_restart 可跳过 (用于不依赖节点状态的纯计算用例)。
+
+    dankong roslaunch 由本 fixture 按需管理 (run_test.sh 不再启动):
+      - 测试模块声明 DANKONG_LAUNCH_ARGS (如代理测试的
+        ["mavsdk_url:=tcp://127.0.0.1:20000"]) 时按这些参数拉起;
+      - 未声明用默认参数 (mavsdk_url 走 yaml);
+      - 已按相同参数运行则复用; teardown 时确定性停止, 不跨用例残留。
     """
     if request.node.get_closest_marker("no_restart"):
         yield
@@ -163,17 +248,20 @@ def fresh_dankong(request):
         time.sleep(1)
     print("[fresh_dankong] 等 tcp:5760...")
     _wait_fcu_tcp()
-    # 飞控就绪后再重启 dankong, 保证 respawn 出的节点直接连上活飞控
+    # 飞控就绪后按需启动 dankong roslaunch (带模块声明的参数, 默认无),
+    # 再重启 dankong 节点, 保证 respawn 出的节点直接连上活飞控
+    _ensure_dankong_roslaunch(getattr(request.module, "DANKONG_LAUNCH_ARGS", ()))
     print("[fresh_dankong] 重启 dankong 节点...")
     subprocess.run(["pkill", "-f", "dankong_.*_node"], check=False)
     print("[fresh_dankong] 等 /prearms 就绪...")
     wait_prearms_ready(180)
     print(f"\n[飞控+dankong 已重启并就绪, 耗时 {time.time() - t0:.0f}s]")
     yield
-    # 用例结束即清理本用例的 SITL (下个用例开头还会再清一次, 幂等双保险);
-    # 否则最后一个用例的 SITL 会残留到进程退出, 直接跑 pytest 时占端口
-    print("[fresh_dankong] 用例结束, 停 SITL...")
+    # 用例结束即清理本用例的 SITL 与 dankong roslaunch (下个用例开头还会
+    # 再清一次, 幂等双保险); 否则进程退出后会残留占端口
+    print("[fresh_dankong] 用例结束, 停 SITL 与 dankong...")
     _stop_sitl()
+    _stop_dankong_roslaunch()
 
 
 @pytest.fixture

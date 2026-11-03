@@ -99,9 +99,12 @@ StateAction TakeoffState::on_tick(double dt, RobotContext& ctx) {
     }
 
     bool a = ctx.robot->check_hover(ctx);
+    // 到达判定用 FCU rel_alt (lon_lat_alt), 与起飞指令语义/get_gps 显示
+    // 同参考系; 用 pos_enu.z (EKF 系) 会因 EKF 原点与 FCU home 的固定偏差
+    // 导致永远差一个 offset, 状态机卡在起飞状态直到 stall 兜底
     bool arrive =
         ctx.robot->is_alt_enable()
-            ? std::fabs(ctx.pos_enu.load().z() - alt_) < cfg.z_tolerance
+            ? std::fabs(ctx.lon_lat_alt.load().z() - alt_) < cfg.z_tolerance
             : a;
     if (!arrive && !is_stall) {
         return StateAction::unhandled();

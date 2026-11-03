@@ -320,7 +320,8 @@ void WaypointState::ExcuteState::run_wp_event(RobotContext& ctx,
          {"hat:on",
           [](RobotContext& c, const nlohmann::json& j) {
               EnableDetectEvent e;
-              e.type = "hat";
+              // type 必须与 config detect_map 的键一致 (nohardhat/smoke)
+              e.type = "nohardhat";
               c.engine->dispatch(e);
           }},
          {"hat:off",

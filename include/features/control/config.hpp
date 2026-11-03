@@ -29,6 +29,8 @@ struct ControlConfig {
 
     dk::Param<double> waypoint_tolerance =
         INIT_PARAM("waypoint_tolerance", 1.2, "判定到达目标点的距离偏差(m)");
+    dk::Param<double> detect_cruise_speed =
+        INIT_PARAM("detect_cruise_speed", 1.0, "开启检测期间航点巡航限速(m/s)");
     dk::Param<double> non_dwell_tolerance =
         INIT_PARAM("non_dwell_tolerance", 2.0, "判定到达非暂留点的距离偏差(m)");
 };

@@ -46,6 +46,17 @@ void AlgoEventListener::on_event(const EnableDetectEvent& event,
         "/UAV0/perception/object_location/object_location_node/enable_send",
         true);
     ctx.detect_type.store(event.type);
+
+    // 检测期间限制航点巡航速度 (RAII 句柄, 关闭检测时自动注销)
+    ctx.speed_limit_token = std::make_shared<SpeedLimitToken>();
+    ctx.speed_limit_token->id = ctx.tracker->add_speed_limit_cb("detect", [] {
+        return GlobalConfig.GetConfig().detect_cruise_speed.get();
+    });
+    ctx.speed_limit_token->owner = ctx.tracker.get();
+    spdlog::info(
+        "[Algo] detect enabled, waypoint cruise speed limited to "
+        "{:.2f} m/s",
+        GlobalConfig.GetConfig().detect_cruise_speed.get());
     event.resolve({"success", "OK"});
 }
 
@@ -60,6 +71,10 @@ void AlgoEventListener::on_event(const DisableDetectEvent& event,
         "/UAV0/perception/object_location/object_location_node/enable_send",
         false);
     ctx.detect_type.store("Disabled");
+    if (ctx.speed_limit_token) {
+        ctx.speed_limit_token.reset();
+        spdlog::info("[Algo] detect disabled, waypoint cruise speed restored");
+    }
     event.resolve({"success", "OK"});
 }
 

@@ -14,6 +14,7 @@ from steps import (
     Sleep,
     Takeoff,
     gps_offset,
+    wait_gps,
 )
 
 # 偏移量 (度): ~0.0003° ≈ 33m, 三个点构成一个小三角形
@@ -23,10 +24,7 @@ DLON = 0.0003
 
 def test_waypoint_gps(check, robot):
     robot.wait_state_fresh()
-    state = robot.snapshot()
-    lat, lon = state.get("lat"), state.get("lon")
-    if not lat or not lon:
-        raise RuntimeError(f"WS state 中无 GPS: keys={sorted(state.keys())}")
+    lon, lat = wait_gps(robot)
 
     def _fly():
         # dankong 坐标约定: [经度lon, 纬度lat, 高度alt]

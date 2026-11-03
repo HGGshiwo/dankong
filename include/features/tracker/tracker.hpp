@@ -13,6 +13,7 @@
 #include "core/base_tracker.hpp"
 #include "features/tracker/config.hpp"
 #include "mavlink/imavlink.hpp"
+#include "spdlog/spdlog.h"
 #include "states/state_utils.hpp"
 #include "utils/dirty_var.hpp"
 #include "utils/thread_runner.hpp"
@@ -51,7 +52,7 @@ class ThreadedTracker : public ITracker, public IThreadRunner {
     DirtyVar<Eigen::Vector3d>& pos_enu_;
     std::atomic<double>& yaw_enu_;
 
-    std::mutex data_mutex_;
+    mutable std::mutex data_mutex_;
 
     // 控制运行状态
     CtrlMode current_mode_ = CtrlMode::NONE;
@@ -59,8 +60,8 @@ class ThreadedTracker : public ITracker, public IThreadRunner {
     CmdFrame target_frame_ = CmdFrame::ENU;
 
     Eigen::Vector3d gamma_ = {1.0, 1.0, 1.0};
-    Eigen::Vector4d target_pose_enu_;
-    Eigen::Vector4d target_vel_;
+    Eigen::Vector4d target_pose_enu_ = Eigen::Vector4d::Zero();
+    Eigen::Vector4d target_vel_ = Eigen::Vector4d::Zero();
     std::optional<double> max_acc_xy_ = std::nullopt;
     std::optional<double> max_decel_xy_ = std::nullopt;
 
@@ -98,6 +99,15 @@ class ThreadedTracker : public ITracker, public IThreadRunner {
     std::shared_ptr<dk::ITimeProvider> time_provider_;
 
     bool is_pivoting_ = false;  // 用于记忆当前是否处于原地转向状态
+
+    // 外部注册的巡航限速回调 (如检测限速、避障限速)，生效值取所有来源最小
+    struct LimitCb {
+        int id;
+        std::string name;
+        std::function<std::optional<double>()> cb;
+    };
+    std::vector<LimitCb> speed_limit_cbs_;
+    int cb_seq_ = 0;
 
    public:
     ThreadedTracker(const TrackerConfig& config, ITrackerRuntime* runtime,
@@ -212,6 +222,54 @@ class ThreadedTracker : public ITracker, public IThreadRunner {
     size_t get_total_waypoints() override {
         std::lock_guard<std::mutex> lock(data_mutex_);
         return target_waypoints_.size();
+    }
+
+    TrackerStatusInfo get_status_info() const override {
+        std::lock_guard<std::mutex> lock(data_mutex_);
+        TrackerStatusInfo info;
+        info.mode =
+            current_mode_ == CtrlMode::POSITION
+                ? "POSITION"
+                : (current_mode_ == CtrlMode::VELOCITY ? "VELOCITY" : "NONE");
+        info.wp_idx = current_wp_idx_;
+        info.wp_total = target_waypoints_.size();
+        info.target_pose = target_pose_enu_;
+        info.target_vel = target_vel_;
+        info.cmd_vel = last_cmd_vel_;
+        info.eff_xy = fb_vel_limit_xy_;
+        info.eff_z = fb_vel_limit_z_;
+        info.eff_yaw = fb_vel_limit_yaw_;
+        info.max_vel_xy = config_.max_vel_xy.get();
+        for (const auto& c : speed_limit_cbs_) {
+            if (c.cb().has_value()) {
+                info.sources += (info.sources.empty() ? "" : ",") + c.name;
+            }
+        }
+        return info;
+    }
+
+    // =========================================================================
+    // 接口 5：航点巡航限速回调 (生效速度取所有限速来源的最小值)
+    // =========================================================================
+    int add_speed_limit_cb(std::string name,
+                           std::function<std::optional<double>()> cb) override {
+        std::lock_guard<std::mutex> lock(data_mutex_);
+        int id = cb_seq_++;
+        speed_limit_cbs_.push_back({id, std::move(name), std::move(cb)});
+        apply_current_waypoint();  // 限速变化立即刷新当前航点前馈
+        return id;
+    }
+
+    void remove_speed_limit_cb(int id) override {
+        std::lock_guard<std::mutex> lock(data_mutex_);
+        auto it = std::find_if(speed_limit_cbs_.begin(), speed_limit_cbs_.end(),
+                               [id](const LimitCb& c) { return c.id == id; });
+        if (it != speed_limit_cbs_.end()) {
+            spdlog::info("[Tracker] speed limit callback removed: {}",
+                         it->name);
+            speed_limit_cbs_.erase(it);
+            apply_current_waypoint();  // 限速恢复立即刷新当前航点前馈
+        }
     }
 
     void on_step(double dt) override {
@@ -331,6 +389,14 @@ class ThreadedTracker : public ITracker, public IThreadRunner {
             current_pose, target_pose, body_target_vel, ctrl_yaw_, gamma_,
             fb_vel_limit_xy_, fb_vel_limit_z_, fb_vel_limit_yaw_, dt);
 
+        // 最终完整水平速度按生效限速 (含回调限速取最小) 整体钳一次,
+        // 覆盖反馈+前馈之和超限的情况 (body 系模长钳位与坐标系无关)
+        double cmd_speed_xy = std::hypot(raw_cmd.x(), raw_cmd.y());
+        if (cmd_speed_xy > fb_vel_limit_xy_ && cmd_speed_xy > 1e-4) {
+            raw_cmd.x() *= fb_vel_limit_xy_ / cmd_speed_xy;
+            raw_cmd.y() *= fb_vel_limit_xy_ / cmd_speed_xy;
+        }
+
         Eigen::Vector4d safe_cmd = apply_kinematic_constraints(
             raw_cmd, config_.max_vel_xy.get(), config_.max_vel_z.get(),
             config_.max_vel_yaw.get(), current_pose.w(), dt);
@@ -386,9 +452,25 @@ class ThreadedTracker : public ITracker, public IThreadRunner {
         auto_heading_ = (!wp.yaw.has_value() && !wp.ff_yaw_rate.has_value()) ||
                         !config_.is_omnidirectional.get();
 
-        fb_vel_limit_xy_ =
+        // 生效限速 = min(航点限速, 配置上限, 所有限速回调)
+        double eff_limit =
             std::min(wp.fb_speed_limit_xy.value_or(config_.max_vel_xy.get()),
                      config_.max_vel_xy.get());
+        std::string limit_source;
+        for (const auto& c : speed_limit_cbs_) {
+            auto lim = c.cb();
+            if (lim.has_value() && *lim < eff_limit) {
+                eff_limit = *lim;
+                limit_source = c.name;
+            }
+        }
+        if (fb_vel_limit_xy_ >= 0 &&
+            std::abs(eff_limit - fb_vel_limit_xy_) > 1e-6) {
+            spdlog::info("[Tracker] cruise speed limit {:.2f} -> {:.2f} m/s{}",
+                         fb_vel_limit_xy_, eff_limit,
+                         limit_source.empty() ? "" : " by " + limit_source);
+        }
+        fb_vel_limit_xy_ = eff_limit;
         fb_vel_limit_z_ =
             std::min(wp.fb_speed_limit_z.value_or(config_.max_vel_z.get()),
                      config_.max_vel_z.get());

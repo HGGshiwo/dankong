@@ -32,6 +32,7 @@ class ControlEventListener
                    LoiterEvent, OldJoystickEvent>;
 
     void on_tick(double dt, RobotContext& ctx);
+    void log_telemetry(RobotContext& ctx);  // 0.5Hz 关键遥测记录
     void on_event(const SetPosVelEvent& event, RobotContext& ctx);
     void on_event(const PrearmEvent& event, RobotContext& ctx);
     void on_event(const TakeoffEvent& event, RobotContext& ctx);
@@ -82,4 +83,7 @@ class ControlEventListener
         }
         event.resolve({"success", "在地面时无法调用悬停!"});
     }
+
+   private:
+    double last_telemetry_log_{0.0};  // 0.5Hz 遥测日志节流
 };

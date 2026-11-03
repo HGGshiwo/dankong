@@ -1,6 +1,8 @@
 #pragma once
 #include <Eigen/Dense>
+#include <functional>
 #include <optional>
+#include <string>
 #include <vector>
 
 enum class CmdFrame {
@@ -30,12 +32,42 @@ struct TrackerWaypoint {
     std::optional<double> max_jerk_z = std::nullopt;
 };
 
+// 航点巡航限速回调的 RAII 句柄：析构时自动向 tracker 注销该回调
+// (定义在 ITracker 之后, 成员函数需要完整类型)
+struct SpeedLimitToken;
+
+// tracker 状态快照, 供外部周期日志/监控查询
+struct TrackerStatusInfo {
+    std::string mode;  // "POSITION" / "VELOCITY" / "NONE"
+    size_t wp_idx = 0;
+    size_t wp_total = 0;
+    Eigen::Vector4d target_pose =
+        Eigen::Vector4d::Zero();  // 当前目标点 (ENU xyz + yaw)
+    Eigen::Vector4d target_vel =
+        Eigen::Vector4d::Zero();  // 期望速度 (前馈 xyz + yaw_rate)
+    Eigen::Vector4d cmd_vel =
+        Eigen::Vector4d::Zero();  // 上一拍最终下发指令 (PID+限幅后)
+    double eff_xy = 0;  // 当前生效限速 (航点/配置/回调取最小)
+    double eff_z = 0;
+    double eff_yaw = 0;
+    double max_vel_xy = 0;  // 配置的硬上限
+    std::string sources;  // 生效中的限速回调名, 逗号分隔 (如 "detect")
+};
+
 class ITracker {
    public:
     virtual ~ITracker() = default;
 
     virtual void start(int rate_hz = 50) {}
     virtual void stop() {}
+
+    // 注册航点巡航限速回调，返回句柄 id；回调返回 nullopt 表示不限制，
+    // tracker 取所有回调限速与航线速度的最小值生效
+    virtual int add_speed_limit_cb(
+        std::string /*name*/, std::function<std::optional<double>()> /*cb*/) {
+        return -1;
+    }
+    virtual void remove_speed_limit_cb(int /*id*/) {}
 
     // 多航点 / 轨迹控制接口
     virtual void send_pos_cmd(const std::vector<TrackerWaypoint>& path) = 0;
@@ -82,4 +114,39 @@ class ITracker {
     virtual bool is_position_reached() = 0;
     virtual size_t get_current_waypoint_index() { return 0; }
     virtual size_t get_total_waypoints() { return 0; }
+    // tracker 状态快照 (默认实现返回空对象)
+    virtual TrackerStatusInfo get_status_info() const { return {}; }
+};
+
+struct SpeedLimitToken {
+    int id = -1;
+    ITracker* owner = nullptr;
+
+    SpeedLimitToken() = default;
+    SpeedLimitToken(const SpeedLimitToken&) = delete;
+    SpeedLimitToken& operator=(const SpeedLimitToken&) = delete;
+    SpeedLimitToken(SpeedLimitToken&& other) noexcept
+        : id(other.id), owner(other.owner) {
+        other.id = -1;
+        other.owner = nullptr;
+    }
+    SpeedLimitToken& operator=(SpeedLimitToken&& other) noexcept {
+        if (this != &other) {
+            release();
+            id = other.id;
+            owner = other.owner;
+            other.id = -1;
+            other.owner = nullptr;
+        }
+        return *this;
+    }
+    ~SpeedLimitToken() { release(); }
+
+    void release() {
+        if (owner && id >= 0) {
+            owner->remove_speed_limit_cb(id);
+        }
+        id = -1;
+        owner = nullptr;
+    }
 };

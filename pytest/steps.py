@@ -496,6 +496,7 @@ class FlyWaypoint(Step):
         local=False,
         finish_return=False,
         expected=None,
+        max_speed_limit=None,
     ):
         self.name = f"飞航点({len(waypoints)}个, {'ENU' if local else 'GPS'}{', 返航' if finish_return else ''})"
         self.waypoints = [list(w) for w in waypoints]
@@ -510,6 +511,9 @@ class FlyWaypoint(Step):
         self.timeout = timeout
         self.local = local
         self.finish_return = finish_return
+        # 巡航速度监控: 设置后在 check() 断言全程水平速度不超过该值 (m/s)
+        self.max_speed_limit = max_speed_limit
+        self.max_observed_speed = 0.0
         self.arrivals = []  # 按序记录到达时刻 [(序号, 时刻), ...]
 
     def run(self, robot):
@@ -568,6 +572,12 @@ class FlyWaypoint(Step):
                         f"航点 {idx + 1}/{len(self._expected)} 已按序到达 "
                         f"(+{time.time() - t0:.1f}s)"
                     )
+            state = robot.snapshot()
+            try:
+                speed = math.hypot(state["x_vel"], state["y_vel"])
+                self.max_observed_speed = max(self.max_observed_speed, speed)
+            except (KeyError, TypeError):
+                pass
             time.sleep(0.5)
         idx = reached.index(False) if False in reached else -1
         raise TimeoutError(
@@ -586,6 +596,17 @@ class FlyWaypoint(Step):
         if times != sorted(times):
             raise RuntimeError(f"航点到达顺序异常: {self.arrivals}")
         print(f"逐点校验通过: 到达序号 {[i + 1 for i, _ in self.arrivals]}")
+        if self.max_speed_limit is not None:
+            if self.max_observed_speed > self.max_speed_limit:
+                raise RuntimeError(
+                    f"巡航速度超限: 观测最大水平速度 "
+                    f"{self.max_observed_speed:.2f} m/s > 限制 "
+                    f"{self.max_speed_limit} m/s"
+                )
+            print(
+                f"巡航速度校验通过: 最大 {self.max_observed_speed:.2f} m/s "
+                f"<= {self.max_speed_limit} m/s"
+            )
 
     @staticmethod
     def _dist2d(a, b):
@@ -608,6 +629,25 @@ class RecordTakeoffPos(Step):
 POSVEL_STATES = ("指点控制", "指点移动", "指点转向")
 
 
+def wait_gps(robot, timeout=120):
+    """等待 FCU GPS 就绪 (lat/lon 非 0), 返回 (lon, lat)。
+
+    dankong 的 lon_lat_alt 零初始化, FCU GPS 数据到达前 state 里的
+    lat/lon 是 0.0 —— 冷启动 SITL/实机需等待收敛, 不能读了就用。
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        state = robot.snapshot()
+        lat, lon = state.get("lat"), state.get("lon")
+        if lat and lon:
+            return lon, lat
+        time.sleep(0.5)
+    raise RuntimeError(
+        f"等待 FCU GPS 就绪超时 ({timeout}s, lat/lon 仍为 0), "
+        f"keys={sorted(state.keys())}"
+    )
+
+
 def gps_offset(lon, lat, dx_m, dy_m):
     """从 (lon, lat) 出发按米制偏移 (dx=东, dy=北) 求目标 GPS [lon, lat]。"""
     from math import cos, radians
@@ -621,8 +661,8 @@ def gps_offset(lon, lat, dx_m, dy_m):
 def mk_gps_points(robot, specs):
     """把 [(东偏移, 北偏移, 高度), ...] 以当前位置为锚转成 GPS 航点
     [lon, lat, alt] 列表 (dankong 约定顺序)。纯坐标换算, 不做语义加工。"""
-    s = robot.snapshot()
-    return [gps_offset(s["lon"], s["lat"], de, dn) + [z] for de, dn, z in specs]
+    lon, lat = wait_gps(robot)
+    return [gps_offset(lon, lat, de, dn) + [z] for de, dn, z in specs]
 
 
 class _PosVelTargetStreamer:
@@ -735,13 +775,11 @@ class FollowMovingTarget(Step):
 
     def run(self, robot):
         robot.wait_state_fresh()
-        state = robot.snapshot()
-        if not state.get("lon") or not state.get("lat"):
-            raise RuntimeError(f"WS 快照无 GPS: {sorted(state.keys())}")
-        self._stream_start = (state["lon"], state["lat"])
+        lon, lat = wait_gps(robot)
+        self._stream_start = (lon, lat)
         streamer = _PosVelTargetStreamer(
-            state["lon"],
-            state["lat"],
+            lon,
+            lat,
             self.alt,
             self.dir[0],
             self.dir[1],
@@ -759,7 +797,7 @@ class FollowMovingTarget(Step):
                     break
                 t = time.time() - start
                 if t < self.duration:
-                    tgt = self._target_of(streamer, t, state)
+                    tgt = self._target_of(streamer, t)
                     lag = self._lag(robot, tgt)
                     if lag is not None:
                         self.lags.append((t, lag))
@@ -775,7 +813,7 @@ class FollowMovingTarget(Step):
                 f"(采样 {len(self.lags)} 次)"
             )
 
-    def _target_of(self, streamer, t, state):
+    def _target_of(self, streamer, t):
         return streamer._target(t)
 
     def _lag(self, robot, tgt):
