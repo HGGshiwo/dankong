@@ -90,21 +90,32 @@ bool MavsdkDrone::set_mode(const mavsdk::Telemetry::FlightMode& mode) {
 }
 
 bool MavsdkDrone::run_prearm_checks() {
-    // 先切入 GUIDED; 模式未真正切过去时 prearm 查询结果不准
-    set_mode(mavsdk::Telemetry::FlightMode::Offboard);
-    constexpr int kModeConfirmRetries = 20;  // 100ms x 20 = 2s 有界等待
-    bool guided_confirmed = false;
-    for (int i = 0; i < kModeConfirmRetries; ++i) {
-        if (telemetry_->flight_mode() ==
-            mavsdk::Telemetry::FlightMode::Offboard) {
-            guided_confirmed = true;
-            break;
+    // 先切入 GUIDED; 模式未真正切过去时 prearm 查询结果不准。
+    // 但仅限地面未解锁状态: 空中切 GUIDED 会打断 LAND/当前任务, 并让
+    // 残留的 setpoint 立即生效 (曾致降落中被 /prearms 轮询拽出 LAND
+    // 重新爬升) —— 空中跳过切模式, 仅执行检查。
+    if (telemetry_->armed() || telemetry_->in_air()) {
+        spdlog::info(
+            "run_prearm_checks: armed/airborne, skip GUIDED switch "
+            "(mode={})",
+            FlightMode::mode_raw_to_string(telemetry_->flight_mode()));
+    } else {
+        set_mode(mavsdk::Telemetry::FlightMode::Offboard);
+        constexpr int kModeConfirmRetries = 20;  // 100ms x 20 = 2s 有界等待
+        bool guided_confirmed = false;
+        for (int i = 0; i < kModeConfirmRetries; ++i) {
+            if (telemetry_->flight_mode() ==
+                mavsdk::Telemetry::FlightMode::Offboard) {
+                guided_confirmed = true;
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
-    if (!guided_confirmed) {
-        spdlog::error("run_prearm_checks: failed to enter GUIDED mode, abort");
-        return false;
+        if (!guided_confirmed) {
+            spdlog::error(
+                "run_prearm_checks: failed to enter GUIDED mode, abort");
+            return false;
+        }
     }
 
     if (!passthrough_) {

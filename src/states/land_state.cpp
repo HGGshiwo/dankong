@@ -8,6 +8,7 @@
 #endif
 
 #include "core/global_config.hpp"
+#include "features/tracker/tracker.hpp"
 #include "robot_context.hpp"
 #include "states/ground_state.hpp"
 #include "states/state_common.hpp"
@@ -72,6 +73,12 @@ bool LandState::setup_pland(ContextType& ctx) {
 }
 
 StateAction LandState::on_enter(RobotContext& ctx) {
+    // 停掉 tracker 残留的航点/速度指令流 (与 HoverState 同款做法):
+    // 降落期间 POSITION setpoint 若仍生效, 模式被外部切回 GUIDED 时
+    // 飞机会立即恢复飞向旧航点 (曾致降落中重新爬升)
+    ctx.tracker->send_vel_cmd(Eigen::Vector3d::Zero(), std::nullopt,
+                              std::nullopt, CmdFrame::BODY);
+
     bool do_pland = setup_pland(ctx);
 
     if (!do_pland) {

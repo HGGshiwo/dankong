@@ -60,6 +60,12 @@ class Dog : public IRobot {
     bool is_alt_enable() override { return false; }
 
     bool land() override {
+        // 只有站立时才能降落；已趴下则短接，不发指令
+        uint8_t st = ctx_.dog_state.load();
+        if (st == 0 || st == 5) {  // 0趴下 5正在趴下
+            spdlog::info("[Dog] land skipped, already prone (state={})", st);
+            return true;
+        }
         // 必须要减速到0之后才触发降落
         spdlog::info("[Dog] land trigger");
         loiter();
@@ -90,6 +96,14 @@ class Dog : public IRobot {
     }
 
     bool takeoff(double alt) override {
+        // 只有趴下时才能起飞；已站立则短接，不发指令
+        // （TOGGLE_STAND_DOWN 是切换型指令，站立时发送会导致趴下）
+        uint8_t st = ctx_.dog_state.load();
+        if (st == 2 || st == 3) {  // 2初始站立 3力控站立
+            spdlog::info("[Dog] takeoff skipped, already standing (state={})",
+                         st);
+            return true;
+        }
         auto data = pack_cmd(CommandType::TOGGLE_STAND_DOWN);
         ctx_.udp_client->send(data);
         return true;
