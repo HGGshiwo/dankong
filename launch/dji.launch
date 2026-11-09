@@ -24,4 +24,7 @@
         <param name="topic" value="$(arg image_topic)" />
         <param name="fps" value="$(arg mjpg_fps)" />
     </node>
+
+    <include file="$(find ros_rtsp)/launch/rtsp_streams.launch">
+    </include>
 </launch>
