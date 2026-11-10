@@ -328,12 +328,23 @@ void ControlEventListener::on_event(const SetWaypointEvent& event,
             // 空中原地降落（无航点）：直接进入 LandState
             ctx.engine->step<LandState>(std::tuple(event.do_pland));
         } else {
+            // 空中任务/返航: 必须强制重建 WaypointState (reenter_all),
+            // 否则 builder 按状态名复用活跃的 WaypointState 节点 (try_reuse),
+            // 构造函数不重跑, /return 自带的航点被旧 wp_list_ 覆盖丢弃,
+            // 恰逢旧航线末点在容差内时会误判"已到达"而原地降落
+            // (2026-11-09 实机事故 + SITL 回归均复现)
             auto finish_action = event.finish_action;
             bool do_pland = event.do_pland;
+            SetWaypointEvent ev = event;  // const& 拷贝进闭包
 
             ctx.engine->plan().clear();
-            ctx.engine->plan().push_back<WaypointState::LiftingState>(
-                std::make_tuple(std::move(event)), std::tuple<>());
+            ctx.engine->plan().push_back([ev](RobotContext&) -> StateAction {
+                // step LiftingState (build_path 会递归重建父 WaypointState
+                // 并把新 event 传入其构造), reenter_all 强制不复用旧节点
+                return StateAction::step<WaypointState::LiftingState>(
+                           std::make_tuple(std::move(ev)), std::tuple<>())
+                    .reenter_all();
+            });
 
             if (finish_action == FinishAction::HOVER) {
                 ctx.engine->plan().fallback<HoverState>();
