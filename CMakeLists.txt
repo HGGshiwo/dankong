@@ -50,7 +50,8 @@ endif()
 
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Release")
-    set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG -march=native")
+    # 不用 -march=native：按编译机 CPU 生成指令集，部署到较老的机器会 SIGILL
+    set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
 endif()
 
 # 1. 在进入第三方库之前，主动接管 spdlog 的寻找
